@@ -1,13 +1,77 @@
 import { X } from 'lucide-react'
-import { useEffect, useRef, type ReactNode, type TouchEvent } from 'react'
+import { useEffect, useId, useRef, type ReactNode, type TouchEvent } from 'react'
+
+const modalStack: symbol[] = []
+let scrollLockCount = 0
+let scrollLockSnapshot: {
+  scrollY: number
+  htmlOverflow: string
+  bodyOverflow: string
+  bodyPosition: string
+  bodyTop: string
+  bodyLeft: string
+  bodyRight: string
+  bodyWidth: string
+} | null = null
+
+function lockPageScroll() {
+  scrollLockCount += 1
+  if (scrollLockCount > 1) return
+  const { body, documentElement } = document
+  scrollLockSnapshot = {
+    scrollY: window.scrollY,
+    htmlOverflow: documentElement.style.overflow,
+    bodyOverflow: body.style.overflow,
+    bodyPosition: body.style.position,
+    bodyTop: body.style.top,
+    bodyLeft: body.style.left,
+    bodyRight: body.style.right,
+    bodyWidth: body.style.width,
+  }
+  documentElement.style.overflow = 'hidden'
+  body.style.overflow = 'hidden'
+  body.style.position = 'fixed'
+  body.style.top = `-${scrollLockSnapshot.scrollY}px`
+  body.style.left = '0'
+  body.style.right = '0'
+  body.style.width = '100%'
+}
+
+function unlockPageScroll() {
+  scrollLockCount = Math.max(0, scrollLockCount - 1)
+  if (scrollLockCount > 0 || !scrollLockSnapshot) return
+  const snapshot = scrollLockSnapshot
+  scrollLockSnapshot = null
+  const { body, documentElement } = document
+  documentElement.style.overflow = snapshot.htmlOverflow
+  body.style.overflow = snapshot.bodyOverflow
+  body.style.position = snapshot.bodyPosition
+  body.style.top = snapshot.bodyTop
+  body.style.left = snapshot.bodyLeft
+  body.style.right = snapshot.bodyRight
+  body.style.width = snapshot.bodyWidth
+  if (snapshot.scrollY > 0) window.scrollTo(0, snapshot.scrollY)
+}
 
 export function Modal({ title, onClose, children, wide = false, swipeToClose = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; swipeToClose?: boolean }) {
+  const titleId = useId()
+  const stackId = useRef(Symbol(title))
+  const onCloseRef = useRef(onClose)
   const touchStart = useRef<{ x: number; y: number; enabled: boolean } | null>(null)
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
   useEffect(() => {
-    const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    const id = stackId.current
+    modalStack.push(id)
+    lockPageScroll()
+    const handler = (event: KeyboardEvent) => { if (event.key === 'Escape' && modalStack.at(-1) === id) onCloseRef.current() }
     window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
+    return () => {
+      window.removeEventListener('keydown', handler)
+      const index = modalStack.lastIndexOf(id)
+      if (index >= 0) modalStack.splice(index, 1)
+      unlockPageScroll()
+    }
+  }, [])
 
   const startSwipe = (event: TouchEvent<HTMLElement>) => {
     if (!swipeToClose || event.touches.length !== 1) return
@@ -28,9 +92,9 @@ export function Modal({ title, onClose, children, wide = false, swipeToClose = f
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <section className={`modal-card${wide ? ' wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby="modal-title" onTouchStart={startSwipe} onTouchEnd={finishSwipe}>
+      <section className={`modal-card${wide ? ' wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} onTouchStart={startSwipe} onTouchEnd={finishSwipe}>
         <header className="modal-header">
-          <h2 id="modal-title">{title}</h2>
+          <h2 id={titleId}>{title}</h2>
           <button className="icon-button" onClick={onClose} aria-label="关闭"><X /></button>
         </header>
         <div className="modal-body">{children}</div>

@@ -73,8 +73,47 @@ export class LocalRepository {
       const rows = await this.webDb.entities.where('kind').equals(kind).toArray()
       return rows.map((row) => row.payload as T)
     }
+    // Records and OCR jobs contain base64 images. Returning all of them in one
+    // Capacitor plugin result can force Android to allocate one enormous JSON
+    // string and crash the process. Cross the native bridge one row at a time.
+    if (kind === 'record' || kind === 'ocrJob') {
+      const ids = await this.nativeDb!.query(
+        'SELECT entity_id FROM entities WHERE kind = ? ORDER BY updated_at DESC',
+        [kind],
+      )
+      const values: T[] = []
+      for (const row of ids.values ?? []) {
+        const result = await this.nativeDb!.query(
+          'SELECT payload FROM entities WHERE kind = ? AND entity_id = ? LIMIT 1',
+          [kind, String(row.entity_id)],
+        )
+        const payload = result.values?.[0]?.payload
+        if (payload !== undefined) values.push(JSON.parse(String(payload)) as T)
+      }
+      return values
+    }
     const result = await this.nativeDb!.query('SELECT payload FROM entities WHERE kind = ? ORDER BY updated_at DESC', [kind])
     return (result.values ?? []).map((row) => JSON.parse(String(row.payload)) as T)
+  }
+
+  async removePersistedCompletedOcrJobs() {
+    await this.init()
+    if (!this.native) {
+      await this.webDb.transaction('rw', this.webDb.entities, async () => {
+        const completed = await this.webDb.entities
+          .where('kind')
+          .equals('ocrJob')
+          .filter((row) => (row.payload as { status?: string }).status === 'completed')
+          .primaryKeys()
+        await this.webDb.entities.bulkDelete(completed)
+      })
+      return
+    }
+    // Delete in SQLite itself so old completed jobs (and their duplicate image
+    // data) never have to cross the Capacitor bridge during startup cleanup.
+    await this.nativeDb!.execute(
+      "DELETE FROM entities WHERE kind = 'ocrJob' AND json_extract(payload, '$.status') = 'completed';",
+    )
   }
 
   async put<T>(kind: EntityKind, id: string, payload: T) {

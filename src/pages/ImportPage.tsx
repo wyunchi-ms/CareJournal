@@ -1,6 +1,6 @@
-import { AlertCircle, Camera, CheckCircle2, Clock3, FileImage, RefreshCw, Trash2, UploadCloud, XCircle } from 'lucide-react'
+import { AlertCircle, Camera, CheckCircle2, Clock3, FileImage, FolderOpen, RefreshCw, Trash2, XCircle } from 'lucide-react'
+import { Capacitor } from '@capacitor/core'
 import { useRef, useState } from 'react'
-import { PageHeader } from '../components/PageHeader'
 import { ImagePreview } from '../components/ImagePreview'
 import { prepareImage } from '../services/images'
 import { useApp } from '../store/AppContext'
@@ -20,6 +20,12 @@ const phaseLabel: Record<OcrQueueItem['phase'], string> = {
   saving: '写入本地数据库',
   done: '识别完成',
   error: '识别失败',
+}
+
+const directoryInputAttributes = { webkitdirectory: '', directory: '' }
+
+function isImageFile(file: File) {
+  return file.type.startsWith('image/') || /\.(?:jpe?g|png|webp)$/i.test(file.name)
 }
 
 function QueueRow({ job }: { job: OcrQueueItem }) {
@@ -66,7 +72,9 @@ export function ImportPage() {
     clearCompletedOcrJobs,
   } = useApp()
   const inputRef = useRef<HTMLInputElement>(null)
+  const directoryRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
+  const showDirectoryImport = !Capacitor.isNativePlatform()
   const [preparing, setPreparing] = useState<PreparationProgress | null>(null)
   const [message, setMessage] = useState('')
   const azureConfigured = Boolean(preferences.azure.endpoint && preferences.azure.apiKey && preferences.azure.deployment && preferences.azure.apiVersion)
@@ -74,7 +82,13 @@ export function ImportPage() {
 
   async function selectFiles(files: FileList | null) {
     if (!files?.length) return
-    const selected = Array.from(files)
+    const allFiles = Array.from(files)
+    const selected = allFiles.filter(isImageFile)
+    const ignored = allFiles.length - selected.length
+    if (!selected.length) {
+      setMessage('所选位置中没有可导入的图片。')
+      return
+    }
     const progress: PreparationProgress = { done: 0, total: selected.length, added: 0, skipped: 0, failed: 0 }
     setPreparing({ ...progress })
     setMessage('正在逐张压缩、校验并加入后台队列…')
@@ -93,30 +107,21 @@ export function ImportPage() {
       }
     }
 
-    setMessage(`已加入 ${progress.added} 个文件${progress.skipped ? `，跳过 ${progress.skipped} 个重复文件` : ''}${progress.failed ? `，${progress.failed} 个文件读取失败` : ''}。队列将在后台继续处理。`)
+    setMessage(`已加入 ${progress.added} 个文件${progress.skipped ? `，跳过 ${progress.skipped} 个重复文件` : ''}${ignored ? `，忽略 ${ignored} 个非图片文件` : ''}${progress.failed ? `，${progress.failed} 个文件读取失败` : ''}。队列将在后台继续处理。`)
     setPreparing(null)
   }
 
   return (
     <>
-      <PageHeader
-        eyebrow="AI 结构化录入"
-        title="导入检查报告"
-        description="文件数量不限；每张图片使用一个独立请求，单张失败不会阻塞后续文件。"
-        actions={<button className="button primary" disabled={Boolean(preparing)} onClick={() => inputRef.current?.click()}><UploadCloud />选择报告图片</button>}
-      />
       <div className="import-layout">
         <section className="upload-card card">
-          <input ref={inputRef} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { void selectFiles(event.target.files); event.target.value = '' }} />
+          <input ref={inputRef} className="sr-only" type="file" accept="image/*" multiple onChange={(event) => { void selectFiles(event.target.files); event.target.value = '' }} />
+          {showDirectoryImport && <input ref={directoryRef} className="sr-only" type="file" accept="image/*" multiple {...directoryInputAttributes} onChange={(event) => { void selectFiles(event.target.files); event.target.value = '' }} />}
           <input ref={cameraRef} className="sr-only" type="file" accept="image/*" capture="environment" onChange={(event) => { void selectFiles(event.target.files); event.target.value = '' }} />
-          <button className="drop-zone" disabled={Boolean(preparing)} onClick={() => inputRef.current?.click()}>
-            <UploadCloud />
-            <strong>拍照或选择任意数量的报告图片</strong>
-            <span>支持 JPEG、PNG、WEBP；按本机可用存储空间保存</span>
-          </button>
-          <div className="source-actions">
+          <div className="source-actions" aria-label="导入方式">
             <button className="button secondary" disabled={Boolean(preparing)} onClick={() => cameraRef.current?.click()}><Camera />拍照导入</button>
-            <button className="button secondary" disabled={Boolean(preparing)} onClick={() => inputRef.current?.click()}><FileImage />从相册或文件选择</button>
+            <button className="button secondary" disabled={Boolean(preparing)} onClick={() => inputRef.current?.click()}><FileImage />选择图片</button>
+            {showDirectoryImport && <button className="button secondary" disabled={Boolean(preparing)} onClick={() => directoryRef.current?.click()}><FolderOpen />导入文件夹</button>}
           </div>
 
           {preparing && <div className="preparation-progress" role="status">
@@ -147,20 +152,8 @@ export function ImportPage() {
           <div className="ocr-job-list" aria-live="polite">
             {ocrJobs.map((job) => <QueueRow key={job.id} job={job} />)}
           </div>
-          {ocrJobs.length === 0 && !preparing && <div className="empty-queue"><FileImage /><h2>还没有识别任务</h2><p>选择图片后会立即加入持久化队列，可以切换到其他页面继续使用应用。</p></div>}
+          {ocrJobs.length === 0 && !preparing && <div className="empty-queue"><FileImage /><h2>还没有识别任务</h2></div>}
         </section>
-
-        <aside className="privacy-card card">
-          <h2>后台识别说明</h2>
-          <ol className="step-list">
-            <li><span>1</span><div><strong>逐文件请求</strong><p>每张图片独立识别、独立重试和独立入库。</p></div></li>
-            <li><span>2</span><div><strong>持久化队列</strong><p>切换页面不打断；刷新或重启后从未完成项继续。</p></div></li>
-            <li><span>3</span><div><strong>自动去重</strong><p>完全相同的图片不会重复进入队列。</p></div></li>
-            <li><span>4</span><div><strong>本地入库</strong><p>成功后自动保存检查记录并创建日历事件。</p></div></li>
-          </ol>
-          <div className="callout"><FileImage /><span>AI 仅用于内容提取，不提供诊断、建议或预测。</span></div>
-          <p className="background-note">“后台”指离开本页面后继续运行。若系统终止应用或浏览器标签页，未完成任务会在下次打开时自动续跑。</p>
-        </aside>
       </div>
     </>
   )

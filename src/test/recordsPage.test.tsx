@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import App from '../App'
 import { RecordsPage } from '../pages/RecordsPage'
 import type { ExamRecord } from '../types'
 
-const { deleteRecordMock } = vi.hoisted(() => ({ deleteRecordMock: vi.fn(async () => undefined) }))
+const { deleteRecordMock, saveRecordMock } = vi.hoisted(() => ({ deleteRecordMock: vi.fn(async () => undefined), saveRecordMock: vi.fn(async (record: ExamRecord) => { void record }) }))
 
 const record = (id: string, reportType: string): ExamRecord => ({
   id,
@@ -42,16 +43,35 @@ const records = [
 ]
 
 vi.mock('../store/AppContext', () => ({
-  useApp: () => ({ records, deleteRecord: deleteRecordMock }),
+  useApp: () => ({
+    ready: true,
+    storageError: null,
+    ocrQueueStats: { queued: 0, processing: 0, completed: 0, failed: 0, progress: 0 },
+    records,
+    deleteRecord: deleteRecordMock,
+    saveRecord: saveRecordMock,
+    vocabulary: { hospitals: ['测试医院', '历史医院'], departments: ['肿瘤科'] },
+  }),
 }))
 
 describe('record type filter', () => {
-  beforeEach(() => deleteRecordMock.mockClear())
+  beforeEach(() => { deleteRecordMock.mockClear(); saveRecordMock.mockClear() })
 
   it('groups aliases and allows selecting multiple normalized types', () => {
     render(<MemoryRouter><RecordsPage /></MemoryRouter>)
 
-    fireEvent.click(screen.getByRole('button', { name: /全部类型/ }))
+    const importLink = screen.getByRole('link', { name: '导入报告' })
+    expect(importLink).toHaveAttribute('href', '/import')
+    expect(importLink).toHaveClass('icon-button')
+    expect(document.querySelector('.records-toolbar')).toContainElement(importLink)
+    expect(within(importLink).queryByText('导入报告')).not.toBeInTheDocument()
+    const filterButton = screen.getByRole('button', { name: /检查类型：全部类型/ })
+    expect(filterButton.querySelector('.choice-picker-summary')).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: '只看异常' })).not.toBeInTheDocument()
+    expect(document.querySelector('.records-grid')).not.toBeInTheDocument()
+    expect(document.querySelector('.page-header .eyebrow')).not.toBeInTheDocument()
+
+    fireEvent.click(filterButton)
     const laboratory = screen.getByRole('checkbox', { name: /实验室检查.*2 份记录/ })
     const mri = screen.getByRole('checkbox', { name: /磁共振（MRI）.*1 份记录/ })
 
@@ -73,6 +93,10 @@ describe('record type filter', () => {
     expect(screen.queryByText('OCR')).not.toBeInTheDocument()
     expect(screen.queryByRole('columnheader', { name: '状态' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: '关闭' })).toHaveLength(1)
+    const editButton = screen.getByRole('button', { name: '编辑报告' })
+    expect(editButton).toHaveClass('icon-button')
+    expect(within(editButton).queryByText('编辑报告')).not.toBeInTheDocument()
+    expect(document.querySelector('.record-section-heading')).toContainElement(editButton)
 
     const indicatorRow = screen.getByRole('row', { name: /白细胞计数，偏低/ })
     const cells = within(indicatorRow).getAllByRole('cell')
@@ -89,12 +113,13 @@ describe('record type filter', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '删除记录' }))
     expect(deleteRecordMock).not.toHaveBeenCalled()
-    expect(screen.getByText('确认删除这份记录？')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '取消' }))
-    expect(screen.queryByText('确认删除这份记录？')).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '删除检查记录' })).toBeInTheDocument()
+    expect(screen.getByText('确定删除这份记录吗？')).toBeInTheDocument()
+    fireEvent.click(within(screen.getByRole('dialog', { name: '删除检查记录' })).getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('dialog', { name: '删除检查记录' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '删除记录' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: '删除检查记录' })).getByRole('button', { name: '确认删除' }))
     expect(deleteRecordMock).toHaveBeenCalledWith('1')
   })
 
@@ -107,5 +132,30 @@ describe('record type filter', () => {
     fireEvent.touchEnd(detail, { changedTouches: [{ clientX: 150, clientY: 225 }] })
 
     expect(screen.queryByRole('dialog', { name: '实验室检查' })).not.toBeInTheDocument()
+  })
+
+  it('edits report details and indicators', async () => {
+    render(<MemoryRouter><RecordsPage /></MemoryRouter>)
+    fireEvent.click(document.querySelector('.record-row')!)
+    fireEvent.click(screen.getByRole('button', { name: '编辑报告' }))
+
+    expect(screen.getByRole('dialog', { name: '编辑检查报告' })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('医院原报告名称'), { target: { value: '血常规报告' } })
+    fireEvent.change(screen.getByLabelText('医院'), { target: { value: '历史医院' } })
+    fireEvent.change(screen.getByLabelText('结果（数值或文字）'), { target: { value: '5.6' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
+
+    await vi.waitFor(() => expect(saveRecordMock).toHaveBeenCalledTimes(1))
+    expect(saveRecordMock.mock.calls[0][0]).toMatchObject({ reportType: '血常规报告', hospital: '历史医院' })
+    expect(saveRecordMock.mock.calls[0][0].indicators[0]).toMatchObject({ rawValue: '5.6', value: 5.6 })
+    expect(screen.getByRole('button', { name: '编辑报告' })).toBeInTheDocument()
+  })
+
+  it('moves import out of the main navigation and keeps it on the records page', () => {
+    render(<MemoryRouter initialEntries={['/records']}><App /></MemoryRouter>)
+    const navigation = screen.getByRole('navigation', { name: '主导航' })
+    expect(within(navigation).getAllByRole('link')).toHaveLength(4)
+    expect(within(navigation).queryByRole('link', { name: '导入' })).not.toBeInTheDocument()
+    expect(screen.getByRole('main').querySelector('a[href="/import"]')).toBeInTheDocument()
   })
 })

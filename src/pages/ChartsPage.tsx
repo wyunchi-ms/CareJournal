@@ -2,7 +2,7 @@ import { differenceInCalendarDays, format, parseISO } from 'date-fns'
 import ReactECharts from 'echarts-for-react'
 import { ChartNoAxesCombined, Pin, PinOff, RotateCcw } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { PageHeader } from '../components/PageHeader'
+import { ChoicePicker } from '../components/ChoicePicker'
 import { useApp } from '../store/AppContext'
 import { EVENT_TYPES, newId, type ChartPin } from '../types'
 
@@ -70,13 +70,12 @@ export function ChartsPage() {
   function applyPin(pin: ChartPin) { setMode(pin.mode); setSelectedCodes(pin.indicatorCodes); setSelectedCycles(pin.cycleEventIds) }
 
   return <>
-    <PageHeader eyebrow="纵向数据" title="指标图表" description="观察指标走势，或按化疗 Day 1 对齐多个周期。" actions={<button className="button secondary" disabled={!currentCodes.length} onClick={() => void pinCurrent()}><Pin />固定当前图表</button>} />
     {pins.length > 0 && <section className="pinned-strip"><span>已固定</span>{pins.map((pin) => <div className="pin-chip" key={pin.id}><button onClick={() => applyPin(pin)}>{pin.title}</button><button aria-label={`取消固定 ${pin.title}`} onClick={() => void deletePin(pin.id)}><PinOff /></button></div>)}</section>}
     <section className="chart-controls card">
-      <div className="segmented" role="group" aria-label="图表模式"><button className={mode === 'trend' ? 'active' : ''} onClick={() => setMode('trend')}>实际日期趋势</button><button className={mode === 'cycle' ? 'active' : ''} onClick={() => setMode('cycle')}>化疗周期叠加</button></div>
+      <div className="chart-controls-toolbar"><div className="segmented" role="group" aria-label="图表模式"><button className={mode === 'trend' ? 'active' : ''} onClick={() => setMode('trend')}>实际日期趋势</button><button className={mode === 'cycle' ? 'active' : ''} onClick={() => setMode('cycle')}>化疗周期叠加</button></div><button className="icon-button chart-pin-button" aria-label="固定当前图表" title="固定当前图表" disabled={!currentCodes.length} onClick={() => void pinCurrent()}><Pin /></button></div>
       <div className="control-groups">
-        <fieldset><legend>{mode === 'trend' ? '选择指标（可多选）' : '选择一个指标'}</legend><div className="choice-chips">{indicators.map((item) => { const active = currentCodes.includes(item.code); return <button key={item.code} className={active ? 'active' : ''} onClick={() => setSelectedCodes((current) => mode === 'cycle' ? [item.code] : current.includes(item.code) ? current.filter((code) => code !== item.code) : [...current, item.code])}>{item.name}</button> })}</div></fieldset>
-        {mode === 'cycle' && <fieldset><legend>叠加周期</legend><div className="choice-chips">{chemoEvents.map((event) => { const active = currentCycles.includes(event.id); return <button key={event.id} className={active ? 'active' : ''} onClick={() => setSelectedCycles((current) => current.includes(event.id) ? current.filter((id) => id !== event.id) : [...current, event.id])}>{event.cycleNumber ? `第 ${event.cycleNumber} 周期` : event.title}<small>{event.cycleDayOne || event.startDate}</small></button> })}</div></fieldset>}
+        <ChoicePicker label="检查指标" multiple={mode === 'trend'} options={indicators.map((item) => ({ value: item.code, label: item.name, description: item.unit || '未记录单位' }))} value={mode === 'trend' ? currentCodes : currentCodes[0] ?? ''} onChange={(value) => setSelectedCodes(Array.isArray(value) ? value : [value])} emptyText="暂无可用指标" />
+        {mode === 'cycle' && <ChoicePicker label="叠加周期" multiple allLabel="全部周期" options={chemoEvents.map((event) => ({ value: event.id, label: event.cycleNumber ? `第 ${event.cycleNumber} 周期` : event.title, description: `Day 1：${event.cycleDayOne || event.startDate}` }))} value={currentCycles} onChange={(value) => setSelectedCycles(value as string[])} emptyText="暂无化疗周期" />}
       </div>
     </section>
     <section className="chart-card card">

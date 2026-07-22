@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { repository } from '../db/repository'
 import { eventForRecord, recognizeReport, toDomainRecords } from '../services/ocr'
-import type { AppPreferences, BackupPayload, ChartPin, ExamRecord, OcrQueueItem, StoredImage, TreatmentEvent } from '../types'
+import { buildVocabulary } from '../services/vocabulary'
+import type { AppPreferences, BackupPayload, ChartPin, DynamicVocabulary, ExamRecord, OcrQueueItem, StoredImage, TreatmentEvent } from '../types'
 import { DEFAULT_PREFERENCES, newId } from '../types'
 
 interface OcrQueueStats {
@@ -23,6 +24,7 @@ interface AppState {
   ocrJobs: OcrQueueItem[]
   ocrQueueStats: OcrQueueStats
   preferences: AppPreferences
+  vocabulary: DynamicVocabulary
   saveEvent: (event: TreatmentEvent) => Promise<void>
   deleteEvent: (id: string) => Promise<void>
   saveRecord: (record: ExamRecord) => Promise<void>
@@ -55,16 +57,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const recordsRef = useRef<ExamRecord[]>([])
   const ocrJobsRef = useRef<OcrQueueItem[]>([])
   const processingOcrRef = useRef(false)
+  const vocabulary = useMemo(() => buildVocabulary([...events, ...records]), [events, records])
 
   useEffect(() => {
     let active = true
-    Promise.all([
-      repository.list<TreatmentEvent>('event'),
-      repository.list<ExamRecord>('record'),
-      repository.list<ChartPin>('pin'),
-      repository.list<AppPreferences>('preferences'),
-      repository.list<OcrQueueItem>('ocrJob'),
-    ]).then(async ([loadedEvents, loadedRecords, loadedPins, loadedPreferences, loadedOcrJobs]) => {
+    void (async () => {
+      await repository.removePersistedCompletedOcrJobs()
+      const [loadedEvents, loadedRecords, loadedPins, loadedPreferences, loadedOcrJobs] = await Promise.all([
+        repository.list<TreatmentEvent>('event'),
+        repository.list<ExamRecord>('record'),
+        repository.list<ChartPin>('pin'),
+        repository.list<AppPreferences>('preferences'),
+        repository.list<OcrQueueItem>('ocrJob'),
+      ])
       if (!active) return
       setStorageError(null)
       setEvents(byDateDescending(loadedEvents))
@@ -78,7 +83,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setOcrJobs(resumedJobs)
       await Promise.all(resumedJobs.filter((job) => loadedOcrJobs.find((loaded) => loaded.id === job.id)?.status === 'processing').map((job) => repository.put('ocrJob', job.id, job)))
       setReady(true)
-    }).catch((error) => {
+    })().catch((error) => {
       console.error(error)
       if (active) setStorageError(error instanceof Error ? error.message : '无法打开本地数据库')
     })
@@ -104,8 +109,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const saveRecord = useCallback(async (record: ExamRecord) => {
     await repository.put('record', record.id, record)
+    const linkedEvents = events.filter((event) => event.type === 'examination' && event.linkedRecordIds.includes(record.id))
+    const updatedEvents = linkedEvents.map((event): TreatmentEvent => ({
+      ...event,
+      title: record.normalizedReportType || record.reportType,
+      startDate: record.examDate,
+      endDate: record.examDate,
+      hospital: record.hospital,
+      department: record.department,
+      notes: record.summary,
+      updatedAt: record.updatedAt,
+    }))
+    await Promise.all(updatedEvents.map((event) => repository.put('event', event.id, event)))
     setRecords((current) => byDateDescending([...current.filter((item) => item.id !== record.id), record]))
-  }, [])
+    if (updatedEvents.length) {
+      const updatedById = new Map(updatedEvents.map((event) => [event.id, event]))
+      setEvents((current) => byDateDescending(current.map((event) => updatedById.get(event.id) ?? event)))
+    }
+  }, [events])
 
   const saveImportedRecords = useCallback(async (incoming: ExamRecord[], createdEvents: TreatmentEvent[]) => {
     let added = 0
@@ -256,9 +277,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const result = await recognizeReport(nextJob.image, azure, (attempt) => {
           attempts = attempt
           void updateOcrJob(nextJob.id, { attempts: attempt, phase: 'recognizing', progress: Math.min(55, 18 + attempt * 10) })
-        })
+        }, vocabulary)
         await updateOcrJob(nextJob.id, { attempts, phase: 'saving', progress: 78 })
-        const domainRecords = await toDomainRecords(result, [nextJob.image], attempts)
+        const domainRecords = await toDomainRecords(result, [nextJob.image], attempts, vocabulary)
         const domainEvents = domainRecords.map(eventForRecord)
         await saveImportedRecords(domainRecords, domainEvents)
         await updateOcrJob(nextJob.id, {
@@ -269,6 +290,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           error: undefined,
           resultRecordIds: domainRecords.map((record) => record.id),
         })
+        // Keep the completed item in this session for progress feedback, but do
+        // not persist another full copy of its image across future launches.
+        await repository.remove('ocrJob', nextJob.id)
       } catch (error) {
         await updateOcrJob(nextJob.id, {
           status: 'failed',
@@ -282,7 +306,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setOcrJobs([...ocrJobsRef.current])
       }
     })()
-  }, [ready, ocrJobs, preferences.azure, saveImportedRecords, updateOcrJob])
+  }, [ready, ocrJobs, preferences.azure, vocabulary, saveImportedRecords, updateOcrJob])
 
   const ocrQueueStats = useMemo<OcrQueueStats>(() => {
     const total = ocrJobs.length
@@ -304,6 +328,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ocrJobs,
     ocrQueueStats,
     preferences,
+    vocabulary,
     saveEvent,
     deleteEvent,
     saveRecord,
@@ -318,7 +343,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     retryAllFailedOcrJobs,
     removeOcrJob,
     clearCompletedOcrJobs,
-  }), [ready, storageError, events, records, pins, ocrJobs, ocrQueueStats, preferences, saveEvent, deleteEvent, saveRecord, saveImportedRecords, deleteRecord, savePin, deletePin, savePreferences, restoreBackup, enqueueOcrImage, retryOcrJob, retryAllFailedOcrJobs, removeOcrJob, clearCompletedOcrJobs])
+  }), [ready, storageError, events, records, pins, ocrJobs, ocrQueueStats, preferences, vocabulary, saveEvent, deleteEvent, saveRecord, saveImportedRecords, deleteRecord, savePin, deletePin, savePreferences, restoreBackup, enqueueOcrImage, retryOcrJob, retryAllFailedOcrJobs, removeOcrJob, clearCompletedOcrJobs])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

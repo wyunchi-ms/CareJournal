@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { recognizeReport } from '../services/ocr'
-import type { AzureSettings, StoredImage } from '../types'
+import type { AzureSettings, DynamicVocabulary, StoredImage } from '../types'
 
 const image: StoredImage = {
   id: 'image-1',
@@ -21,21 +21,48 @@ const settings: AzureSettings = {
 afterEach(() => vi.restoreAllMocks())
 
 describe('recognizeReport', () => {
-  it('每个调用只发送一张图片', async () => {
+  it('每个调用只发送一张图片并携带固定与动态词表', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({ records: [] }) } }],
     }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
 
-    await expect(recognizeReport(image, settings)).resolves.toEqual({ records: [] })
+    const vocabulary: DynamicVocabulary = { hospitals: ['协和医院'], departments: ['肿瘤内科'] }
+    await expect(recognizeReport(image, settings, undefined, vocabulary)).resolves.toEqual({ records: [] })
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
     const request = fetchMock.mock.calls[0]
     const proxyBody = JSON.parse(String((request[1] as RequestInit).body)) as {
       url: string
-      payload: { messages: Array<{ content: string | Array<{ type: string }> }> }
+      payload: {
+        messages: Array<{ content: string | Array<{ type: string }> }>
+        response_format: {
+          json_schema: {
+            schema: {
+              properties: {
+                records: {
+                  items: {
+                    properties: {
+                      normalizedReportType: { enum: string[] }
+                      hospital: { description: string }
+                      department: { description: string }
+                      indicators: { items: { properties: { normalizedCode: { enum: string[] }; normalizedName: { enum: string[] } } } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
     expect(proxyBody.url).toBe('https://example-resource.openai.azure.com/openai/v1/chat/completions')
     const userContent = proxyBody.payload.messages[1].content
     expect(Array.isArray(userContent) ? userContent.filter((item) => item.type === 'image_url') : []).toHaveLength(1)
+    const fields = proxyBody.payload.response_format.json_schema.schema.properties.records.items.properties
+    expect(fields.normalizedReportType.enum).toContain('血常规')
+    expect(fields.indicators.items.properties.normalizedCode.enum).toContain('WBC')
+    expect(fields.indicators.items.properties.normalizedName.enum).toContain('白细胞计数')
+    expect(fields.hospital.description).toContain('协和医院')
+    expect(fields.department.description).toContain('肿瘤内科')
   })
 })

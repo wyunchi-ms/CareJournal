@@ -29,6 +29,11 @@ const RULES: ReportTypeRule[] = [
   { code: 'endoscopy', label: '内镜检查', patterns: [/内镜/i, /胃镜/i, /肠镜/i, /支气管镜/i] },
 ]
 
+export const REPORT_TYPES: NormalizedReportType[] = [
+  ...RULES.map(({ code, label }) => ({ code, label })),
+  { code: 'other', label: '其他检查' },
+]
+
 function comparable(value: string) {
   return value.trim().replace(/[（]/g, '(').replace(/[）]/g, ')').replace(/[：:]/g, '').replace(/\s+/g, '')
 }

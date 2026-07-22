@@ -18,7 +18,3 @@
 *.jks
 *.keystore
 local.properties
-/.gitnexus/
-/.claude/
-/AGENTS.md
-/CLAUDE.md

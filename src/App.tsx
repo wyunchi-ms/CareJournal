@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, CalendarDays, ChartNoAxesCombined, FileScan, ListChecks, Settings } from 'lucide-react'
+import { Activity, AlertTriangle, CalendarDays, ChartNoAxesCombined, ListChecks, Settings } from 'lucide-react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { useApp } from './store/AppContext'
 import { CalendarPage } from './pages/CalendarPage'
@@ -10,14 +10,11 @@ import { SettingsPage } from './pages/SettingsPage'
 const navItems = [
   { path: '/calendar', label: '病程', icon: CalendarDays },
   { path: '/records', label: '检查', icon: ListChecks },
-  { path: '/import', label: '导入', icon: FileScan },
   { path: '/charts', label: '图表', icon: ChartNoAxesCombined },
   { path: '/settings', label: '设置', icon: Settings },
 ]
 
 function Navigation() {
-  const { ocrQueueStats } = useApp()
-  const unfinished = ocrQueueStats.queued + ocrQueueStats.processing
   return (
     <nav className="app-nav" aria-label="主导航">
       <div className="brand">
@@ -29,7 +26,6 @@ function Navigation() {
           <NavLink key={path} to={path} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
             <Icon aria-hidden="true" />
             <span>{label}</span>
-            {path === '/import' && unfinished > 0 && <b className="nav-badge" aria-label={`${unfinished} 个 OCR 任务未完成`}>{unfinished > 99 ? '99+' : unfinished}</b>}
           </NavLink>
         ))}
       </div>

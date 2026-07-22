@@ -2,14 +2,17 @@ import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameDay,
 import { zhCN } from 'date-fns/locale'
 import { CalendarDays, ChevronLeft, ChevronRight, Filter, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { ChoicePicker, type ChoiceOption } from '../components/ChoicePicker'
+import { HistoryCombobox } from '../components/HistoryCombobox'
 import { Modal } from '../components/Modal'
-import { PageHeader } from '../components/PageHeader'
 import { useApp } from '../store/AppContext'
 import { EVENT_TYPES, newId, type EventType, type TreatmentEvent } from '../types'
 
 const todayString = () => format(new Date(), 'yyyy-MM-dd')
 
-function EventForm({ initialDate, event, onClose }: { initialDate: string; event?: TreatmentEvent; onClose: () => void }) {
+const eventTypeOptions: ChoiceOption[] = Object.entries(EVENT_TYPES).map(([value, type]) => ({ value, label: type.label, color: type.color }))
+
+function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onClose }: { initialDate: string; event?: TreatmentEvent; hospitalHistory: string[]; departmentHistory: string[]; onClose: () => void }) {
   const { saveEvent, deleteEvent } = useApp()
   const [form, setForm] = useState(() => ({
     type: event?.type ?? 'chemotherapy' as EventType,
@@ -58,12 +61,12 @@ function EventForm({ initialDate, event, onClose }: { initialDate: string; event
 
   return (
     <form className="form-grid" onSubmit={submit}>
-      <label>事件类型<select value={form.type} onChange={(e) => set('type', e.target.value as EventType)}>{Object.entries(EVENT_TYPES).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}</select></label>
+      <ChoicePicker label="事件类型" options={eventTypeOptions} value={form.type} onChange={(value) => set('type', value as EventType)} />
       <label>标题<input value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="例如：第 3 周期化疗" autoFocus /></label>
       <label>开始日期<input type="date" value={form.startDate} onChange={(e) => set('startDate', e.target.value)} /></label>
       <label>结束日期<input type="date" value={form.endDate} min={form.startDate} onChange={(e) => set('endDate', e.target.value)} /></label>
-      <label>医院<input value={form.hospital} onChange={(e) => set('hospital', e.target.value)} /></label>
-      <label>科室<input value={form.department} onChange={(e) => set('department', e.target.value)} /></label>
+      <HistoryCombobox label="医院" value={form.hospital} onChange={(value) => set('hospital', value)} options={hospitalHistory} placeholder="输入或选择历史医院" />
+      <HistoryCombobox label="科室" value={form.department} onChange={(value) => set('department', value)} options={departmentHistory} placeholder="输入或选择历史科室" />
       {(form.type === 'chemotherapy' || form.type === 'radiotherapy' || form.type === 'targeted' || form.type === 'immunotherapy') && <>
         <label>治疗方案<input value={form.regimen} onChange={(e) => set('regimen', e.target.value)} placeholder="方案名称" /></label>
         <label>药物与剂量<input value={form.medications} onChange={(e) => set('medications', e.target.value)} placeholder="药物名称" /></label>
@@ -86,25 +89,34 @@ function EventForm({ initialDate, event, onClose }: { initialDate: string; event
 }
 
 export function CalendarPage() {
-  const { events } = useApp()
+  const { events, vocabulary } = useApp()
   const [month, setMonth] = useState(startOfMonth(new Date()))
   const [selectedDate, setSelectedDate] = useState(todayString())
-  const [filter, setFilter] = useState<EventType | 'all'>('all')
+  const [filters, setFilters] = useState<EventType[]>([])
   const [editing, setEditing] = useState<TreatmentEvent | null | 'new'>(null)
   const days = useMemo(() => eachDayOfInterval({ start: startOfWeek(startOfMonth(month), { weekStartsOn: 1 }), end: endOfWeek(endOfMonth(month), { weekStartsOn: 1 }) }), [month])
-  const visibleEvents = filter === 'all' ? events : events.filter((event) => event.type === filter)
+  const eventFilterOptions = useMemo<ChoiceOption[]>(() => {
+    const counts = events.reduce<Record<string, number>>((result, event) => {
+      result[event.type] = (result[event.type] ?? 0) + 1
+      return result
+    }, {})
+    return eventTypeOptions.map((option) => ({ ...option, count: counts[option.value] ?? 0 }))
+  }, [events])
+  const visibleEvents = filters.length === 0 ? events : events.filter((event) => filters.includes(event.type))
   const eventsForDay = (day: Date) => visibleEvents.filter((event) => day >= parseISO(event.startDate) && day <= parseISO(event.endDate))
   const selectedEvents = eventsForDay(parseISO(selectedDate))
 
   return (
     <>
-      <PageHeader eyebrow="治疗时间轴" title="病程日历" description="按日期记录治疗、住院与检查，跨日事件会连续显示。" actions={<button className="button primary" onClick={() => setEditing('new')}><Plus />新建事件</button>} />
-      <section className="toolbar card compact">
-        <div className="month-switcher"><button className="icon-button" aria-label="上个月" onClick={() => setMonth(subMonths(month, 1))}><ChevronLeft /></button><strong>{format(month, 'yyyy年 M月', { locale: zhCN })}</strong><button className="icon-button" aria-label="下个月" onClick={() => setMonth(addMonths(month, 1))}><ChevronRight /></button><button className="text-button" onClick={() => setMonth(startOfMonth(new Date()))}>今天</button></div>
-        <label className="inline-control"><Filter /><span>筛选</span><select value={filter} onChange={(e) => setFilter(e.target.value as EventType | 'all')}><option value="all">全部事件</option>{Object.entries(EVENT_TYPES).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}</select></label>
-      </section>
       <div className="calendar-layout">
         <section className="calendar-card card" aria-label="月历">
+          <div className="calendar-toolbar">
+            <div className="month-switcher"><button className="icon-button" aria-label="上个月" onClick={() => setMonth(subMonths(month, 1))}><ChevronLeft /></button><strong className="calendar-month-label">{format(month, 'yyyy年M月', { locale: zhCN })}</strong><button className="icon-button" aria-label="下个月" onClick={() => setMonth(addMonths(month, 1))}><ChevronRight /></button><button className="text-button calendar-today" onClick={() => setMonth(startOfMonth(new Date()))}>今天</button></div>
+            <div className="calendar-toolbar-actions">
+              <ChoicePicker compact iconOnly multiple allLabel="全部事件" selectionNoun="类" label="事件筛选" icon={<Filter />} options={eventFilterOptions} value={filters} onChange={(value) => setFilters(value as EventType[])} />
+              <button className="icon-button calendar-create-button" aria-label="新建事件" title="新建事件" onClick={() => setEditing('new')}><Plus /></button>
+            </div>
+          </div>
           <div className="weekday-row">{['一', '二', '三', '四', '五', '六', '日'].map((day) => <span key={day}>周{day}</span>)}</div>
           <div className="month-grid">
             {days.map((day) => {
@@ -117,15 +129,15 @@ export function CalendarPage() {
             })}
           </div>
         </section>
-        <aside className="agenda card">
-          <div className="section-heading"><div><p className="eyebrow">{format(parseISO(selectedDate), 'EEEE', { locale: zhCN })}</p><h2>{format(parseISO(selectedDate), 'M月d日')}</h2></div><button className="icon-button" aria-label="在当天添加事件" onClick={() => setEditing('new')}><Plus /></button></div>
+        <section className="agenda card" aria-label="选中日期的事件">
+          <div className="section-heading"><div><p className="eyebrow">{format(parseISO(selectedDate), 'EEEE', { locale: zhCN })}</p><h2>{format(parseISO(selectedDate), 'M月d日')}</h2></div></div>
           <div className="agenda-list">
             {selectedEvents.length === 0 && <div className="empty-inline"><CalendarDaysIcon />这一天还没有记录</div>}
             {selectedEvents.map((event) => <button className="agenda-item" key={event.id} onClick={() => setEditing(event)} style={{ '--event-color': EVENT_TYPES[event.type].color } as React.CSSProperties}><span className="agenda-marker" /><span><strong>{event.title}</strong><small>{EVENT_TYPES[event.type].label}{event.startDate !== event.endDate ? ` · ${event.startDate} 至 ${event.endDate}` : ''}</small>{event.regimen && <small>{event.regimen}</small>}</span></button>)}
           </div>
-        </aside>
+        </section>
       </div>
-      {editing && <Modal title={editing === 'new' ? '新建病程事件' : '编辑病程事件'} onClose={() => setEditing(null)} wide><EventForm initialDate={selectedDate} event={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} /></Modal>}
+      {editing && <Modal title={editing === 'new' ? '新建病程事件' : '编辑病程事件'} onClose={() => setEditing(null)} wide><EventForm initialDate={selectedDate} event={editing === 'new' ? undefined : editing} hospitalHistory={vocabulary.hospitals} departmentHistory={vocabulary.departments} onClose={() => setEditing(null)} /></Modal>}
     </>
   )
 }

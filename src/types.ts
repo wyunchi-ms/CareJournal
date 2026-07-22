@@ -120,6 +120,11 @@ export interface AppPreferences {
   darkMode: boolean
 }
 
+export interface DynamicVocabulary {
+  hospitals: string[]
+  departments: string[]
+}
+
 export interface BackupPayload {
   version: 1
   exportedAt: string
@@ -138,6 +143,11 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
     maxRetries: 3,
   },
   darkMode: false,
+}
+
+export const DEFAULT_VOCABULARY: DynamicVocabulary = {
+  hospitals: [],
+  departments: [],
 }
 
 export const newId = () => crypto.randomUUID()
