@@ -73,16 +73,50 @@ export class LocalRepository {
       const rows = await this.webDb.entities.where('kind').equals(kind).toArray()
       return rows.map((row) => row.payload as T)
     }
-    // Records and OCR jobs contain base64 images. Returning all of them in one
-    // Capacitor plugin result can force Android to allocate one enormous JSON
-    // string and crash the process. Cross the native bridge one row at a time.
-    if (kind === 'record' || kind === 'ocrJob') {
+    if (kind === 'record') {
+      const heavyCount = await this.nativeDb!.query(
+        "SELECT COUNT(*) AS count FROM entities WHERE kind = ? AND instr(payload, 'data:image') > 0",
+        [kind],
+      )
+      if (Number(heavyCount.values?.[0]?.count ?? 0) === 0) {
+        const result = await this.nativeDb!.query(
+          'SELECT payload FROM entities WHERE kind = ? ORDER BY updated_at DESC',
+          [kind],
+        )
+        return (result.values ?? []).map((row) => JSON.parse(String(row.payload)) as T)
+      }
+      // Legacy records can still contain Base64 if native migration could not
+      // process an item. Keep those rows isolated to avoid one enormous bridge
+      // response while allowing migrated metadata to use the fast batch path.
       const ids = await this.nativeDb!.query(
         'SELECT entity_id FROM entities WHERE kind = ? ORDER BY updated_at DESC',
         [kind],
       )
       const values: T[] = []
       for (const row of ids.values ?? []) {
+        const result = await this.nativeDb!.query(
+          'SELECT payload FROM entities WHERE kind = ? AND entity_id = ? LIMIT 1',
+          [kind, String(row.entity_id)],
+        )
+        const payload = result.values?.[0]?.payload
+        if (payload !== undefined) values.push(JSON.parse(String(payload)) as T)
+      }
+      return values
+    }
+    if (kind === 'ocrJob') {
+      // Folder imports persist only a URI and metadata, so hundreds of those
+      // jobs are safe to restore together. Legacy picker/camera jobs may still
+      // embed base64 and remain row-by-row to preserve the startup OOM guard.
+      const lightweight = await this.nativeDb!.query(
+        "SELECT payload FROM entities WHERE kind = ? AND COALESCE(length(json_extract(payload, '$.image.dataUrl')), 0) = 0 ORDER BY updated_at DESC",
+        [kind],
+      )
+      const values = (lightweight.values ?? []).map((row) => JSON.parse(String(row.payload)) as T)
+      const heavyIds = await this.nativeDb!.query(
+        "SELECT entity_id FROM entities WHERE kind = ? AND COALESCE(length(json_extract(payload, '$.image.dataUrl')), 0) > 0 ORDER BY updated_at DESC",
+        [kind],
+      )
+      for (const row of heavyIds.values ?? []) {
         const result = await this.nativeDb!.query(
           'SELECT payload FROM entities WHERE kind = ? AND entity_id = ? LIMIT 1',
           [kind, String(row.entity_id)],

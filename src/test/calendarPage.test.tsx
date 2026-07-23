@@ -59,4 +59,25 @@ describe('calendar event filter', () => {
     expect(within(createButton).queryByText('新建事件')).not.toBeInTheDocument()
     expect(calendar.compareDocumentPosition(agenda) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
+
+  it('switches months on a deliberate horizontal swipe without hijacking vertical scrolling', () => {
+    render(<MemoryRouter><CalendarPage /></MemoryRouter>)
+    const calendar = screen.getByRole('region', { name: '月历' })
+    const getMonthLabel = () => calendar.querySelector('.calendar-month-label')!
+    const initialMonth = getMonthLabel().textContent
+
+    fireEvent.touchStart(calendar, { touches: [{ clientX: 280, clientY: 180 }] })
+    fireEvent.touchEnd(calendar, { changedTouches: [{ clientX: 120, clientY: 188 }] })
+    expect(getMonthLabel().textContent).not.toBe(initialMonth)
+    expect(calendar.querySelector('.month-grid')).toHaveClass('calendar-slide-next')
+
+    fireEvent.touchStart(calendar, { touches: [{ clientX: 120, clientY: 180 }] })
+    fireEvent.touchEnd(calendar, { changedTouches: [{ clientX: 280, clientY: 188 }] })
+    expect(getMonthLabel()).toHaveTextContent(initialMonth!)
+    expect(calendar.querySelector('.month-grid')).toHaveClass('calendar-slide-previous')
+
+    fireEvent.touchStart(calendar, { touches: [{ clientX: 180, clientY: 120 }] })
+    fireEvent.touchEnd(calendar, { changedTouches: [{ clientX: 190, clientY: 260 }] })
+    expect(getMonthLabel()).toHaveTextContent(initialMonth!)
+  })
 })

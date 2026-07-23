@@ -45,3 +45,11 @@ export async function prepareImage(file: File): Promise<StoredImage> {
     sha256: await sha256(dataUrl),
   }
 }
+
+export function storedImageIdentity(image: StoredImage) {
+  return image.sourceKey ? `source:${image.sourceKey}` : `sha256:${image.sha256}`
+}
+
+export function sameStoredImage(first: StoredImage, second: StoredImage) {
+  return storedImageIdentity(first) === storedImageIdentity(second)
+}

@@ -4,10 +4,27 @@ const database = new Map<string, string>()
 const open = vi.fn(async () => undefined)
 const execute = vi.fn(async () => ({ changes: { changes: 0 } }))
 const query = vi.fn(async (statement: string, values: string[]) => {
+  if (statement.includes('COUNT(*)')) {
+    const count = [...database.entries()].filter(([key, payload]) =>
+      key.startsWith(`${values[0]}:`) && String(payload).includes('data:image'),
+    ).length
+    return { values: [{ count }] }
+  }
+  if (statement.includes('SELECT payload') && statement.includes('json_extract')) {
+    return {
+      values: [...database.entries()]
+        .filter(([key, payload]) => key.startsWith(`${values[0]}:`) && !JSON.parse(payload).image?.dataUrl)
+        .map(([, payload]) => ({ payload })),
+    }
+  }
   if (statement.includes('SELECT entity_id')) {
     return {
       values: [...database.keys()]
-        .filter((key) => key.startsWith(`${values[0]}:`))
+        .filter((key) => {
+          if (!key.startsWith(`${values[0]}:`)) return false
+          if (!statement.includes('json_extract')) return true
+          return Boolean(JSON.parse(database.get(key) ?? '{}').image?.dataUrl)
+        })
         .map((key) => ({ entity_id: key.slice(key.indexOf(':') + 1) })),
     }
   }
@@ -68,7 +85,7 @@ describe('Android SQLite repository', () => {
 
     expect(createConnection).toHaveBeenCalledTimes(1)
     expect(open).toHaveBeenCalledTimes(1)
-    expect(query).toHaveBeenCalledTimes(5)
+    expect(query).toHaveBeenCalledTimes(7)
   })
 
   it('reads values written before a simulated process restart', async () => {
@@ -82,8 +99,8 @@ describe('Android SQLite repository', () => {
 
   it('reads image-heavy records one row per native bridge response', async () => {
     const { LocalRepository } = await import('../db/repository')
-    database.set('record:first', JSON.stringify({ id: 'first', images: [{ dataUrl: 'large-image-1' }] }))
-    database.set('record:second', JSON.stringify({ id: 'second', images: [{ dataUrl: 'large-image-2' }] }))
+    database.set('record:first', JSON.stringify({ id: 'first', images: [{ dataUrl: 'data:image/jpeg;base64,large-image-1' }] }))
+    database.set('record:second', JSON.stringify({ id: 'second', images: [{ dataUrl: 'data:image/jpeg;base64,large-image-2' }] }))
 
     const repository = new LocalRepository()
     await expect(repository.list<{ id: string }>('record')).resolves.toEqual([
@@ -91,8 +108,42 @@ describe('Android SQLite repository', () => {
       expect.objectContaining({ id: 'second' }),
     ])
 
+    expect(query).toHaveBeenCalledTimes(4)
+    expect(query.mock.calls[0][0]).toContain('COUNT(*)')
+    expect(query.mock.calls[1][0]).toContain('SELECT entity_id')
+    expect(query.mock.calls.slice(2).every(([statement]) => statement.includes('LIMIT 1'))).toBe(true)
+  })
+
+  it('reads migrated record metadata in one batch after the legacy image check', async () => {
+    const { LocalRepository } = await import('../db/repository')
+    database.set('record:first', JSON.stringify({ id: 'first', images: [{ dataUrl: '', storagePath: 'report-images/one.jpg' }] }))
+    database.set('record:second', JSON.stringify({ id: 'second', images: [{ dataUrl: '', storagePath: 'report-images/two.jpg' }] }))
+
+    const repository = new LocalRepository()
+    await expect(repository.list<{ id: string }>('record')).resolves.toEqual([
+      expect.objectContaining({ id: 'first' }),
+      expect.objectContaining({ id: 'second' }),
+    ])
+
+    expect(query).toHaveBeenCalledTimes(2)
+    expect(query.mock.calls[0][0]).toContain('COUNT(*)')
+    expect(query.mock.calls[1][0]).toContain('SELECT payload')
+  })
+
+  it('restores lightweight folder jobs in one bridge response and keeps base64 jobs isolated', async () => {
+    const { LocalRepository } = await import('../db/repository')
+    for (let index = 0; index < 120; index += 1) {
+      database.set(`ocrJob:folder-${index}`, JSON.stringify({ id: `folder-${index}`, image: { dataUrl: '', sourceUri: `content://${index}` } }))
+    }
+    database.set('ocrJob:camera', JSON.stringify({ id: 'camera', image: { dataUrl: 'data:image/jpeg;base64,large' } }))
+
+    const repository = new LocalRepository()
+    const jobs = await repository.list<{ id: string }>('ocrJob')
+
+    expect(jobs).toHaveLength(121)
     expect(query).toHaveBeenCalledTimes(3)
-    expect(query.mock.calls[0][0]).toContain('SELECT entity_id')
-    expect(query.mock.calls.slice(1).every(([statement]) => statement.includes('LIMIT 1'))).toBe(true)
+    expect(query.mock.calls[0][0]).toContain('SELECT payload')
+    expect(query.mock.calls[0][0]).toContain('json_extract')
+    expect(query.mock.calls[2][0]).toContain('LIMIT 1')
   })
 })

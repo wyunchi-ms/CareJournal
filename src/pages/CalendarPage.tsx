@@ -1,7 +1,7 @@
 import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameDay, isSameMonth, parseISO, startOfMonth, startOfWeek, subMonths } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { CalendarDays, ChevronLeft, ChevronRight, Filter, Plus, Trash2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState, type MouseEvent, type TouchEvent } from 'react'
 import { ChoicePicker, type ChoiceOption } from '../components/ChoicePicker'
 import { HistoryCombobox } from '../components/HistoryCombobox'
 import { Modal } from '../components/Modal'
@@ -11,6 +11,7 @@ import { EVENT_TYPES, newId, type EventType, type TreatmentEvent } from '../type
 const todayString = () => format(new Date(), 'yyyy-MM-dd')
 
 const eventTypeOptions: ChoiceOption[] = Object.entries(EVENT_TYPES).map(([value, type]) => ({ value, label: type.label, color: type.color }))
+type MonthTransition = 'next' | 'previous'
 
 function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onClose }: { initialDate: string; event?: TreatmentEvent; hospitalHistory: string[]; departmentHistory: string[]; onClose: () => void }) {
   const { saveEvent, deleteEvent } = useApp()
@@ -94,6 +95,9 @@ export function CalendarPage() {
   const [selectedDate, setSelectedDate] = useState(todayString())
   const [filters, setFilters] = useState<EventType[]>([])
   const [editing, setEditing] = useState<TreatmentEvent | null | 'new'>(null)
+  const [monthTransition, setMonthTransition] = useState<MonthTransition | null>(null)
+  const swipeStart = useRef<{ x: number; y: number } | null>(null)
+  const lastSwipeAt = useRef(0)
   const days = useMemo(() => eachDayOfInterval({ start: startOfWeek(startOfMonth(month), { weekStartsOn: 1 }), end: endOfWeek(endOfMonth(month), { weekStartsOn: 1 }) }), [month])
   const eventFilterOptions = useMemo<ChoiceOption[]>(() => {
     const counts = events.reduce<Record<string, number>>((result, event) => {
@@ -105,20 +109,69 @@ export function CalendarPage() {
   const visibleEvents = filters.length === 0 ? events : events.filter((event) => filters.includes(event.type))
   const eventsForDay = (day: Date) => visibleEvents.filter((event) => day >= parseISO(event.startDate) && day <= parseISO(event.endDate))
   const selectedEvents = eventsForDay(parseISO(selectedDate))
+  const monthKey = format(month, 'yyyy-MM')
+  const transitionClass = monthTransition ? ` calendar-slide-${monthTransition}` : ''
+
+  function changeMonth(direction: MonthTransition) {
+    setMonthTransition(direction)
+    setMonth((current) => direction === 'next' ? addMonths(current, 1) : subMonths(current, 1))
+  }
+
+  function goToToday() {
+    const currentMonth = startOfMonth(new Date())
+    if (currentMonth.getTime() === month.getTime()) return
+    setMonthTransition(currentMonth > month ? 'next' : 'previous')
+    setMonth(currentMonth)
+  }
+
+  function handleCalendarTouchStart(event: TouchEvent<HTMLElement>) {
+    if (event.touches.length !== 1) {
+      swipeStart.current = null
+      return
+    }
+    swipeStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY }
+  }
+
+  function handleCalendarTouchEnd(event: TouchEvent<HTMLElement>) {
+    const start = swipeStart.current
+    const touch = event.changedTouches[0]
+    swipeStart.current = null
+    if (!start || !touch) return
+
+    const deltaX = touch.clientX - start.x
+    const deltaY = touch.clientY - start.y
+    if (Math.abs(deltaX) < 52 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.25) return
+
+    lastSwipeAt.current = Date.now()
+    changeMonth(deltaX < 0 ? 'next' : 'previous')
+  }
+
+  function suppressClickAfterSwipe(event: MouseEvent<HTMLElement>) {
+    if (Date.now() - lastSwipeAt.current > 450) return
+    event.preventDefault()
+    event.stopPropagation()
+  }
 
   return (
     <>
       <div className="calendar-layout">
-        <section className="calendar-card card" aria-label="月历">
+        <section
+          className="calendar-card card"
+          aria-label="月历"
+          onTouchStart={handleCalendarTouchStart}
+          onTouchEnd={handleCalendarTouchEnd}
+          onTouchCancel={() => { swipeStart.current = null }}
+          onClickCapture={suppressClickAfterSwipe}
+        >
           <div className="calendar-toolbar">
-            <div className="month-switcher"><button className="icon-button" aria-label="上个月" onClick={() => setMonth(subMonths(month, 1))}><ChevronLeft /></button><strong className="calendar-month-label">{format(month, 'yyyy年M月', { locale: zhCN })}</strong><button className="icon-button" aria-label="下个月" onClick={() => setMonth(addMonths(month, 1))}><ChevronRight /></button><button className="text-button calendar-today" onClick={() => setMonth(startOfMonth(new Date()))}>今天</button></div>
+            <div className="month-switcher"><button className="icon-button" aria-label="上个月" onClick={() => changeMonth('previous')}><ChevronLeft /></button><strong key={monthKey} className={`calendar-month-label${transitionClass}`}>{format(month, 'yyyy年M月', { locale: zhCN })}</strong><button className="icon-button" aria-label="下个月" onClick={() => changeMonth('next')}><ChevronRight /></button><button className="text-button calendar-today" onClick={goToToday}>今天</button></div>
             <div className="calendar-toolbar-actions">
               <ChoicePicker compact iconOnly multiple allLabel="全部事件" selectionNoun="类" label="事件筛选" icon={<Filter />} options={eventFilterOptions} value={filters} onChange={(value) => setFilters(value as EventType[])} />
               <button className="icon-button calendar-create-button" aria-label="新建事件" title="新建事件" onClick={() => setEditing('new')}><Plus /></button>
             </div>
           </div>
           <div className="weekday-row">{['一', '二', '三', '四', '五', '六', '日'].map((day) => <span key={day}>周{day}</span>)}</div>
-          <div className="month-grid">
+          <div key={monthKey} className={`month-grid${transitionClass}`}>
             {days.map((day) => {
               const dayKey = format(day, 'yyyy-MM-dd')
               const dayEvents = eventsForDay(day)

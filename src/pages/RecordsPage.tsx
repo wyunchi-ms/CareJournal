@@ -9,6 +9,7 @@ import { ImagePreview } from '../components/ImagePreview'
 import { INDICATORS, normalizeIndicator } from '../data/indicatorAliases'
 import { normalizeReportType, REPORT_TYPES } from '../data/reportTypeAliases'
 import { sha256 } from '../services/images'
+import { storedImageSource } from '../services/imageStorage'
 import { useApp } from '../store/AppContext'
 import { newId, type AbnormalFlag, type ExamRecord, type LabIndicator } from '../types'
 
@@ -217,7 +218,10 @@ function RecordDetail({ record, onClose, onEdit }: { record: ExamRecord; onClose
   return <div className="record-detail">
     <div className="detail-summary"><div><span>检查日期</span><strong>{record.examDate}</strong></div><div><span>医院</span><strong title={record.hospital || '未记录'}>{record.hospital || '未记录'}</strong></div></div>
     <section><div className="record-section-heading"><h3>指标明细 <small>{record.indicators.length} 项</small></h3><button type="button" className="icon-button edit-report-button" onClick={onEdit} aria-label="编辑报告" title="编辑报告"><Pencil /></button></div>{record.indicators.length ? <div className="indicator-table-wrap"><table className="indicator-table"><thead><tr><th>指标</th><th>结果</th><th>参考范围</th></tr></thead><tbody>{record.indicators.map((item) => <tr key={item.id} className={`indicator-row ${item.abnormalFlag}`} aria-label={`${item.normalizedName}，${flagLabel(item) || '状态未标记'}`}><td title={item.rawName !== item.normalizedName ? `医院原始名称：${item.rawName}` : undefined}><strong>{item.normalizedName}{item.unit && <span className="indicator-unit">（{item.unit}）</span>}</strong></td><td><strong>{resultText(item)}</strong><span className="sr-only">{flagLabel(item)}</span></td><td>{item.referenceText || [item.referenceLow, item.referenceHigh].filter((value) => value !== null).join('–') || '—'}</td></tr>)}</tbody></table></div> : <p className="muted-text">这份报告没有结构化数值指标。</p>}</section>
-    {record.images.length > 0 && <section><h3>原始图片</h3><div className="image-gallery">{record.images.map((image) => <ImagePreview key={image.id} src={image.dataUrl} alt={`检查报告：${image.name}`} />)}</div></section>}
+    {record.images.length > 0 && <section><h3>原始图片</h3><div className="image-gallery">{record.images.map((image) => {
+      const source = storedImageSource(image)
+      return source ? <ImagePreview key={image.id} src={source} alt={`检查报告：${image.name}`} /> : null
+    })}</div></section>}
     {record.summary && <section className="report-conclusion"><h3>报告结论</h3><p className="summary-text">{record.summary}</p></section>}
     <div className="delete-zone">
       <button className="button danger ghost" onClick={() => setDeleteConfirming(true)}><Trash2 />删除记录</button>

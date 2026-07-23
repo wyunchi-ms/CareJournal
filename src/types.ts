@@ -58,6 +58,11 @@ export interface StoredImage {
   mimeType: string
   dataUrl: string
   sha256: string
+  storagePath?: string
+  localUri?: string
+  sourceUri?: string
+  sourceKey?: string
+  relativePath?: string
 }
 
 export type OcrQueueStatus = 'queued' | 'processing' | 'completed' | 'failed'
@@ -118,6 +123,8 @@ export interface AzureSettings {
 export interface AppPreferences {
   azure: AzureSettings
   darkMode: boolean
+  chartIndicatorOrder: string[]
+  chartPinnedIndicatorCodes: string[]
 }
 
 export interface DynamicVocabulary {
@@ -143,6 +150,8 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
     maxRetries: 3,
   },
   darkMode: false,
+  chartIndicatorOrder: [],
+  chartPinnedIndicatorCodes: [],
 }
 
 export const DEFAULT_VOCABULARY: DynamicVocabulary = {

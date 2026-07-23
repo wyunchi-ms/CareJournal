@@ -47,6 +47,7 @@ vi.mock('../store/AppContext', () => ({
     ready: true,
     storageError: null,
     ocrQueueStats: { queued: 0, processing: 0, completed: 0, failed: 0, progress: 0 },
+    events: [],
     records,
     deleteRecord: deleteRecordMock,
     saveRecord: saveRecordMock,
@@ -157,5 +158,22 @@ describe('record type filter', () => {
     expect(within(navigation).getAllByRole('link')).toHaveLength(4)
     expect(within(navigation).queryByRole('link', { name: '导入' })).not.toBeInTheDocument()
     expect(screen.getByRole('main').querySelector('a[href="/import"]')).toBeInTheDocument()
+  })
+
+  it('animates bottom navigation according to page order', () => {
+    const { container } = render(<MemoryRouter initialEntries={['/records']}><App /></MemoryRouter>)
+    const navigation = within(container).getByRole('navigation', { name: '主导航' })
+    const main = within(container).getByRole('main')
+    const selection = navigation.querySelector('.nav-selection')
+
+    expect(selection).toHaveClass('nav-selection-1')
+    fireEvent.click(within(navigation).getByRole('link', { name: '病程' }))
+    expect(main.querySelector('.page-transition')).toHaveClass('page-transition-backward')
+    expect(selection).toHaveClass('nav-selection-0')
+
+    fireEvent.click(within(navigation).getByRole('link', { name: '检查' }))
+    expect(main.querySelector('.page-transition')).toHaveClass('page-transition-forward')
+    expect(selection).toHaveClass('nav-selection-1')
+    expect(navigation.querySelectorAll('.nav-item.active')).toHaveLength(1)
   })
 })

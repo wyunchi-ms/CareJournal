@@ -1,6 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { repository } from '../db/repository'
 import { eventForRecord, recognizeReport, toDomainRecords } from '../services/ocr'
+import { materializeStoredImage } from '../services/folderImport'
+import { sameStoredImage, storedImageIdentity } from '../services/images'
+import { garbageCollectNativeImages, migrateLegacyNativeImages, persistRestoredRecords, persistStoredImage } from '../services/imageStorage'
 import { buildVocabulary } from '../services/vocabulary'
 import type { AppPreferences, BackupPayload, ChartPin, DynamicVocabulary, ExamRecord, OcrQueueItem, StoredImage, TreatmentEvent } from '../types'
 import { DEFAULT_PREFERENCES, newId } from '../types'
@@ -16,6 +19,7 @@ interface OcrQueueStats {
 
 interface AppState {
   ready: boolean
+  startupMessage: string
   storageError: string | null
   storageLabel: string
   events: TreatmentEvent[]
@@ -48,6 +52,7 @@ const byDateDescending = <T extends { updatedAt?: string; createdAt?: string }>(
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false)
+  const [startupMessage, setStartupMessage] = useState('正在打开本地病程库…')
   const [storageError, setStorageError] = useState<string | null>(null)
   const [events, setEvents] = useState<TreatmentEvent[]>([])
   const [records, setRecords] = useState<ExamRecord[]>([])
@@ -62,6 +67,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true
     void (async () => {
+      setStartupMessage('正在优化本地图片存储…')
+      const migration = await migrateLegacyNativeImages()
+      if (migration.failedEntities > 0) {
+        console.warn(`${migration.failedEntities} 条旧图片记录暂未完成原生文件迁移，将在下次启动重试`)
+      }
+      setStartupMessage('正在读取本地病程记录…')
       await repository.removePersistedCompletedOcrJobs()
       const [loadedEvents, loadedRecords, loadedPins, loadedPreferences, loadedOcrJobs] = await Promise.all([
         repository.list<TreatmentEvent>('event'),
@@ -82,6 +93,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ocrJobsRef.current = resumedJobs
       setOcrJobs(resumedJobs)
       await Promise.all(resumedJobs.filter((job) => loadedOcrJobs.find((loaded) => loaded.id === job.id)?.status === 'processing').map((job) => repository.put('ocrJob', job.id, job)))
+      await garbageCollectNativeImages(sortedRecords, resumedJobs)
       setReady(true)
     })().catch((error) => {
       console.error(error)
@@ -91,7 +103,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => { recordsRef.current = records }, [records])
-  useEffect(() => { ocrJobsRef.current = ocrJobs }, [ocrJobs])
 
   useEffect(() => {
     document.documentElement.dataset.theme = preferences.darkMode ? 'dark' : 'light'
@@ -136,8 +147,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     for (const record of incoming) {
       const duplicate = nextRecords.find((item) => item.fingerprint === record.fingerprint)
       if (duplicate) {
-        const knownHashes = new Set(duplicate.images.map((image) => image.sha256))
-        const combined = { ...duplicate, images: [...duplicate.images, ...record.images.filter((image) => !knownHashes.has(image.sha256))], updatedAt: new Date().toISOString(), ocrStatus: 'completed' as const }
+        const knownImages = new Set(duplicate.images.map(storedImageIdentity))
+        const combined = { ...duplicate, images: [...duplicate.images, ...record.images.filter((image) => !knownImages.has(storedImageIdentity(image)))], updatedAt: new Date().toISOString(), ocrStatus: 'completed' as const }
         await repository.put('record', combined.id, combined)
         nextRecords.splice(nextRecords.indexOf(duplicate), 1, combined)
         merged += 1
@@ -168,8 +179,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     for (const eventId of record?.linkedEventIds ?? []) {
       await repository.remove('event', eventId)
     }
-    setRecords((current) => current.filter((item) => item.id !== id))
+    const nextRecords = records.filter((item) => item.id !== id)
+    recordsRef.current = nextRecords
+    setRecords(nextRecords)
     setEvents((current) => current.filter((item) => !record?.linkedEventIds.includes(item.id)))
+    void garbageCollectNativeImages(nextRecords, ocrJobsRef.current).catch(console.warn)
   }, [records])
 
   const savePin = useCallback(async (pin: ChartPin) => {
@@ -198,13 +212,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const enqueueOcrImage = useCallback(async (image: StoredImage) => {
-    const alreadyStored = recordsRef.current.some((record) => record.images.some((stored) => stored.sha256 === image.sha256))
-    const alreadyQueued = ocrJobsRef.current.some((job) => job.status !== 'completed' && job.image.sha256 === image.sha256)
+    const alreadyStored = recordsRef.current.some((record) => record.images.some((stored) => sameStoredImage(stored, image)))
+    const alreadyQueued = ocrJobsRef.current.some((job) => job.status !== 'completed' && sameStoredImage(job.image, image))
     if (alreadyStored || alreadyQueued) return false
+    const durableImage = await persistStoredImage(image)
     const now = new Date().toISOString()
     const job: OcrQueueItem = {
       id: newId(),
-      image,
+      image: durableImage,
       status: 'queued',
       phase: 'waiting',
       progress: 0,
@@ -236,6 +251,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const nextJobs = ocrJobsRef.current.filter((job) => job.id !== id)
     ocrJobsRef.current = nextJobs
     setOcrJobs(nextJobs)
+    void garbageCollectNativeImages(recordsRef.current, nextJobs).catch(console.warn)
   }, [])
 
   const clearCompletedOcrJobs = useCallback(async () => {
@@ -244,11 +260,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const nextJobs = ocrJobsRef.current.filter((job) => job.status !== 'completed')
     ocrJobsRef.current = nextJobs
     setOcrJobs(nextJobs)
+    void garbageCollectNativeImages(recordsRef.current, nextJobs).catch(console.warn)
   }, [])
 
   const restoreBackup = useCallback(async (payload: BackupPayload) => {
+    const restoredRecords = await persistRestoredRecords(payload.records)
     await repository.replaceKind('event', payload.events.map((item) => ({ id: item.id, payload: item })))
-    await repository.replaceKind('record', payload.records.map((item) => ({ id: item.id, payload: item })))
+    await repository.replaceKind('record', restoredRecords.map((item) => ({ id: item.id, payload: item })))
     await repository.replaceKind('pin', payload.pins.map((item) => ({ id: item.id, payload: item })))
     const nextPreferences: AppPreferences = {
       ...DEFAULT_PREFERENCES,
@@ -257,9 +275,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     await repository.put('preferences', 'main', nextPreferences)
     setEvents(byDateDescending(payload.events))
-    setRecords(byDateDescending(payload.records))
+    const sortedRecords = byDateDescending(restoredRecords)
+    recordsRef.current = sortedRecords
+    setRecords(sortedRecords)
     setPins(payload.pins)
     setPreferences(nextPreferences)
+    void garbageCollectNativeImages(sortedRecords, ocrJobsRef.current).catch(console.warn)
   }, [preferences.azure.apiKey])
 
   useEffect(() => {
@@ -273,13 +294,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void (async () => {
       let attempts = 0
       try {
-        await updateOcrJob(nextJob.id, { status: 'processing', phase: 'recognizing', progress: 10, error: undefined })
-        const result = await recognizeReport(nextJob.image, azure, (attempt) => {
+        await updateOcrJob(nextJob.id, { status: 'processing', phase: 'recognizing', progress: 5, error: undefined })
+        const readyImage = await materializeStoredImage(nextJob.image)
+        const durableImage = await persistStoredImage(readyImage)
+        await updateOcrJob(nextJob.id, { image: durableImage, progress: 10 })
+        const result = await recognizeReport(readyImage, azure, (attempt) => {
           attempts = attempt
           void updateOcrJob(nextJob.id, { attempts: attempt, phase: 'recognizing', progress: Math.min(55, 18 + attempt * 10) })
         }, vocabulary)
         await updateOcrJob(nextJob.id, { attempts, phase: 'saving', progress: 78 })
-        const domainRecords = await toDomainRecords(result, [nextJob.image], attempts, vocabulary)
+        const domainRecords = await toDomainRecords(result, [durableImage], attempts, vocabulary)
         const domainEvents = domainRecords.map(eventForRecord)
         await saveImportedRecords(domainRecords, domainEvents)
         await updateOcrJob(nextJob.id, {
@@ -320,6 +344,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AppState>(() => ({
     ready,
+    startupMessage,
     storageError,
     storageLabel: repository.native ? 'SQLite（本机）' : 'IndexedDB（浏览器）',
     events,
@@ -343,7 +368,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     retryAllFailedOcrJobs,
     removeOcrJob,
     clearCompletedOcrJobs,
-  }), [ready, storageError, events, records, pins, ocrJobs, ocrQueueStats, preferences, vocabulary, saveEvent, deleteEvent, saveRecord, saveImportedRecords, deleteRecord, savePin, deletePin, savePreferences, restoreBackup, enqueueOcrImage, retryOcrJob, retryAllFailedOcrJobs, removeOcrJob, clearCompletedOcrJobs])
+  }), [ready, startupMessage, storageError, events, records, pins, ocrJobs, ocrQueueStats, preferences, vocabulary, saveEvent, deleteEvent, saveRecord, saveImportedRecords, deleteRecord, savePin, deletePin, savePreferences, restoreBackup, enqueueOcrImage, retryOcrJob, retryAllFailedOcrJobs, removeOcrJob, clearCompletedOcrJobs])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

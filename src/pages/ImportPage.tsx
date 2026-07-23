@@ -2,7 +2,9 @@ import { AlertCircle, Camera, CheckCircle2, Clock3, FileImage, FolderOpen, Refre
 import { Capacitor } from '@capacitor/core'
 import { useRef, useState } from 'react'
 import { ImagePreview } from '../components/ImagePreview'
+import { canImportAndroidFolder, folderSourceToStoredImage, pickAndroidImageFolder } from '../services/folderImport'
 import { prepareImage } from '../services/images'
+import { storedImageSource } from '../services/imageStorage'
 import { useApp } from '../store/AppContext'
 import type { OcrQueueItem } from '../types'
 
@@ -30,12 +32,27 @@ function isImageFile(file: File) {
 
 function QueueRow({ job }: { job: OcrQueueItem }) {
   const { retryOcrJob, removeOcrJob } = useApp()
+  const previewSource = storedImageSource(job.image)
   return (
     <article className={`ocr-job ${job.status}`}>
-      <ImagePreview src={job.image.dataUrl} alt={`待识别检查报告：${job.image.name}`} className="ocr-job-image" />
+      {previewSource
+        ? <ImagePreview src={previewSource} alt={`待识别检查报告：${job.image.name}`} className="ocr-job-image" />
+        : <div className="ocr-job-image ocr-job-placeholder" aria-hidden="true"><FolderOpen /></div>}
       <div className="ocr-job-body">
         <div className="ocr-job-heading">
-          <strong title={job.image.name}>{job.image.name}</strong>
+          <span className="ocr-job-filename-wrap">
+            <button
+              type="button"
+              className="ocr-job-filename"
+              aria-label={`查看完整文件名：${job.image.name}`}
+              aria-describedby={`ocr-filename-${job.id}`}
+            >
+              {job.image.name}
+            </button>
+            <span id={`ocr-filename-${job.id}`} className="ocr-job-filename-tooltip" role="tooltip">
+              {job.image.name}
+            </span>
+          </span>
           <span className={`job-status ${job.status}`}>
             {job.status === 'processing' && <span className="spinner" />}
             {job.status === 'completed' && <CheckCircle2 />}
@@ -74,11 +91,14 @@ export function ImportPage() {
   const inputRef = useRef<HTMLInputElement>(null)
   const directoryRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
-  const showDirectoryImport = !Capacitor.isNativePlatform()
+  const showWebDirectoryImport = !Capacitor.isNativePlatform()
+  const showAndroidDirectoryImport = canImportAndroidFolder()
   const [preparing, setPreparing] = useState<PreparationProgress | null>(null)
+  const [scanning, setScanning] = useState(false)
   const [message, setMessage] = useState('')
   const azureConfigured = Boolean(preferences.azure.endpoint && preferences.azure.apiKey && preferences.azure.deployment && preferences.azure.apiVersion)
   const activeCount = ocrQueueStats.queued + ocrQueueStats.processing
+  const busy = scanning || Boolean(preparing)
 
   async function selectFiles(files: FileList | null) {
     if (!files?.length) return
@@ -111,18 +131,59 @@ export function ImportPage() {
     setPreparing(null)
   }
 
+  async function selectAndroidFolder() {
+    setScanning(true)
+    setMessage('正在扫描文件夹及子文件夹…')
+    try {
+      const result = await pickAndroidImageFolder()
+      if (result.cancelled) {
+        setMessage('已取消选择文件夹。')
+        return
+      }
+      if (!result.files.length) {
+        const folder = result.folderName ? `“${result.folderName}”` : '文件夹'
+        setMessage(`${folder}及其子文件夹中没有可导入的图片。`)
+        return
+      }
+      const progress: PreparationProgress = { done: 0, total: result.files.length, added: 0, skipped: 0, failed: 0 }
+      setPreparing({ ...progress })
+      for (const source of result.files) {
+        try {
+          const added = await enqueueOcrImage(folderSourceToStoredImage(source))
+          if (added) progress.added += 1
+          else progress.skipped += 1
+        } catch {
+          progress.failed += 1
+        } finally {
+          progress.done += 1
+          setPreparing({ ...progress })
+        }
+      }
+      const folder = result.folderName ? `“${result.folderName}”` : '文件夹'
+      setMessage(`${folder}扫描到 ${result.files.length} 张图片，已加入 ${progress.added} 张${progress.skipped ? `，跳过 ${progress.skipped} 张已导入或已排队图片` : ''}${progress.failed ? `，${progress.failed} 张加入失败` : ''}。队列将在后台逐张读取和识别。`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '文件夹扫描失败，请重试。')
+    } finally {
+      setPreparing(null)
+      setScanning(false)
+    }
+  }
+
   return (
     <>
       <div className="import-layout">
         <section className="upload-card card">
           <input ref={inputRef} className="sr-only" type="file" accept="image/*" multiple onChange={(event) => { void selectFiles(event.target.files); event.target.value = '' }} />
-          {showDirectoryImport && <input ref={directoryRef} className="sr-only" type="file" accept="image/*" multiple {...directoryInputAttributes} onChange={(event) => { void selectFiles(event.target.files); event.target.value = '' }} />}
+          {showWebDirectoryImport && <input ref={directoryRef} className="sr-only" type="file" accept="image/*" multiple {...directoryInputAttributes} onChange={(event) => { void selectFiles(event.target.files); event.target.value = '' }} />}
           <input ref={cameraRef} className="sr-only" type="file" accept="image/*" capture="environment" onChange={(event) => { void selectFiles(event.target.files); event.target.value = '' }} />
           <div className="source-actions" aria-label="导入方式">
-            <button className="button secondary" disabled={Boolean(preparing)} onClick={() => cameraRef.current?.click()}><Camera />拍照导入</button>
-            <button className="button secondary" disabled={Boolean(preparing)} onClick={() => inputRef.current?.click()}><FileImage />选择图片</button>
-            {showDirectoryImport && <button className="button secondary" disabled={Boolean(preparing)} onClick={() => directoryRef.current?.click()}><FolderOpen />导入文件夹</button>}
+            <button className="button secondary" disabled={busy} onClick={() => cameraRef.current?.click()}><Camera />拍照导入</button>
+            <button className="button secondary" disabled={busy} onClick={() => inputRef.current?.click()}><FileImage />选择图片</button>
+            {showWebDirectoryImport && <button className="button secondary" disabled={busy} onClick={() => directoryRef.current?.click()}><FolderOpen />导入文件夹</button>}
+            {showAndroidDirectoryImport && <button className="button secondary" disabled={busy} onClick={() => void selectAndroidFolder()}><FolderOpen />扫描文件夹</button>}
           </div>
+
+          {scanning && !preparing && <div className="preparation-progress" role="status"><div><span className="spinner" /><strong>正在扫描文件夹及子文件夹</strong></div></div>}
 
           {preparing && <div className="preparation-progress" role="status">
             <div><span className="spinner" /><strong>正在准备文件 {preparing.done}/{preparing.total}</strong><span>{Math.round(preparing.done / preparing.total * 100)}%</span></div>

@@ -1,4 +1,5 @@
 import type { AppPreferences, BackupPayload, ChartPin, ExamRecord, TreatmentEvent } from '../types'
+import { makeRecordsPortable } from './imageStorage'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -27,14 +28,17 @@ async function deriveKey(password: string, salt: Uint8Array<ArrayBuffer>) {
 
 export async function exportBackup(events: TreatmentEvent[], records: ExamRecord[], pins: ChartPin[], preferences: AppPreferences, password: string) {
   if (password.length < 8) throw new Error('备份密码至少需要 8 位')
+  const portableRecords = await makeRecordsPortable(records)
   const payload: BackupPayload = {
     version: 1,
     exportedAt: new Date().toISOString(),
     events,
-    records,
+    records: portableRecords,
     pins,
     preferences: {
       darkMode: preferences.darkMode,
+      chartIndicatorOrder: preferences.chartIndicatorOrder,
+      chartPinnedIndicatorCodes: preferences.chartPinnedIndicatorCodes,
       azure: { ...preferences.azure, apiKey: undefined } as Omit<AppPreferences['azure'], 'apiKey'>,
     },
   }

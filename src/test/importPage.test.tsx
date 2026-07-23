@@ -1,19 +1,49 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ImportPage } from '../pages/ImportPage'
 
 const platform = vi.hoisted(() => ({ native: false }))
+const folderImport = vi.hoisted(() => ({
+  pick: vi.fn(),
+}))
+const appState = vi.hoisted(() => ({
+  ocrJobs: [] as Array<Record<string, unknown>>,
+}))
 
 vi.mock('@capacitor/core', () => ({
-  Capacitor: { isNativePlatform: () => platform.native },
+  Capacitor: {
+    isNativePlatform: () => platform.native,
+    getPlatform: () => platform.native ? 'android' : 'web',
+    convertFileSrc: (value: string) => value,
+  },
+  registerPlugin: () => ({}),
 }))
+
+vi.mock('../services/folderImport', () => ({
+  canImportAndroidFolder: () => platform.native,
+  folderSourceToStoredImage: (source: { name: string; mimeType: string; uri: string; sourceKey: string; relativePath: string }) => ({
+    id: source.sourceKey,
+    name: source.name,
+    mimeType: source.mimeType,
+    dataUrl: '',
+    sha256: '',
+    sourceUri: source.uri,
+    sourceKey: source.sourceKey,
+    relativePath: source.relativePath,
+  }),
+  pickAndroidImageFolder: folderImport.pick,
+}))
+
+const enqueueOcrImage = vi.fn()
 
 vi.mock('../store/AppContext', () => ({
   useApp: () => ({
     preferences: { azure: { endpoint: '', apiKey: '', deployment: '', apiVersion: '2024-10-21' } },
-    ocrJobs: [],
-    ocrQueueStats: { total: 0, queued: 0, processing: 0, completed: 0, failed: 0, progress: 0 },
-    enqueueOcrImage: vi.fn(),
+    ocrJobs: appState.ocrJobs,
+    ocrQueueStats: { total: appState.ocrJobs.length, queued: appState.ocrJobs.length, processing: 0, completed: 0, failed: 0, progress: 0 },
+    enqueueOcrImage,
+    retryOcrJob: vi.fn(),
+    removeOcrJob: vi.fn(),
     retryAllFailedOcrJobs: vi.fn(),
     clearCompletedOcrJobs: vi.fn(),
   }),
@@ -22,6 +52,9 @@ vi.mock('../store/AppContext', () => ({
 afterEach(() => {
   cleanup()
   platform.native = false
+  folderImport.pick.mockReset()
+  enqueueOcrImage.mockReset()
+  appState.ocrJobs = []
 })
 
 describe('import page', () => {
@@ -41,13 +74,58 @@ describe('import page', () => {
     expect(screen.getByText('还没有识别任务')).toBeInTheDocument()
   })
 
-  it('hides the redundant directory import on native apps', () => {
+  it('uses native recursive folder scanning instead of a web directory input on Android', () => {
     platform.native = true
     const { container } = render(<ImportPage />)
 
     expect(screen.getByRole('button', { name: '拍照导入' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '选择图片' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '扫描文件夹' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '导入文件夹' })).not.toBeInTheDocument()
     expect(container.querySelector('input[webkitdirectory]')).not.toBeInTheDocument()
+  })
+
+  it('queues every image returned by the Android folder scan without loading image data', async () => {
+    platform.native = true
+    enqueueOcrImage.mockResolvedValue(true)
+    folderImport.pick.mockResolvedValue({
+      cancelled: false,
+      folderName: '检查报告',
+      files: [
+        { uri: 'content://one', name: '1.jpg', mimeType: 'image/jpeg', relativePath: '1.jpg', size: 10, lastModified: 1, sourceKey: 'one' },
+        { uri: 'content://two', name: '2.jpg', mimeType: 'image/jpeg', relativePath: '子目录/2.jpg', size: 20, lastModified: 2, sourceKey: 'two' },
+      ],
+    })
+    render(<ImportPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描文件夹' }))
+
+    await waitFor(() => expect(enqueueOcrImage).toHaveBeenCalledTimes(2))
+    expect(enqueueOcrImage.mock.calls[0][0]).toMatchObject({ sourceUri: 'content://one', dataUrl: '' })
+    expect(enqueueOcrImage.mock.calls[1][0]).toMatchObject({ sourceUri: 'content://two', relativePath: '子目录/2.jpg', dataUrl: '' })
+    expect(await screen.findByText(/扫描到 2 张图片，已加入 2 张/)).toBeInTheDocument()
+  })
+
+  it('truncates long queue filenames while exposing the full name on hover, focus, or tap', () => {
+    const longName = '2026-07-23_12-28-54_e39a2c7de19f65b0683cd93e8735f348.jpg'
+    appState.ocrJobs = [{
+      id: 'long-file',
+      image: { id: 'image-1', name: longName, mimeType: 'image/jpeg', dataUrl: '', sha256: '' },
+      status: 'queued',
+      phase: 'waiting',
+      progress: 0,
+      attempts: 0,
+      resultRecordIds: [],
+      createdAt: '2026-07-23T00:00:00.000Z',
+      updatedAt: '2026-07-23T00:00:00.000Z',
+    }]
+
+    render(<ImportPage />)
+
+    const filename = screen.getByRole('button', { name: `查看完整文件名：${longName}` })
+    const tooltip = screen.getByRole('tooltip')
+    expect(filename).toHaveClass('ocr-job-filename')
+    expect(filename).toHaveAttribute('aria-describedby', tooltip.id)
+    expect(tooltip).toHaveTextContent(longName)
   })
 })
