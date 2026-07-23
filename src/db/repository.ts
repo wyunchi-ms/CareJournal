@@ -2,7 +2,7 @@ import { Capacitor } from '@capacitor/core'
 import { CapacitorSQLite, SQLiteConnection, type SQLiteDBConnection } from '@capacitor-community/sqlite'
 import Dexie, { type EntityTable } from 'dexie'
 
-export type EntityKind = 'event' | 'record' | 'pin' | 'preferences' | 'ocrJob'
+export type EntityKind = 'event' | 'chemotherapyTemplate' | 'record' | 'pin' | 'preferences' | 'ocrJob'
 
 interface StoredEntity<T = unknown> {
   key: string

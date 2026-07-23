@@ -69,12 +69,12 @@ function responseJsonSchema(vocabulary: DynamicVocabulary) {
                   rawName: { type: 'string' },
                   normalizedCode: { type: 'string', enum: indicatorCodes, description: '必须从标准指标代码列表选择；无法归类时选择 OTHER' },
                   normalizedName: { type: 'string', enum: indicatorNames, description: '必须从标准指标名称列表选择；无法归类时选择“其他指标”' },
-                  value: { type: ['number', 'null'] },
-                  rawValue: { type: 'string' },
-                  unit: { type: 'string' },
-                  referenceLow: { type: ['number', 'null'] },
-                  referenceHigh: { type: ['number', 'null'] },
-                  referenceText: { type: 'string' },
+                  value: { type: ['number', 'null'], description: '图片原始单位下的数值，只解析原文数字，禁止单位换算或倍率归一化；单位不清时使用 null' },
+                  rawValue: { type: 'string', description: '忠实保留图片中显示的原始结果文字，不改小数点、不改变倍率' },
+                  unit: { type: 'string', description: '逐字符抄录图片中的单位和倍率；禁止自行补全、替换或转换，无法确认时使用空字符串' },
+                  referenceLow: { type: ['number', 'null'], description: '图片原始单位下的参考下限，禁止换算；无法确认时使用 null' },
+                  referenceHigh: { type: ['number', 'null'], description: '图片原始单位下的参考上限，禁止换算；无法确认时使用 null' },
+                  referenceText: { type: 'string', description: '忠实保留图片中的参考范围原文及其倍率表达' },
                   abnormalFlag: { type: 'string', enum: ['high', 'low', 'critical', 'normal', 'unknown'] },
                 },
                 required: ['rawName', 'normalizedCode', 'normalizedName', 'value', 'rawValue', 'unit', 'referenceLow', 'referenceHigh', 'referenceText', 'abnormalFlag'],
@@ -99,6 +99,9 @@ const SYSTEM_PROMPT = `你是医疗检查报告的信息录入工具。只忠实
 reportType 保留报告原文，normalizedReportType 必须从 schema 的标准报告类型中选择。
 指标需保留报告原始名称；normalizedCode 和 normalizedName 必须从 schema 的标准指标词表中选择且相互对应，无法归类时分别选择 OTHER 和“其他指标”。
 医院和科室如果与已有列表匹配，必须复用列表中的写法；只有图片明确出现新名称时才返回新值。
+单位与数值必须作为不可分割的一组逐项核对。台湾与大陆报告可能对同一指标使用不同基础单位、倍率和小数位，例如 g/dL 与 g/L、10^3/μL 与 10^9/L、10^4/μL 与 10^12/L；严禁根据常识把一种单位换算成另一种，也严禁移动小数点、乘除 10 或补写常见单位。
+rawValue、unit 和 referenceText 必须忠实抄录图片原文；value、referenceLow、referenceHigh 只能解析原文在同一原始单位下直接显示的数字。单位或倍率模糊时，unit 使用空字符串，对应数值使用 null，不得猜测。
+在返回每个指标前，重新核对结果值、参考范围与单位是否来自同一行，特别检查 10 的幂次、/μL、/uL、/L、mg/dL、mmol/L、g/dL、g/L 和 %。
 异常标记只依据报告中的箭头、H/L 或参考范围，不自行判断临床意义。`
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -159,7 +162,7 @@ export async function recognizeReport(image: StoredImage, settings: AzureSetting
             {
               role: 'user',
               content: [
-                { type: 'text', text: '提取这张图片中的检查记录，并严格按指定结构返回。' },
+                { type: 'text', text: '提取这张图片中的检查记录，并严格按指定结构返回。先逐项核对原始数值、参考范围、单位和 10 的幂次，不做任何单位换算。' },
                 { type: 'image_url', image_url: { url: image.dataUrl, detail: 'high' } },
               ],
             },

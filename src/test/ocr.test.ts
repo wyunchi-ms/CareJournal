@@ -34,7 +34,7 @@ describe('recognizeReport', () => {
     const proxyBody = JSON.parse(String((request[1] as RequestInit).body)) as {
       url: string
       payload: {
-        messages: Array<{ content: string | Array<{ type: string }> }>
+        messages: Array<{ content: string | Array<{ type: string; text?: string }> }>
         response_format: {
           json_schema: {
             schema: {
@@ -45,7 +45,12 @@ describe('recognizeReport', () => {
                       normalizedReportType: { enum: string[] }
                       hospital: { description: string }
                       department: { description: string }
-                      indicators: { items: { properties: { normalizedCode: { enum: string[] }; normalizedName: { enum: string[] } } } }
+                      indicators: { items: { properties: {
+                        normalizedCode: { enum: string[] }
+                        normalizedName: { enum: string[] }
+                        unit: { description: string }
+                        value: { description: string }
+                      } } }
                     }
                   }
                 }
@@ -58,11 +63,16 @@ describe('recognizeReport', () => {
     expect(proxyBody.url).toBe('https://example-resource.openai.azure.com/openai/v1/chat/completions')
     const userContent = proxyBody.payload.messages[1].content
     expect(Array.isArray(userContent) ? userContent.filter((item) => item.type === 'image_url') : []).toHaveLength(1)
+    expect(proxyBody.payload.messages[0].content).toContain('台湾与大陆报告可能对同一指标使用不同基础单位')
+    expect(proxyBody.payload.messages[0].content).toContain('严禁移动小数点、乘除 10')
+    expect(Array.isArray(userContent) ? userContent.find((item) => item.type === 'text')?.text : '').toContain('不做任何单位换算')
     const fields = proxyBody.payload.response_format.json_schema.schema.properties.records.items.properties
     expect(fields.normalizedReportType.enum).toContain('血常规')
     expect(fields.indicators.items.properties.normalizedCode.enum).toContain('WBC')
     expect(fields.indicators.items.properties.normalizedName.enum).toContain('白细胞计数')
     expect(fields.hospital.description).toContain('协和医院')
     expect(fields.department.description).toContain('肿瘤内科')
+    expect(fields.indicators.items.properties.unit.description).toContain('禁止自行补全、替换或转换')
+    expect(fields.indicators.items.properties.value.description).toContain('禁止单位换算或倍率归一化')
   })
 })

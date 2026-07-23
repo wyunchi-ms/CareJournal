@@ -29,9 +29,80 @@ export interface TreatmentEvent {
   dosage?: string
   cycleNumber?: number
   cycleDayOne?: string
+  chemotherapyTemplateId?: string
+  chemotherapyCourseId?: string
+  chemotherapyCycleId?: string
+  administrationDay?: number
+  plannedStartDate?: string
   notes?: string
   tags: string[]
   linkedRecordIds: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ChemotherapyMedication {
+  id: string
+  name: string
+  dose?: string
+  unit?: string
+  administration?: string
+  notes?: string
+}
+
+export const CHEMOTHERAPY_DOSE_UNITS = [
+  { value: 'mg/m²', label: 'mg/m²（按体表面积）' },
+  { value: 'g/m²', label: 'g/m²（按体表面积）' },
+  { value: 'μg/m²', label: 'μg/m²（按体表面积）' },
+  { value: 'IU/m²', label: 'IU/m²（按体表面积）' },
+  { value: 'mg/kg', label: 'mg/kg（按体重）' },
+  { value: 'μg/kg', label: 'μg/kg（按体重）' },
+  { value: 'IU/kg', label: 'IU/kg（按体重）' },
+  { value: 'mg', label: 'mg（总剂量）' },
+  { value: 'g', label: 'g（总剂量）' },
+  { value: 'μg', label: 'μg（总剂量）' },
+  { value: 'IU', label: 'IU（总剂量）' },
+  { value: 'AUC', label: 'AUC（目标暴露量）' },
+] as const
+
+export const TREATMENT_PLAN_TYPES = {
+  chemotherapy: { label: '化疗', description: '按周期维护每日用药和剂量', color: '#91462f', usesMedication: true },
+  radiotherapy: { label: '放疗', description: '维护放疗周期和每日安排', color: '#b97818', usesMedication: false },
+  maintenance: { label: '维持治疗', description: '记录长期或周期性维持用药', color: '#567a5b', usesMedication: true },
+  targeted: { label: '靶向治疗', description: '记录靶向药物和周期安排', color: '#39776f', usesMedication: true },
+  immunotherapy: { label: '免疫治疗', description: '记录免疫治疗药物和周期安排', color: '#46738a', usesMedication: true },
+  supportive: { label: '支持治疗', description: '记录补液、升白等支持治疗', color: '#796a57', usesMedication: true },
+  other: { label: '其他方案', description: '记录其他周期性治疗安排', color: '#766b67', usesMedication: false },
+} as const
+
+export type TreatmentPlanType = keyof typeof TREATMENT_PLAN_TYPES
+
+export interface ChemotherapyTemplateDayPlan {
+  id: string
+  day: number
+  radiotherapySite?: string
+  radiotherapyDoseGy?: string
+  medicationItems?: ChemotherapyMedication[]
+  medications?: string
+  dosage?: string
+  notes?: string
+}
+
+export interface ChemotherapyTemplate {
+  id: string
+  templateType?: TreatmentPlanType
+  sortOrder?: number
+  name: string
+  regimen?: string
+  medications?: string
+  dosage?: string
+  cycleLengthDays: number
+  administrationDays: number[]
+  dayPlans?: ChemotherapyTemplateDayPlan[]
+  defaultCycleCount: number
+  hospital?: string
+  department?: string
+  notes?: string
   createdAt: string
   updatedAt: string
 }
@@ -136,6 +207,7 @@ export interface BackupPayload {
   version: 1
   exportedAt: string
   events: TreatmentEvent[]
+  chemotherapyTemplates?: ChemotherapyTemplate[]
   records: ExamRecord[]
   pins: ChartPin[]
   preferences: Omit<AppPreferences, 'azure'> & { azure: Omit<AzureSettings, 'apiKey'> }
@@ -159,4 +231,11 @@ export const DEFAULT_VOCABULARY: DynamicVocabulary = {
   departments: [],
 }
 
-export const newId = () => crypto.randomUUID()
+export const newId = () => {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}

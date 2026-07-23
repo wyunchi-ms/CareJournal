@@ -1,4 +1,4 @@
-import type { AppPreferences, BackupPayload, ChartPin, ExamRecord, TreatmentEvent } from '../types'
+import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, ExamRecord, TreatmentEvent } from '../types'
 import { makeRecordsPortable } from './imageStorage'
 
 const encoder = new TextEncoder()
@@ -26,13 +26,14 @@ async function deriveKey(password: string, salt: Uint8Array<ArrayBuffer>) {
   )
 }
 
-export async function exportBackup(events: TreatmentEvent[], records: ExamRecord[], pins: ChartPin[], preferences: AppPreferences, password: string) {
+export async function exportBackup(events: TreatmentEvent[], chemotherapyTemplates: ChemotherapyTemplate[], records: ExamRecord[], pins: ChartPin[], preferences: AppPreferences, password: string) {
   if (password.length < 8) throw new Error('备份密码至少需要 8 位')
   const portableRecords = await makeRecordsPortable(records)
   const payload: BackupPayload = {
     version: 1,
     exportedAt: new Date().toISOString(),
     events,
+    chemotherapyTemplates,
     records: portableRecords,
     pins,
     preferences: {

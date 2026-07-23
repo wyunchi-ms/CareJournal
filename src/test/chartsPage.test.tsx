@@ -108,4 +108,29 @@ describe('charts page indicator selection', () => {
     expect(screen.getByTestId('chart')).toHaveAttribute('data-x-axis-min', '0')
     expect(JSON.parse(screen.getByTestId('chart').getAttribute('data-series-data') ?? '[]')).toEqual([[4, 4.1]])
   })
+
+  it('treats multiple administration events in one generated cycle as one chart series', () => {
+    const common = {
+      type: 'chemotherapy' as const,
+      allDay: true,
+      cycleNumber: 1,
+      cycleDayOne: '2026-07-01',
+      chemotherapyCourseId: 'course-1',
+      chemotherapyCycleId: 'generated-cycle-1',
+      tags: [],
+      linkedRecordIds: [],
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    }
+    events = [
+      { ...common, id: 'd1', title: '第 1 周期 D1 化疗', startDate: '2026-07-01', endDate: '2026-07-01', administrationDay: 1 },
+      { ...common, id: 'd8', title: '第 1 周期 D8 化疗', startDate: '2026-07-08', endDate: '2026-07-08', administrationDay: 8 },
+    ]
+    render(<ChartsPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: '化疗周期叠加' }))
+    expect(screen.getByTestId('chart')).toHaveAttribute('data-series-count', '1')
+    fireEvent.click(screen.getByRole('button', { name: '叠加周期：第 1 周期' }))
+    expect(screen.getByRole('checkbox', { name: /第 1 周期/ })).toHaveTextContent('2 次给药')
+  })
 })

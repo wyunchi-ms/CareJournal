@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CalendarPage } from '../pages/CalendarPage'
 import type { TreatmentEvent } from '../types'
 
+const saveEvents = vi.fn(async () => undefined)
+
 const event = (id: string, type: TreatmentEvent['type']): TreatmentEvent => ({
   id,
   type,
@@ -20,11 +22,34 @@ const event = (id: string, type: TreatmentEvent['type']): TreatmentEvent => ({
 vi.mock('../store/AppContext', () => ({
   useApp: () => ({
     events: [event('1', 'chemotherapy'), event('2', 'chemotherapy'), event('3', 'surgery')],
+    chemotherapyTemplates: [{
+      id: 'template-1',
+      templateType: 'chemotherapy',
+      name: '21 天测试方案',
+      cycleLengthDays: 21,
+      administrationDays: [1, 8],
+      defaultCycleCount: 2,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    }, {
+      id: 'template-2',
+      templateType: 'radiotherapy',
+      name: '放疗模板',
+      cycleLengthDays: 7,
+      administrationDays: [1, 2, 3, 4, 5],
+      defaultCycleCount: 1,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    }],
     vocabulary: { hospitals: [], departments: [] },
+    saveEvents,
   }),
 }))
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  saveEvents.mockClear()
+})
 
 describe('calendar event filter', () => {
   it('shows the total count for every event type', () => {
@@ -55,6 +80,7 @@ describe('calendar event filter', () => {
     expect(toolbar).toContainElement(screen.getByRole('button', { name: '上个月' }))
     expect(toolbar).toContainElement(filterButton)
     expect(toolbar).toContainElement(createButton)
+    expect(within(calendar).queryByRole('button', { name: '管理化疗方案' })).not.toBeInTheDocument()
     expect(filterButton.querySelector('.choice-picker-summary')).not.toBeInTheDocument()
     expect(within(createButton).queryByText('新建事件')).not.toBeInTheDocument()
     expect(calendar.compareDocumentPosition(agenda) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -79,5 +105,24 @@ describe('calendar event filter', () => {
     fireEvent.touchStart(calendar, { touches: [{ clientX: 180, clientY: 120 }] })
     fireEvent.touchEnd(calendar, { changedTouches: [{ clientX: 190, clientY: 260 }] })
     expect(getMonthLabel()).toHaveTextContent(initialMonth!)
+  })
+
+  it('creates all cycle administration events from a chemotherapy template', async () => {
+    render(<MemoryRouter><CalendarPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: '新建事件' }))
+
+    expect(screen.getByRole('button', { name: /创建方式：按模板创建/ })).toBeInTheDocument()
+    expect(screen.getByText('将创建 4 个给药事件')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /化疗模板：21 天测试方案/ }))
+    expect(screen.queryByRole('radio', { name: /放疗模板/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('radio', { name: /21 天测试方案/ }))
+    fireEvent.click(screen.getByRole('button', { name: '创建周期事件' }))
+
+    expect(saveEvents).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ cycleNumber: 1, administrationDay: 1 }),
+      expect.objectContaining({ cycleNumber: 1, administrationDay: 8 }),
+      expect.objectContaining({ cycleNumber: 2, administrationDay: 1 }),
+      expect.objectContaining({ cycleNumber: 2, administrationDay: 8 }),
+    ]))
   })
 })

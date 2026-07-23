@@ -155,7 +155,8 @@ describe('record type filter', () => {
   it('moves import out of the main navigation and keeps it on the records page', () => {
     render(<MemoryRouter initialEntries={['/records']}><App /></MemoryRouter>)
     const navigation = screen.getByRole('navigation', { name: '主导航' })
-    expect(within(navigation).getAllByRole('link')).toHaveLength(4)
+    expect(within(navigation).getAllByRole('link')).toHaveLength(5)
+    expect(within(navigation).getByRole('link', { name: '方案' })).toHaveAttribute('href', '/chemotherapy-templates')
     expect(within(navigation).queryByRole('link', { name: '导入' })).not.toBeInTheDocument()
     expect(screen.getByRole('main').querySelector('a[href="/import"]')).toBeInTheDocument()
   })
@@ -175,5 +176,9 @@ describe('record type filter', () => {
     expect(main.querySelector('.page-transition')).toHaveClass('page-transition-forward')
     expect(selection).toHaveClass('nav-selection-1')
     expect(navigation.querySelectorAll('.nav-item.active')).toHaveLength(1)
+
+    fireEvent.click(within(navigation).getByRole('link', { name: '方案' }))
+    expect(main.querySelector('.page-transition')).toHaveClass('page-transition-forward')
+    expect(selection).toHaveClass('nav-selection-2')
   })
 })

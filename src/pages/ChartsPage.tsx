@@ -6,6 +6,7 @@ import { ChoicePicker } from '../components/ChoicePicker'
 import { IndicatorPicker } from '../components/IndicatorPicker'
 import { Modal } from '../components/Modal'
 import { sortChartIndicators } from '../services/chartIndicators'
+import { groupChemotherapyCycles } from '../services/chemotherapy'
 import { useApp } from '../store/AppContext'
 import { EVENT_TYPES, newId, type ChartPin } from '../types'
 
@@ -28,7 +29,7 @@ export function ChartsPage() {
     })
     return sortChartIndicators([...map.values()], indicatorOrder, pinnedIndicatorCodes)
   }, [records, indicatorOrder, pinnedIndicatorCodes])
-  const chemoEvents = useMemo(() => events.filter((event) => event.type === 'chemotherapy').sort((a, b) => a.startDate.localeCompare(b.startDate)), [events])
+  const chemotherapyCycles = useMemo(() => groupChemotherapyCycles(events), [events])
   const [mode, setMode] = useState<'trend' | 'cycle'>('trend')
   const [selectedCode, setSelectedCode] = useState('')
   const [selectedCycles, setSelectedCycles] = useState<string[]>([])
@@ -36,7 +37,7 @@ export function ChartsPage() {
   const [savedQuery, setSavedQuery] = useState('')
 
   const currentCode = indicators.some((item) => item.code === selectedCode) ? selectedCode : indicators[0]?.code ?? ''
-  const currentCycles = selectedCycles.length ? selectedCycles : chemoEvents.map((event) => event.id)
+  const currentCycles = selectedCycles.length ? selectedCycles : chemotherapyCycles.map((cycle) => cycle.id)
   const currentIndicator = indicators.find((item) => item.code === currentCode)
   const currentIndicatorName = currentIndicator?.name || currentCode || '检查指标'
   const currentChartTitle = mode === 'trend'
@@ -89,17 +90,18 @@ export function ChartsPage() {
       grid: { left: 48, right: 28, top: 52, bottom: 48 },
       xAxis: { type: 'value', name: '相对 Day 1（天）', min: 0, minInterval: 1, axisLabel: { formatter: (value: number) => value === 0 ? 'D1' : `D+${value}` } },
       yAxis: { type: 'value', name: meta?.unit ?? '', scale: true, splitLine: { lineStyle: { color: '#dbe6e9' } } },
-      series: chemoEvents.filter((event) => currentCycles.includes(event.id)).map((event, index) => {
-        const dayOne = parseISO(event.cycleDayOne || event.startDate)
-        const nextCycle = chemoEvents[index + 1]
-        const maxDay = nextCycle ? differenceInCalendarDays(parseISO(nextCycle.cycleDayOne || nextCycle.startDate), dayOne) - 1 : 42
+      series: chemotherapyCycles.filter((cycle) => currentCycles.includes(cycle.id)).map((cycle) => {
+        const dayOne = parseISO(cycle.dayOne)
+        const cycleIndex = chemotherapyCycles.findIndex((item) => item.id === cycle.id)
+        const nextCycle = chemotherapyCycles[cycleIndex + 1]
+        const maxDay = nextCycle ? differenceInCalendarDays(parseISO(nextCycle.dayOne), dayOne) - 1 : 42
         const data = records.flatMap((record) => record.indicators.filter((item) => item.normalizedCode === code && item.value !== null).map((item) => ({ day: differenceInCalendarDays(parseISO(record.examDate), dayOne), value: item.value }))).filter((item) => item.day >= 0 && item.day <= maxDay).sort((a, b) => a.day - b.day).map((item) => [item.day, item.value])
         const values = data.map((item) => item[1] as number)
         const min = values.length ? Math.min(...values) : null
-        return { name: event.cycleNumber ? `第 ${event.cycleNumber} 周期` : event.title, type: 'line', symbolSize: 8, data, markPoint: min === null ? undefined : { symbolSize: 42, data: [{ type: 'min', name: '最低点' }] } }
+        return { name: cycle.title, type: 'line', symbolSize: 8, data, markPoint: min === null ? undefined : { symbolSize: 42, data: [{ type: 'min', name: '最低点' }] } }
       }),
     }
-  }, [currentCode, currentCycles, chemoEvents, currentIndicator, records])
+  }, [currentCode, currentCycles, chemotherapyCycles, currentIndicator, records])
 
   function persistIndicatorLayout(nextOrder: string[], nextPinned: string[]) {
     void savePreferences({ ...preferences, chartIndicatorOrder: nextOrder, chartPinnedIndicatorCodes: nextPinned })
@@ -168,7 +170,7 @@ export function ChartsPage() {
           onPinnedChange={(nextPinned) => persistIndicatorLayout(indicatorOrder, nextPinned)}
           onOrderChange={persistIndicatorLayout}
         />
-        {mode === 'cycle' && <ChoicePicker label="叠加周期" multiple allLabel="全部周期" options={chemoEvents.map((event) => ({ value: event.id, label: event.cycleNumber ? `第 ${event.cycleNumber} 周期` : event.title, description: `Day 1：${event.cycleDayOne || event.startDate}` }))} value={currentCycles} onChange={(value) => setSelectedCycles(value as string[])} emptyText="暂无化疗周期" />}
+        {mode === 'cycle' && <ChoicePicker label="叠加周期" multiple allLabel="全部周期" options={chemotherapyCycles.map((cycle) => ({ value: cycle.id, label: cycle.title, description: `Day 1：${cycle.dayOne}${cycle.events.length > 1 ? ` · ${cycle.events.length} 次给药` : ''}` }))} value={currentCycles} onChange={(value) => setSelectedCycles(value as string[])} emptyText="暂无化疗周期" />}
       </div>
     </section>
     <section className="chart-card card">
@@ -189,7 +191,7 @@ export function ChartsPage() {
           {currentPin ? <BookmarkCheck /> : <Bookmark />}
         </button>
       </div>
-      {indicators.length === 0 ? <div className="empty-state"><ChartNoAxesCombined /><h3>还没有可绘制的指标</h3><p>导入含数值指标的检查报告后，趋势图会自动出现。</p></div> : mode === 'cycle' && chemoEvents.length === 0 ? <div className="empty-state"><RotateCcw /><h3>还没有化疗周期</h3><p>先在病程日历中创建化疗事件并设置 Day 1。</p></div> : <ReactECharts option={mode === 'trend' ? trendOption : cycleOption} style={{ height: 460 }} notMerge />}
+      {indicators.length === 0 ? <div className="empty-state"><ChartNoAxesCombined /><h3>还没有可绘制的指标</h3><p>导入含数值指标的检查报告后，趋势图会自动出现。</p></div> : mode === 'cycle' && chemotherapyCycles.length === 0 ? <div className="empty-state"><RotateCcw /><h3>还没有化疗周期</h3><p>先在病程日历中创建化疗事件并设置 Day 1。</p></div> : <ReactECharts option={mode === 'trend' ? trendOption : cycleOption} style={{ height: 460 }} notMerge />}
     </section>
   </>
 }

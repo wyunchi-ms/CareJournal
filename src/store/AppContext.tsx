@@ -5,7 +5,7 @@ import { materializeStoredImage } from '../services/folderImport'
 import { sameStoredImage, storedImageIdentity } from '../services/images'
 import { garbageCollectNativeImages, migrateLegacyNativeImages, persistRestoredRecords, persistStoredImage } from '../services/imageStorage'
 import { buildVocabulary } from '../services/vocabulary'
-import type { AppPreferences, BackupPayload, ChartPin, DynamicVocabulary, ExamRecord, OcrQueueItem, StoredImage, TreatmentEvent } from '../types'
+import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, DynamicVocabulary, ExamRecord, OcrQueueItem, StoredImage, TreatmentEvent } from '../types'
 import { DEFAULT_PREFERENCES, newId } from '../types'
 
 interface OcrQueueStats {
@@ -23,6 +23,7 @@ interface AppState {
   storageError: string | null
   storageLabel: string
   events: TreatmentEvent[]
+  chemotherapyTemplates: ChemotherapyTemplate[]
   records: ExamRecord[]
   pins: ChartPin[]
   ocrJobs: OcrQueueItem[]
@@ -30,7 +31,11 @@ interface AppState {
   preferences: AppPreferences
   vocabulary: DynamicVocabulary
   saveEvent: (event: TreatmentEvent) => Promise<void>
+  saveEvents: (events: TreatmentEvent[]) => Promise<void>
   deleteEvent: (id: string) => Promise<void>
+  saveChemotherapyTemplate: (template: ChemotherapyTemplate) => Promise<void>
+  reorderChemotherapyTemplates: (orderedIds: string[]) => Promise<void>
+  deleteChemotherapyTemplate: (id: string) => Promise<void>
   saveRecord: (record: ExamRecord) => Promise<void>
   saveImportedRecords: (records: ExamRecord[], events: TreatmentEvent[]) => Promise<{ added: number; merged: number }>
   deleteRecord: (id: string) => Promise<void>
@@ -50,11 +55,21 @@ const AppContext = createContext<AppState | null>(null)
 const byDateDescending = <T extends { updatedAt?: string; createdAt?: string }>(items: T[]) =>
   [...items].sort((a, b) => (b.updatedAt ?? b.createdAt ?? '').localeCompare(a.updatedAt ?? a.createdAt ?? ''))
 
+const sortTreatmentTemplates = (items: ChemotherapyTemplate[]) =>
+  [...items].sort((a, b) => {
+    const aHasOrder = Number.isFinite(a.sortOrder)
+    const bHasOrder = Number.isFinite(b.sortOrder)
+    if (aHasOrder && bHasOrder) return (a.sortOrder as number) - (b.sortOrder as number)
+    if (aHasOrder !== bHasOrder) return aHasOrder ? -1 : 1
+    return (b.updatedAt ?? b.createdAt ?? '').localeCompare(a.updatedAt ?? a.createdAt ?? '')
+  })
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false)
   const [startupMessage, setStartupMessage] = useState('正在打开本地病程库…')
   const [storageError, setStorageError] = useState<string | null>(null)
   const [events, setEvents] = useState<TreatmentEvent[]>([])
+  const [chemotherapyTemplates, setChemotherapyTemplates] = useState<ChemotherapyTemplate[]>([])
   const [records, setRecords] = useState<ExamRecord[]>([])
   const [pins, setPins] = useState<ChartPin[]>([])
   const [ocrJobs, setOcrJobs] = useState<OcrQueueItem[]>([])
@@ -62,7 +77,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const recordsRef = useRef<ExamRecord[]>([])
   const ocrJobsRef = useRef<OcrQueueItem[]>([])
   const processingOcrRef = useRef(false)
-  const vocabulary = useMemo(() => buildVocabulary([...events, ...records]), [events, records])
+  const vocabulary = useMemo(() => buildVocabulary([...events, ...records, ...chemotherapyTemplates]), [events, records, chemotherapyTemplates])
 
   useEffect(() => {
     let active = true
@@ -74,8 +89,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       setStartupMessage('正在读取本地病程记录…')
       await repository.removePersistedCompletedOcrJobs()
-      const [loadedEvents, loadedRecords, loadedPins, loadedPreferences, loadedOcrJobs] = await Promise.all([
+      const [loadedEvents, loadedTemplates, loadedRecords, loadedPins, loadedPreferences, loadedOcrJobs] = await Promise.all([
         repository.list<TreatmentEvent>('event'),
+        repository.list<ChemotherapyTemplate>('chemotherapyTemplate'),
         repository.list<ExamRecord>('record'),
         repository.list<ChartPin>('pin'),
         repository.list<AppPreferences>('preferences'),
@@ -84,6 +100,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!active) return
       setStorageError(null)
       setEvents(byDateDescending(loadedEvents))
+      setChemotherapyTemplates(sortTreatmentTemplates(loadedTemplates))
       const sortedRecords = byDateDescending(loadedRecords)
       recordsRef.current = sortedRecords
       setRecords(sortedRecords)
@@ -113,9 +130,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setEvents((current) => byDateDescending([...current.filter((item) => item.id !== event.id), event]))
   }, [])
 
+  const saveEvents = useCallback(async (nextEvents: TreatmentEvent[]) => {
+    for (const event of nextEvents) await repository.put('event', event.id, event)
+    const updatedById = new Map(nextEvents.map((event) => [event.id, event]))
+    setEvents((current) => byDateDescending([
+      ...current.filter((event) => !updatedById.has(event.id)),
+      ...nextEvents,
+    ]))
+  }, [])
+
   const deleteEvent = useCallback(async (id: string) => {
     await repository.remove('event', id)
     setEvents((current) => current.filter((item) => item.id !== id))
+  }, [])
+
+  const saveChemotherapyTemplate = useCallback(async (template: ChemotherapyTemplate) => {
+    await repository.put('chemotherapyTemplate', template.id, template)
+    setChemotherapyTemplates((current) => sortTreatmentTemplates([
+      ...current.filter((item) => item.id !== template.id),
+      template,
+    ]))
+  }, [])
+
+  const reorderChemotherapyTemplates = useCallback(async (orderedIds: string[]) => {
+    const orderById = new Map(orderedIds.map((id, index) => [id, index]))
+    const reordered = sortTreatmentTemplates(chemotherapyTemplates.map((template) => ({
+      ...template,
+      sortOrder: orderById.get(template.id) ?? template.sortOrder,
+    })))
+    await Promise.all(reordered.map((template) => repository.put('chemotherapyTemplate', template.id, template)))
+    setChemotherapyTemplates(reordered)
+  }, [chemotherapyTemplates])
+
+  const deleteChemotherapyTemplate = useCallback(async (id: string) => {
+    await repository.remove('chemotherapyTemplate', id)
+    setChemotherapyTemplates((current) => current.filter((item) => item.id !== id))
   }, [])
 
   const saveRecord = useCallback(async (record: ExamRecord) => {
@@ -266,6 +315,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const restoreBackup = useCallback(async (payload: BackupPayload) => {
     const restoredRecords = await persistRestoredRecords(payload.records)
     await repository.replaceKind('event', payload.events.map((item) => ({ id: item.id, payload: item })))
+    await repository.replaceKind('chemotherapyTemplate', (payload.chemotherapyTemplates ?? []).map((item) => ({ id: item.id, payload: item })))
     await repository.replaceKind('record', restoredRecords.map((item) => ({ id: item.id, payload: item })))
     await repository.replaceKind('pin', payload.pins.map((item) => ({ id: item.id, payload: item })))
     const nextPreferences: AppPreferences = {
@@ -275,6 +325,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     await repository.put('preferences', 'main', nextPreferences)
     setEvents(byDateDescending(payload.events))
+    setChemotherapyTemplates(sortTreatmentTemplates(payload.chemotherapyTemplates ?? []))
     const sortedRecords = byDateDescending(restoredRecords)
     recordsRef.current = sortedRecords
     setRecords(sortedRecords)
@@ -348,6 +399,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     storageError,
     storageLabel: repository.native ? 'SQLite（本机）' : 'IndexedDB（浏览器）',
     events,
+    chemotherapyTemplates,
     records,
     pins,
     ocrJobs,
@@ -355,7 +407,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     preferences,
     vocabulary,
     saveEvent,
+    saveEvents,
     deleteEvent,
+    saveChemotherapyTemplate,
+    reorderChemotherapyTemplates,
+    deleteChemotherapyTemplate,
     saveRecord,
     saveImportedRecords,
     deleteRecord,
@@ -368,7 +424,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     retryAllFailedOcrJobs,
     removeOcrJob,
     clearCompletedOcrJobs,
-  }), [ready, startupMessage, storageError, events, records, pins, ocrJobs, ocrQueueStats, preferences, vocabulary, saveEvent, deleteEvent, saveRecord, saveImportedRecords, deleteRecord, savePin, deletePin, savePreferences, restoreBackup, enqueueOcrImage, retryOcrJob, retryAllFailedOcrJobs, removeOcrJob, clearCompletedOcrJobs])
+  }), [ready, startupMessage, storageError, events, chemotherapyTemplates, records, pins, ocrJobs, ocrQueueStats, preferences, vocabulary, saveEvent, saveEvents, deleteEvent, saveChemotherapyTemplate, reorderChemotherapyTemplates, deleteChemotherapyTemplate, saveRecord, saveImportedRecords, deleteRecord, savePin, deletePin, savePreferences, restoreBackup, enqueueOcrImage, retryOcrJob, retryAllFailedOcrJobs, removeOcrJob, clearCompletedOcrJobs])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

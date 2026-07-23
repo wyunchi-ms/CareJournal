@@ -1,10 +1,11 @@
-import { Activity, AlertTriangle, CalendarDays, ChartNoAxesCombined, ListChecks, Settings } from 'lucide-react'
+import { Activity, AlertTriangle, CalendarDays, ChartNoAxesCombined, ListChecks, Pill, Settings } from 'lucide-react'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
 import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useApp } from './store/AppContext'
 import { CalendarPage } from './pages/CalendarPage'
+import { ChemotherapyTemplatesPage } from './pages/ChemotherapyTemplatesPage'
 import { ChartsPage } from './pages/ChartsPage'
 import { ImportPage } from './pages/ImportPage'
 import { RecordsPage } from './pages/RecordsPage'
@@ -13,6 +14,7 @@ import { SettingsPage } from './pages/SettingsPage'
 const navItems = [
   { path: '/calendar', label: '病程', icon: CalendarDays },
   { path: '/records', label: '检查', icon: ListChecks },
+  { path: '/chemotherapy-templates', label: '方案', icon: Pill },
   { path: '/charts', label: '图表', icon: ChartNoAxesCombined },
   { path: '/settings', label: '设置', icon: Settings },
 ]
@@ -120,6 +122,7 @@ export default function App() {
         >
           <Routes location={location}>
             <Route path="/calendar" element={<CalendarPage />} />
+            <Route path="/chemotherapy-templates" element={<ChemotherapyTemplatesPage />} />
             <Route path="/records" element={<RecordsPage />} />
             <Route path="/import" element={<ImportPage />} />
             <Route path="/charts" element={<ChartsPage />} />
