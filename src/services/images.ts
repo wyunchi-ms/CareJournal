@@ -47,9 +47,27 @@ export async function prepareImage(file: File): Promise<StoredImage> {
 }
 
 export function storedImageIdentity(image: StoredImage) {
-  return image.sourceKey ? `source:${image.sourceKey}` : `sha256:${image.sha256}`
+  if (image.sha256) return `sha256:${image.sha256}`
+  if (image.sourceKey) return `source:${image.sourceKey}`
+  if (image.storagePath) return `storage:${image.storagePath}`
+  if (image.localUri) return `uri:${image.localUri}`
+  return `id:${image.id}`
 }
 
 export function sameStoredImage(first: StoredImage, second: StoredImage) {
-  return storedImageIdentity(first) === storedImageIdentity(second)
+  if (first.sha256 && second.sha256 && first.sha256 === second.sha256) return true
+  if (first.sourceKey && second.sourceKey && first.sourceKey === second.sourceKey) return true
+  if (first.storagePath && second.storagePath && first.storagePath === second.storagePath) return true
+  if (first.localUri && second.localUri && first.localUri === second.localUri) return true
+  const firstHasStableIdentity = Boolean(first.sha256 || first.sourceKey || first.storagePath || first.localUri)
+  const secondHasStableIdentity = Boolean(second.sha256 || second.sourceKey || second.storagePath || second.localUri)
+  return !firstHasStableIdentity && !secondHasStableIdentity && Boolean(first.id && second.id && first.id === second.id)
+}
+
+export function deduplicateStoredImages(images: StoredImage[]) {
+  const unique: StoredImage[] = []
+  for (const image of images) {
+    if (!unique.some((known) => sameStoredImage(known, image))) unique.push(image)
+  }
+  return unique
 }

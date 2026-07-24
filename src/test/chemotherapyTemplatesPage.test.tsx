@@ -1,6 +1,6 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ChemotherapyTemplateSection } from '../components/ChemotherapyTemplateSection'
+import { ChemotherapyTemplatesPage } from '../pages/ChemotherapyTemplatesPage'
 import type { ChemotherapyTemplate } from '../types'
 
 const saveChemotherapyTemplate = vi.fn(async () => undefined)
@@ -30,7 +30,7 @@ afterEach(() => {
 
 describe('chemotherapy template daily medication editor', () => {
   it('creates collapsible consecutive days and copies the previous day medication', () => {
-    render(<ChemotherapyTemplateSection />)
+    render(<ChemotherapyTemplatesPage />)
     fireEvent.click(screen.getByRole('button', { name: /创建第一个治疗方案/ }))
     fireEvent.change(screen.getByRole('spinbutton', { name: '本周期给药天数' }), { target: { value: '3' } })
 
@@ -59,7 +59,7 @@ describe('chemotherapy template daily medication editor', () => {
   })
 
   it('saves medication and dosage independently for every treatment day', async () => {
-    render(<ChemotherapyTemplateSection />)
+    render(<ChemotherapyTemplatesPage />)
     fireEvent.click(screen.getByRole('button', { name: /创建第一个治疗方案/ }))
     fireEvent.change(screen.getByRole('textbox', { name: '方案名称' }), { target: { value: '三天不同用药方案' } })
     fireEvent.change(screen.getByRole('spinbutton', { name: '本周期给药天数' }), { target: { value: '2' } })
@@ -92,7 +92,7 @@ describe('chemotherapy template daily medication editor', () => {
   })
 
   it('creates a radiotherapy plan with daily arrangements instead of medication rows', async () => {
-    render(<ChemotherapyTemplateSection />)
+    render(<ChemotherapyTemplatesPage />)
     fireEvent.click(screen.getByRole('button', { name: /创建第一个治疗方案/ }))
     fireEvent.click(screen.getByRole('button', { name: '方案类型：化疗' }))
     fireEvent.click(screen.getByRole('radio', { name: /放疗.*维护放疗周期和每日安排/ }))
@@ -131,7 +131,7 @@ describe('chemotherapy template daily medication editor', () => {
       createdAt: '2026-07-01T00:00:00.000Z',
       updatedAt: '2026-07-01T00:00:00.000Z',
     }]
-    render(<ChemotherapyTemplateSection />)
+    render(<ChemotherapyTemplatesPage />)
 
     expect(screen.getByText('维持治疗')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '删除方案 维持方案' }))
@@ -145,25 +145,36 @@ describe('chemotherapy template daily medication editor', () => {
     await waitFor(() => expect(deleteChemotherapyTemplate).toHaveBeenCalledWith('template-1'))
   })
 
-  it('opens editing from the treatment plan card without a redundant edit icon', () => {
+  it('opens a compact medication preview before entering edit mode', () => {
     chemotherapyTemplates = [{
       id: 'template-edit',
       templateType: 'chemotherapy',
       name: 'ICE',
       cycleLengthDays: 21,
-      administrationDays: [1],
-      dayPlans: [{ id: 'day-1', day: 1, medicationItems: [{ id: 'med-1', name: '卡铂' }] }],
+      administrationDays: [1, 2],
+      dayPlans: [
+        { id: 'day-1', day: 1, medicationItems: [{ id: 'med-1', name: '卡铂', dose: '500', unit: 'mg', administration: '静滴' }] },
+        { id: 'day-2', day: 2, medicationItems: [{ id: 'med-2', name: '依托泊苷', dose: '100', unit: 'mg/m²', notes: '注意补液' }] },
+      ],
       defaultCycleCount: 6,
       createdAt: '2026-07-01T00:00:00.000Z',
       updatedAt: '2026-07-01T00:00:00.000Z',
     }]
-    render(<ChemotherapyTemplateSection />)
+    render(<ChemotherapyTemplatesPage />)
 
     expect(screen.queryByRole('button', { name: '编辑方案 ICE' })).not.toBeInTheDocument()
     const card = screen.getByText('ICE').closest('article')!
     expect(card.querySelectorAll('.template-row-actions .icon-button')).toHaveLength(2)
     fireEvent.click(screen.getByText('ICE').closest('button')!)
-    expect(screen.getByRole('dialog', { name: '编辑治疗方案' })).toBeInTheDocument()
+    const preview = screen.getByRole('dialog', { name: '治疗方案预览' })
+    expect(within(preview).queryByRole('textbox', { name: '方案名称' })).not.toBeInTheDocument()
+    expect(within(preview).getByRole('table', { name: 'D1 用药表' })).toHaveTextContent('卡铂500 mg静滴')
+    expect(within(preview).getByRole('table', { name: 'D2 用药表' })).toHaveTextContent('依托泊苷100 mg/m²注意补液')
+
+    fireEvent.click(within(preview).getByRole('button', { name: '编辑方案' }))
+    const editor = screen.getByRole('dialog', { name: '编辑治疗方案' })
+    expect(within(editor).getByRole('textbox', { name: '方案名称' })).toHaveValue('ICE')
+    expect(within(editor).queryByRole('button', { name: '取消' })).not.toBeInTheDocument()
   })
 
   it('enters reorder mode after a long press and saves the dragged order', async () => {
@@ -185,7 +196,7 @@ describe('chemotherapy template daily medication editor', () => {
       createdAt: '2026-07-01T00:00:00.000Z',
       updatedAt: '2026-07-01T00:00:00.000Z',
     }]
-    render(<ChemotherapyTemplateSection />)
+    render(<ChemotherapyTemplatesPage />)
 
     const firstPlan = screen.getByText('方案 A').closest('button')!
     fireEvent.pointerDown(firstPlan, { button: 0, clientX: 20, clientY: 20 })
@@ -216,7 +227,7 @@ describe('chemotherapy template daily medication editor', () => {
       createdAt: '2026-07-01T00:00:00.000Z',
       updatedAt: '2026-07-01T00:00:00.000Z',
     }]
-    render(<ChemotherapyTemplateSection />)
+    render(<ChemotherapyTemplatesPage />)
 
     const planButton = screen.getByText('浮空方案').closest('button')!
     fireEvent.pointerDown(planButton, { button: 0, clientX: 20, clientY: 20 })
@@ -264,7 +275,7 @@ describe('chemotherapy template daily medication editor', () => {
       scheduledFrame = callback
       return 1
     })
-    render(<ChemotherapyTemplateSection />)
+    render(<ChemotherapyTemplatesPage />)
 
     const firstPlan = screen.getByText('方案 A').closest('button')!
     fireEvent.pointerDown(firstPlan, { button: 0, clientX: 20, clientY: 110 })

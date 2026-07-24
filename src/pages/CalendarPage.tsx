@@ -2,6 +2,7 @@ import { addDays, addMonths, differenceInCalendarDays, eachDayOfInterval, endOfM
 import { zhCN } from 'date-fns/locale'
 import { CalendarDays, ChevronLeft, ChevronRight, Filter, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useRef, useState, type MouseEvent, type TouchEvent } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { ChoicePicker, type ChoiceOption } from '../components/ChoicePicker'
 import { HistoryCombobox } from '../components/HistoryCombobox'
 import { Modal } from '../components/Modal'
@@ -193,6 +194,8 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
 
 export function CalendarPage() {
   const { events, vocabulary } = useApp()
+  const location = useLocation()
+  const navigate = useNavigate()
   const [month, setMonth] = useState(startOfMonth(new Date()))
   const [selectedDate, setSelectedDate] = useState(todayString())
   const [filters, setFilters] = useState<EventType[]>([])
@@ -254,6 +257,17 @@ export function CalendarPage() {
     event.stopPropagation()
   }
 
+  function openEvent(event: TreatmentEvent) {
+    const linkedRecordId = event.type === 'examination' ? event.linkedRecordIds[0] : undefined
+    if (linkedRecordId) {
+      navigate(`/records?recordId=${encodeURIComponent(linkedRecordId)}`, {
+        state: { recordDetailOrigin: `${location.pathname}${location.search}${location.hash}` },
+      })
+      return
+    }
+    setEditing(event)
+  }
+
   return (
     <>
       <div className="calendar-layout">
@@ -288,7 +302,7 @@ export function CalendarPage() {
           <div className="section-heading"><div><p className="eyebrow">{format(parseISO(selectedDate), 'EEEE', { locale: zhCN })}</p><h2>{format(parseISO(selectedDate), 'M月d日')}</h2></div></div>
           <div className="agenda-list">
             {selectedEvents.length === 0 && <div className="empty-inline"><CalendarDaysIcon />这一天还没有记录</div>}
-            {selectedEvents.map((event) => <button className="agenda-item" key={event.id} onClick={() => setEditing(event)} style={{ '--event-color': EVENT_TYPES[event.type].color } as React.CSSProperties}><span className="agenda-marker" /><span><strong>{event.title}</strong><small>{EVENT_TYPES[event.type].label}{event.startDate !== event.endDate ? ` · ${event.startDate} 至 ${event.endDate}` : ''}</small>{event.regimen && <small>{event.regimen}</small>}</span></button>)}
+            {selectedEvents.map((event) => <button className="agenda-item" key={event.id} onClick={() => openEvent(event)} style={{ '--event-color': EVENT_TYPES[event.type].color } as React.CSSProperties}><span className="agenda-marker" /><span><strong>{event.title}</strong><small>{EVENT_TYPES[event.type].label}{event.startDate !== event.endDate ? ` · ${event.startDate} 至 ${event.endDate}` : ''}</small>{event.regimen && <small>{event.regimen}</small>}</span></button>)}
           </div>
         </section>
       </div>

@@ -1,11 +1,16 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../App'
 import { RecordsPage } from '../pages/RecordsPage'
 import type { ExamRecord } from '../types'
 
 const { deleteRecordMock, saveRecordMock } = vi.hoisted(() => ({ deleteRecordMock: vi.fn(async () => undefined), saveRecordMock: vi.fn(async (record: ExamRecord) => { void record }) }))
+const rerecognizeRecordMock = vi.fn(async (id: string) => ({
+  ...record(id, '实验室检验'),
+  summary: '重新识别后的结论',
+  images: records[0].images,
+}))
 
 const record = (id: string, reportType: string): ExamRecord => ({
   id,
@@ -51,12 +56,13 @@ vi.mock('../store/AppContext', () => ({
     records,
     deleteRecord: deleteRecordMock,
     saveRecord: saveRecordMock,
+    rerecognizeRecord: rerecognizeRecordMock,
     vocabulary: { hospitals: ['测试医院', '历史医院'], departments: ['肿瘤科'] },
   }),
 }))
 
 describe('record type filter', () => {
-  beforeEach(() => { deleteRecordMock.mockClear(); saveRecordMock.mockClear() })
+  beforeEach(() => { deleteRecordMock.mockClear(); saveRecordMock.mockClear(); rerecognizeRecordMock.mockClear() })
 
   it('groups aliases and allows selecting multiple normalized types', () => {
     render(<MemoryRouter><RecordsPage /></MemoryRouter>)
@@ -98,6 +104,9 @@ describe('record type filter', () => {
     expect(editButton).toHaveClass('icon-button')
     expect(within(editButton).queryByText('编辑报告')).not.toBeInTheDocument()
     expect(document.querySelector('.record-section-heading')).toContainElement(editButton)
+    const detailActions = document.querySelector('.record-detail-actions')!
+    expect(detailActions).toContainElement(screen.getByRole('button', { name: '删除记录' }))
+    expect(detailActions).toContainElement(screen.getByRole('button', { name: '重新识别' }))
 
     const indicatorRow = screen.getByRole('row', { name: /白细胞计数，偏低/ })
     const cells = within(indicatorRow).getAllByRole('cell')
@@ -122,6 +131,45 @@ describe('record type filter', () => {
     fireEvent.click(screen.getByRole('button', { name: '删除记录' }))
     fireEvent.click(within(screen.getByRole('dialog', { name: '删除检查记录' })).getByRole('button', { name: '确认删除' }))
     expect(deleteRecordMock).toHaveBeenCalledWith('1')
+  })
+
+  it('opens a requested record detail from the route query', () => {
+    render(<MemoryRouter initialEntries={['/records?recordId=1']}><RecordsPage /></MemoryRouter>)
+
+    expect(screen.getByRole('dialog', { name: '实验室检查' })).toBeInTheDocument()
+    expect(screen.getByText('测试报告结论')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    expect(screen.queryByRole('dialog', { name: '实验室检查' })).not.toBeInTheDocument()
+  })
+
+  it('returns to the route that opened a linked examination detail', () => {
+    render(
+      <MemoryRouter
+        initialEntries={[
+          '/calendar',
+          { pathname: '/records', search: '?recordId=1', state: { recordDetailOrigin: '/calendar' } },
+        ]}
+        initialIndex={1}
+      >
+        <Routes>
+          <Route path="/calendar" element={<h1>病程页面</h1>} />
+          <Route path="/records" element={<RecordsPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('dialog', { name: '实验室检查' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    expect(screen.getByRole('heading', { name: '病程页面' })).toBeInTheDocument()
+  })
+
+  it('re-recognizes the current report and replaces the visible detail', async () => {
+    render(<MemoryRouter><RecordsPage /></MemoryRouter>)
+    fireEvent.click(document.querySelector('.record-row')!)
+    fireEvent.click(screen.getByRole('button', { name: '重新识别' }))
+
+    await waitFor(() => expect(rerecognizeRecordMock).toHaveBeenCalledWith('1'))
+    expect(screen.getByText('重新识别后的结论')).toBeInTheDocument()
   })
 
   it('closes report detail on a left-to-right swipe', () => {

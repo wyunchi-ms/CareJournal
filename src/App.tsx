@@ -1,8 +1,9 @@
 import { Activity, AlertTriangle, CalendarDays, ChartNoAxesCombined, ListChecks, Pill, Settings } from 'lucide-react'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
-import { useEffect, useState } from 'react'
-import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType } from 'react-router-dom'
+import { closeTopModal } from './components/modalStack'
 import { useApp } from './store/AppContext'
 import { CalendarPage } from './pages/CalendarPage'
 import { ChemotherapyTemplatesPage } from './pages/ChemotherapyTemplatesPage'
@@ -24,6 +25,10 @@ type PageTransitionDirection = 'forward' | 'backward'
 function navIndex(pathname: string) {
   if (pathname === '/import') return navItems.findIndex((item) => item.path === '/records')
   return navItems.findIndex((item) => item.path === pathname)
+}
+
+function routePathname(route: string) {
+  return route.split(/[?#]/, 1)[0]
 }
 
 function Navigation({ onNavigate }: { onNavigate: (path: string) => void }) {
@@ -66,19 +71,48 @@ function OcrBackgroundStatus() {
 export default function App() {
   const { ready, startupMessage, storageError } = useApp()
   const location = useLocation()
+  const navigate = useNavigate()
+  const navigationType = useNavigationType()
   const [pageTransition, setPageTransition] = useState<{ target: string; direction: PageTransitionDirection } | null>(null)
+  const currentRoute = `${location.pathname}${location.search}${location.hash}`
+  const currentRouteRef = useRef(currentRoute)
+  const routeTrailRef = useRef<string[]>([])
+  const navigatingBackRef = useRef(false)
+
+  useEffect(() => {
+    if (currentRouteRef.current === currentRoute) return
+    if (navigatingBackRef.current) {
+      navigatingBackRef.current = false
+    } else if (navigationType === 'PUSH') {
+      routeTrailRef.current.push(currentRouteRef.current)
+    } else if (navigationType === 'POP') {
+      const previousIndex = routeTrailRef.current.lastIndexOf(currentRoute)
+      if (previousIndex >= 0) routeTrailRef.current.splice(previousIndex)
+      else routeTrailRef.current.push(currentRouteRef.current)
+    }
+    currentRouteRef.current = currentRoute
+  }, [currentRoute, navigationType])
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return
 
     let disposed = false
     let listener: PluginListenerHandle | undefined
-    void CapacitorApp.addListener('backButton', ({ canGoBack }) => {
-      if (canGoBack) {
-        window.history.back()
-      } else {
-        void CapacitorApp.exitApp()
+    void CapacitorApp.addListener('backButton', () => {
+      if (closeTopModal()) return
+
+      const previousRoute = routeTrailRef.current.pop()
+      if (previousRoute) {
+        const currentIndex = navIndex(routePathname(currentRouteRef.current))
+        const previousIndex = navIndex(routePathname(previousRoute))
+        setPageTransition(currentIndex >= 0 && previousIndex >= 0 && currentIndex !== previousIndex
+          ? { target: routePathname(previousRoute), direction: previousIndex > currentIndex ? 'forward' : 'backward' }
+          : null)
+        navigatingBackRef.current = true
+        navigate(previousRoute, { replace: true })
+        return
       }
+      void CapacitorApp.exitApp()
     }).then((handle) => {
       if (disposed) void handle.remove()
       else listener = handle
@@ -88,7 +122,7 @@ export default function App() {
       disposed = true
       void listener?.remove()
     }
-  }, [])
+  }, [navigate])
 
   function preparePageTransition(target: string) {
     const currentIndex = navIndex(location.pathname)

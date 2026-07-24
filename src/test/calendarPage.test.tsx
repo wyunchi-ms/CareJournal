@@ -1,11 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CalendarPage } from '../pages/CalendarPage'
 import type { TreatmentEvent } from '../types'
 
 const saveEvents = vi.fn(async () => undefined)
 const saveEvent = vi.fn(async () => undefined)
+const currentDate = new Date().toISOString().slice(0, 10)
 
 const event = (id: string, type: TreatmentEvent['type']): TreatmentEvent => ({
   id,
@@ -22,7 +23,12 @@ const event = (id: string, type: TreatmentEvent['type']): TreatmentEvent => ({
 
 vi.mock('../store/AppContext', () => ({
   useApp: () => ({
-    events: [event('1', 'chemotherapy'), event('2', 'chemotherapy'), event('3', 'surgery')],
+    events: [
+      event('1', 'chemotherapy'),
+      event('2', 'chemotherapy'),
+      event('3', 'surgery'),
+      { ...event('linked-exam', 'examination'), startDate: currentDate, endDate: currentDate, linkedRecordIds: ['record-1'] },
+    ],
     chemotherapyTemplates: [{
       id: 'template-1',
       templateType: 'chemotherapy',
@@ -48,6 +54,11 @@ vi.mock('../store/AppContext', () => ({
   }),
 }))
 
+function RecordsDestination() {
+  const location = useLocation()
+  return <div data-testid="records-destination">{location.search} {JSON.stringify(location.state)}</div>
+}
+
 afterEach(() => {
   cleanup()
   saveEvents.mockClear()
@@ -70,6 +81,21 @@ describe('calendar event filter', () => {
     expect(surgery).toHaveAttribute('aria-checked', 'true')
     fireEvent.click(screen.getByRole('button', { name: '完成' }))
     expect(screen.getByRole('button', { name: /已选 2 类/ })).toBeInTheDocument()
+  })
+
+  it('opens the linked examination record from the agenda', () => {
+    render(<MemoryRouter initialEntries={['/calendar']}>
+      <Routes>
+        <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/records" element={<RecordsDestination />} />
+      </Routes>
+    </MemoryRouter>)
+
+    fireEvent.click(within(screen.getByRole('region', { name: '选中日期的事件' }))
+      .getByRole('button', { name: /examination-linked-exam/ }))
+
+    expect(screen.getByTestId('records-destination')).toHaveTextContent('?recordId=record-1')
+    expect(screen.getByTestId('records-destination')).toHaveTextContent('"recordDetailOrigin":"/calendar"')
   })
 
   it('keeps calendar controls in the calendar card and places the agenda below it', () => {

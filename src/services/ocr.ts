@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import { INDICATORS, normalizeIndicator } from '../data/indicatorAliases'
 import { normalizeReportType, REPORT_TYPES } from '../data/reportTypeAliases'
-import type { AzureSettings, DynamicVocabulary, ExamRecord, TreatmentEvent, StoredImage, EventType } from '../types'
+import type { AzureSettings, DynamicVocabulary, ExamRecord, LabIndicator, TreatmentEvent, StoredImage, EventType } from '../types'
 import { DEFAULT_VOCABULARY, newId } from '../types'
 import { sha256 } from './images'
 import { chooseKnownValue } from './vocabulary'
@@ -33,6 +33,11 @@ const aiRecordSchema = z.object({
 })
 
 const aiResponseSchema = z.object({ records: z.array(aiRecordSchema) })
+
+const MAINLAND_UNIT_GUIDE = INDICATORS
+  .filter((indicator) => indicator.standardUnit)
+  .map((indicator) => `${indicator.code}/${indicator.name}：${indicator.standardUnit}`)
+  .join('；')
 
 function knownValueDescription(kind: string, values: string[]) {
   if (!values.length) return `${kind}按图片原文返回，无法识别时使用空字符串`
@@ -69,12 +74,12 @@ function responseJsonSchema(vocabulary: DynamicVocabulary) {
                   rawName: { type: 'string' },
                   normalizedCode: { type: 'string', enum: indicatorCodes, description: '必须从标准指标代码列表选择；无法归类时选择 OTHER' },
                   normalizedName: { type: 'string', enum: indicatorNames, description: '必须从标准指标名称列表选择；无法归类时选择“其他指标”' },
-                  value: { type: ['number', 'null'], description: '图片原始单位下的数值，只解析原文数字，禁止单位换算或倍率归一化；单位不清时使用 null' },
-                  rawValue: { type: 'string', description: '忠实保留图片中显示的原始结果文字，不改小数点、不改变倍率' },
-                  unit: { type: 'string', description: '逐字符抄录图片中的单位和倍率；禁止自行补全、替换或转换，无法确认时使用空字符串' },
-                  referenceLow: { type: ['number', 'null'], description: '图片原始单位下的参考下限，禁止换算；无法确认时使用 null' },
-                  referenceHigh: { type: ['number', 'null'], description: '图片原始单位下的参考上限，禁止换算；无法确认时使用 null' },
-                  referenceText: { type: 'string', description: '忠实保留图片中的参考范围原文及其倍率表达' },
+                  value: { type: ['number', 'null'], description: '换算为中国大陆标准单位后的结果数值，必须与 unit 一致；不能可靠换算时使用 null' },
+                  rawValue: { type: 'string', description: '换算为中国大陆标准单位后的结果文字；数值结果应与 value 一致，不保留境外原单位下的旧数值' },
+                  unit: { type: 'string', description: `统一使用中国大陆临床检验常用标准单位。已知指标必须严格使用以下单位表：${MAINLAND_UNIT_GUIDE}。无法确认换算关系时使用单位表中的目标单位并将相关数值置为 null，不得只改单位不改数值` },
+                  referenceLow: { type: ['number', 'null'], description: '换算为 unit 所示中国大陆标准单位后的参考下限；必须与结果使用同一换算倍率' },
+                  referenceHigh: { type: ['number', 'null'], description: '换算为 unit 所示中国大陆标准单位后的参考上限；必须与结果使用同一换算倍率' },
+                  referenceText: { type: 'string', description: '使用中国大陆标准单位重写的参考范围文字，数值必须与 referenceLow、referenceHigh 一致' },
                   abnormalFlag: { type: 'string', enum: ['high', 'low', 'critical', 'normal', 'unknown'] },
                 },
                 required: ['rawName', 'normalizedCode', 'normalizedName', 'value', 'rawValue', 'unit', 'referenceLow', 'referenceHigh', 'referenceText', 'abnormalFlag'],
@@ -99,9 +104,12 @@ const SYSTEM_PROMPT = `你是医疗检查报告的信息录入工具。只忠实
 reportType 保留报告原文，normalizedReportType 必须从 schema 的标准报告类型中选择。
 指标需保留报告原始名称；normalizedCode 和 normalizedName 必须从 schema 的标准指标词表中选择且相互对应，无法归类时分别选择 OTHER 和“其他指标”。
 医院和科室如果与已有列表匹配，必须复用列表中的写法；只有图片明确出现新名称时才返回新值。
-单位与数值必须作为不可分割的一组逐项核对。台湾与大陆报告可能对同一指标使用不同基础单位、倍率和小数位，例如 g/dL 与 g/L、10^3/μL 与 10^9/L、10^4/μL 与 10^12/L；严禁根据常识把一种单位换算成另一种，也严禁移动小数点、乘除 10 或补写常见单位。
-rawValue、unit 和 referenceText 必须忠实抄录图片原文；value、referenceLow、referenceHigh 只能解析原文在同一原始单位下直接显示的数字。单位或倍率模糊时，unit 使用空字符串，对应数值使用 null，不得猜测。
-在返回每个指标前，重新核对结果值、参考范围与单位是否来自同一行，特别检查 10 的幂次、/μL、/uL、/L、mg/dL、mmol/L、g/dL、g/L 和 %。
+所有指标必须统一为中国大陆临床检验常用单位。已知指标严格使用以下目标单位表：${MAINLAND_UNIT_GUIDE}。
+单位、结果值和参考范围是不可分割的一组：台湾或其他地区报告使用不同单位时，必须依据具体指标进行精确换算，并同时换算 value、rawValue、referenceLow、referenceHigh 和 referenceText，禁止只替换单位文字。
+例如血红蛋白 HGB 从 g/dL 转为 g/L 时，结果值和参考上下限均乘以 10：13.2 g/dL 返回 value=132、rawValue="132"、unit="g/L"；参考范围 12–16 g/dL 返回 120–160 g/L。白细胞或血小板的 10^3/μL 与 10^9/L 数值倍率相同，红细胞的 10^6/μL 与 10^12/L 数值倍率相同。
+mg/dL 与 mmol/L、μmol/L 之间的换算必须依据具体分析物的摩尔质量，不能套用统一倍率。无法可靠确定换算关系时，unit 使用目标单位表中的大陆单位，value、referenceLow、referenceHigh 使用 null，rawValue 和 referenceText 使用空字符串，绝不猜测数值。
+对于单位表以外的自定义指标，选择中国大陆检验报告最常用的标准单位；无法可靠确认时 unit 使用空字符串。异常标记仍依据原报告，不因单位换算改变。
+在返回每个指标前，重新核对结果值、参考范围和大陆标准单位是否彼此一致，特别检查 10 的幂次、/μL、/uL、/L、mg/dL、mmol/L、μmol/L、g/dL、g/L 和 %。
 异常标记只依据报告中的箭头、H/L 或参考范围，不自行判断临床意义。`
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -162,7 +170,7 @@ export async function recognizeReport(image: StoredImage, settings: AzureSetting
             {
               role: 'user',
               content: [
-                { type: 'text', text: '提取这张图片中的检查记录，并严格按指定结构返回。先逐项核对原始数值、参考范围、单位和 10 的幂次，不做任何单位换算。' },
+                { type: 'text', text: '提取这张图片中的检查记录，并严格按指定结构返回。逐项核对原始数值、参考范围、单位和 10 的幂次，再把所有指标换算为给定的中国大陆标准单位；结果值与参考范围必须同步换算。' },
                 { type: 'image_url', image_url: { url: image.dataUrl, detail: 'high' } },
               ],
             },
@@ -222,6 +230,36 @@ export async function toDomainRecords(result: z.infer<typeof aiResponseSchema>, 
       updatedAt: now,
     }
   }))
+}
+
+export function mergeRecognizedRecord(original: ExamRecord, recognized: ExamRecord[], attempts: number): ExamRecord {
+  if (recognized.length === 0) throw new Error('没有从原始图片中识别到检查内容')
+  const primary = recognized[0]
+  const indicators = new Map<string, LabIndicator>()
+  recognized.flatMap((record) => record.indicators).forEach((indicator) => {
+    const key = [indicator.normalizedCode, indicator.rawName, indicator.rawValue, indicator.unit].join('|')
+    if (!indicators.has(key)) indicators.set(key, indicator)
+  })
+  const firstValue = <Key extends 'hospital' | 'department' | 'summary'>(key: Key) =>
+    recognized.map((record) => record[key]).find((value) => value?.trim())
+  const summaries = [...new Set(recognized.map((record) => record.summary?.trim()).filter(Boolean))]
+
+  return {
+    ...original,
+    reportType: primary.reportType,
+    normalizedReportType: primary.normalizedReportType,
+    examDate: primary.examDate,
+    reportDate: primary.reportDate,
+    hospital: firstValue('hospital'),
+    department: firstValue('department'),
+    summary: summaries.length ? summaries.join('\n') : firstValue('summary'),
+    indicators: [...indicators.values()],
+    fingerprint: primary.fingerprint,
+    ocrStatus: 'completed',
+    ocrError: undefined,
+    ocrAttempts: attempts,
+    updatedAt: new Date().toISOString(),
+  }
 }
 
 export function eventForRecord(record: ExamRecord): TreatmentEvent {

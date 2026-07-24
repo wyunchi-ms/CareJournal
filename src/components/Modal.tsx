@@ -1,7 +1,7 @@
 import { X } from 'lucide-react'
 import { useEffect, useId, useRef, type ReactNode, type TouchEvent } from 'react'
+import { isTopModal, registerModal, unregisterModal } from './modalStack'
 
-const modalStack: symbol[] = []
 let scrollLockCount = 0
 let scrollLockSnapshot: {
   scrollY: number
@@ -61,14 +61,13 @@ export function Modal({ title, onClose, children, wide = false, swipeToClose = f
   useEffect(() => { onCloseRef.current = onClose }, [onClose])
   useEffect(() => {
     const id = stackId.current
-    modalStack.push(id)
+    registerModal(id, () => onCloseRef.current())
     lockPageScroll()
-    const handler = (event: KeyboardEvent) => { if (event.key === 'Escape' && modalStack.at(-1) === id) onCloseRef.current() }
+    const handler = (event: KeyboardEvent) => { if (event.key === 'Escape' && isTopModal(id)) onCloseRef.current() }
     window.addEventListener('keydown', handler)
     return () => {
       window.removeEventListener('keydown', handler)
-      const index = modalStack.lastIndexOf(id)
-      if (index >= 0) modalStack.splice(index, 1)
+      unregisterModal(id)
       unlockPageScroll()
     }
   }, [])

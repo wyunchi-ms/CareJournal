@@ -1,7 +1,7 @@
 import { format, parseISO } from 'date-fns'
-import { ChevronRight, FileImage, FileUp, ListFilter, Pencil, Plus, Save, Search, Trash2, TriangleAlert, X } from 'lucide-react'
+import { ChevronRight, FileImage, FileUp, ListFilter, Pencil, Plus, RefreshCw, Save, Search, Trash2, TriangleAlert, X } from 'lucide-react'
 import { useDeferredValue, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChoicePicker } from '../components/ChoicePicker'
 import { HistoryCombobox } from '../components/HistoryCombobox'
 import { Modal } from '../components/Modal'
@@ -197,11 +197,13 @@ function RecordEditForm({ record, onCancel, onSaved }: { record: ExamRecord; onC
   </form>
 }
 
-function RecordDetail({ record, onClose, onEdit }: { record: ExamRecord; onClose: () => void; onEdit: () => void }) {
-  const { deleteRecord } = useApp()
+function RecordDetail({ record, onClose, onEdit, onRecognized }: { record: ExamRecord; onClose: () => void; onEdit: () => void; onRecognized: (record: ExamRecord) => void }) {
+  const { deleteRecord, rerecognizeRecord } = useApp()
   const [deleteConfirming, setDeleteConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
+  const [recognizing, setRecognizing] = useState(false)
+  const [recognizeError, setRecognizeError] = useState('')
 
   async function confirmDelete() {
     setDeleting(true)
@@ -215,6 +217,19 @@ function RecordDetail({ record, onClose, onEdit }: { record: ExamRecord; onClose
     }
   }
 
+  async function recognizeAgain() {
+    setRecognizing(true)
+    setRecognizeError('')
+    try {
+      const updated = await rerecognizeRecord(record.id)
+      onRecognized(updated)
+    } catch (error) {
+      setRecognizeError(error instanceof Error ? error.message : '重新识别失败，请重试')
+    } finally {
+      setRecognizing(false)
+    }
+  }
+
   return <div className="record-detail">
     <div className="detail-summary"><div><span>检查日期</span><strong>{record.examDate}</strong></div><div><span>医院</span><strong title={record.hospital || '未记录'}>{record.hospital || '未记录'}</strong></div></div>
     <section><div className="record-section-heading"><h3>指标明细 <small>{record.indicators.length} 项</small></h3><button type="button" className="icon-button edit-report-button" onClick={onEdit} aria-label="编辑报告" title="编辑报告"><Pencil /></button></div>{record.indicators.length ? <div className="indicator-table-wrap"><table className="indicator-table"><thead><tr><th>指标</th><th>结果</th><th>参考范围</th></tr></thead><tbody>{record.indicators.map((item) => <tr key={item.id} className={`indicator-row ${item.abnormalFlag}`} aria-label={`${item.normalizedName}，${flagLabel(item) || '状态未标记'}`}><td title={item.rawName !== item.normalizedName ? `医院原始名称：${item.rawName}` : undefined}><strong>{item.normalizedName}{item.unit && <span className="indicator-unit">（{item.unit}）</span>}</strong></td><td><strong>{resultText(item)}</strong><span className="sr-only">{flagLabel(item)}</span></td><td>{item.referenceText || [item.referenceLow, item.referenceHigh].filter((value) => value !== null).join('–') || '—'}</td></tr>)}</tbody></table></div> : <p className="muted-text">这份报告没有结构化数值指标。</p>}</section>
@@ -223,8 +238,13 @@ function RecordDetail({ record, onClose, onEdit }: { record: ExamRecord; onClose
       return source ? <ImagePreview key={image.id} src={source} alt={`检查报告：${image.name}`} /> : null
     })}</div></section>}
     {record.summary && <section className="report-conclusion"><h3>报告结论</h3><p className="summary-text">{record.summary}</p></section>}
-    <div className="delete-zone">
+    {recognizeError && <p className="form-error record-detail-action-error" role="alert">{recognizeError}</p>}
+    <div className="record-detail-actions">
       <button className="button danger ghost" onClick={() => setDeleteConfirming(true)}><Trash2 />删除记录</button>
+      <button type="button" className="button secondary" disabled={recognizing || record.images.length === 0} onClick={() => void recognizeAgain()} title={record.images.length === 0 ? '这份记录没有原始图片' : '用原始图片重新识别并更新当前记录'}>
+        {recognizing ? <span className="spinner" /> : <RefreshCw />}
+        {recognizing ? '重新识别中…' : '重新识别'}
+      </button>
     </div>
     {deleteConfirming && <Modal title="删除检查记录" onClose={() => { if (!deleting) setDeleteConfirming(false) }}>
       <div className="delete-dialog">
@@ -238,10 +258,18 @@ function RecordDetail({ record, onClose, onEdit }: { record: ExamRecord; onClose
 
 export function RecordsPage() {
   const { records } = useApp()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedRecordId = searchParams.get('recordId')
+  const recordDetailOrigin = typeof location.state?.recordDetailOrigin === 'string'
+    ? location.state.recordDetailOrigin
+    : null
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query.trim().toLowerCase())
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
-  const [selected, setSelected] = useState<ExamRecord | null>(null)
+  const [selected, setSelected] = useState<ExamRecord | null>(() =>
+    requestedRecordId ? records.find((record) => record.id === requestedRecordId) ?? null : null)
   const [editing, setEditing] = useState(false)
 
   const typeGroups = useMemo<TypeGroup[]>(() => {
@@ -265,6 +293,19 @@ export function RecordsPage() {
 
   const toggleType = (label: string) => setSelectedTypes((current) => current.includes(label) ? current.filter((item) => item !== label) : [...current, label])
 
+  function closeRecordDetail() {
+    setSelected(null)
+    setEditing(false)
+    if (requestedRecordId && recordDetailOrigin) {
+      navigate(-1)
+      return
+    }
+    if (!requestedRecordId) return
+    const nextSearchParams = new URLSearchParams(searchParams)
+    nextSearchParams.delete('recordId')
+    setSearchParams(nextSearchParams, { replace: true })
+  }
+
   return <>
     <section className="toolbar card compact records-toolbar">
       <label className="search-box"><Search /><span className="sr-only">搜索记录</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索医院、报告或指标" /></label>
@@ -281,6 +322,6 @@ export function RecordsPage() {
         return <button className="record-row" key={record.id} onClick={() => { setSelected(record); setEditing(false) }}><span className="record-date"><strong>{format(parseISO(record.examDate), 'dd')}</strong><small>{format(parseISO(record.examDate), 'yyyy.MM')}</small></span><span className="record-main"><strong>{normalizedType}</strong><small>{record.hospital || '医院未记录'} · {record.indicators.length} 项指标</small></span>{abnormalCount > 0 && <span className="abnormal-badge">{abnormalCount} 项异常</span>}<ChevronRight /></button>
       })}
     </section>
-    {selected && <Modal title={editing ? '编辑检查报告' : recordType(selected)} onClose={() => { setSelected(null); setEditing(false) }} wide swipeToClose={!editing}>{editing ? <RecordEditForm record={selected} onCancel={() => setEditing(false)} onSaved={(updated) => { setSelected(updated); setEditing(false) }} /> : <RecordDetail record={selected} onClose={() => setSelected(null)} onEdit={() => setEditing(true)} />}</Modal>}
+    {selected && <Modal title={editing ? '编辑检查报告' : recordType(selected)} onClose={closeRecordDetail} wide swipeToClose={!editing}>{editing ? <RecordEditForm record={selected} onCancel={() => setEditing(false)} onSaved={(updated) => { setSelected(updated); setEditing(false) }} /> : <RecordDetail record={selected} onClose={closeRecordDetail} onEdit={() => setEditing(true)} onRecognized={setSelected} />}</Modal>}
   </>
 }

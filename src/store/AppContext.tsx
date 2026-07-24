@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { repository } from '../db/repository'
-import { eventForRecord, recognizeReport, toDomainRecords } from '../services/ocr'
+import { eventForRecord, mergeRecognizedRecord, recognizeReport, toDomainRecords } from '../services/ocr'
 import { materializeStoredImage } from '../services/folderImport'
-import { sameStoredImage, storedImageIdentity } from '../services/images'
+import { deduplicateStoredImages, sameStoredImage } from '../services/images'
 import { garbageCollectNativeImages, migrateLegacyNativeImages, persistRestoredRecords, persistStoredImage } from '../services/imageStorage'
 import { buildVocabulary } from '../services/vocabulary'
 import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, DynamicVocabulary, ExamRecord, OcrQueueItem, StoredImage, TreatmentEvent } from '../types'
@@ -15,6 +15,13 @@ interface OcrQueueStats {
   completed: number
   failed: number
   progress: number
+}
+
+interface ImageDeduplicationResult {
+  recordsScanned: number
+  recordsUpdated: number
+  imagesRemoved: number
+  filesDeleted: number
 }
 
 interface AppState {
@@ -38,11 +45,13 @@ interface AppState {
   deleteChemotherapyTemplate: (id: string) => Promise<void>
   saveRecord: (record: ExamRecord) => Promise<void>
   saveImportedRecords: (records: ExamRecord[], events: TreatmentEvent[]) => Promise<{ added: number; merged: number }>
+  rerecognizeRecord: (id: string) => Promise<ExamRecord>
   deleteRecord: (id: string) => Promise<void>
   savePin: (pin: ChartPin) => Promise<void>
   deletePin: (id: string) => Promise<void>
   savePreferences: (preferences: AppPreferences) => Promise<void>
   restoreBackup: (payload: BackupPayload) => Promise<void>
+  deduplicateImagesGlobally: () => Promise<ImageDeduplicationResult>
   enqueueOcrImage: (image: StoredImage) => Promise<boolean>
   retryOcrJob: (id: string) => Promise<void>
   retryAllFailedOcrJobs: () => Promise<void>
@@ -101,7 +110,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setStorageError(null)
       setEvents(byDateDescending(loadedEvents))
       setChemotherapyTemplates(sortTreatmentTemplates(loadedTemplates))
-      const sortedRecords = byDateDescending(loadedRecords)
+      const deduplicatedRecords = loadedRecords.map((record) => ({
+        ...record,
+        images: deduplicateStoredImages(record.images),
+      }))
+      await Promise.all(deduplicatedRecords
+        .filter((record, index) => record.images.length !== loadedRecords[index].images.length)
+        .map((record) => repository.put('record', record.id, record)))
+      const sortedRecords = byDateDescending(deduplicatedRecords)
       recordsRef.current = sortedRecords
       setRecords(sortedRecords)
       setPins(loadedPins)
@@ -168,20 +184,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const saveRecord = useCallback(async (record: ExamRecord) => {
-    await repository.put('record', record.id, record)
-    const linkedEvents = events.filter((event) => event.type === 'examination' && event.linkedRecordIds.includes(record.id))
+    const deduplicatedRecord = { ...record, images: deduplicateStoredImages(record.images) }
+    await repository.put('record', deduplicatedRecord.id, deduplicatedRecord)
+    const linkedEvents = events.filter((event) => event.type === 'examination' && event.linkedRecordIds.includes(deduplicatedRecord.id))
     const updatedEvents = linkedEvents.map((event): TreatmentEvent => ({
       ...event,
-      title: record.normalizedReportType || record.reportType,
-      startDate: record.examDate,
-      endDate: record.examDate,
-      hospital: record.hospital,
-      department: record.department,
-      notes: record.summary,
-      updatedAt: record.updatedAt,
+      title: deduplicatedRecord.normalizedReportType || deduplicatedRecord.reportType,
+      startDate: deduplicatedRecord.examDate,
+      endDate: deduplicatedRecord.examDate,
+      hospital: deduplicatedRecord.hospital,
+      department: deduplicatedRecord.department,
+      notes: deduplicatedRecord.summary,
+      updatedAt: deduplicatedRecord.updatedAt,
     }))
     await Promise.all(updatedEvents.map((event) => repository.put('event', event.id, event)))
-    setRecords((current) => byDateDescending([...current.filter((item) => item.id !== record.id), record]))
+    setRecords((current) => byDateDescending([...current.filter((item) => item.id !== deduplicatedRecord.id), deduplicatedRecord]))
     if (updatedEvents.length) {
       const updatedById = new Map(updatedEvents.map((event) => [event.id, event]))
       setEvents((current) => byDateDescending(current.map((event) => updatedById.get(event.id) ?? event)))
@@ -193,11 +210,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let merged = 0
     const nextRecords = [...recordsRef.current]
     const acceptedEvents: TreatmentEvent[] = []
-    for (const record of incoming) {
+    for (const incomingRecord of incoming) {
+      const record = { ...incomingRecord, images: deduplicateStoredImages(incomingRecord.images) }
       const duplicate = nextRecords.find((item) => item.fingerprint === record.fingerprint)
       if (duplicate) {
-        const knownImages = new Set(duplicate.images.map(storedImageIdentity))
-        const combined = { ...duplicate, images: [...duplicate.images, ...record.images.filter((image) => !knownImages.has(storedImageIdentity(image)))], updatedAt: new Date().toISOString(), ocrStatus: 'completed' as const }
+        const combined = { ...duplicate, images: deduplicateStoredImages([...duplicate.images, ...record.images]), updatedAt: new Date().toISOString(), ocrStatus: 'completed' as const }
         await repository.put('record', combined.id, combined)
         nextRecords.splice(nextRecords.indexOf(duplicate), 1, combined)
         merged += 1
@@ -221,6 +238,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setEvents((current) => byDateDescending([...current, ...acceptedEvents]))
     return { added, merged }
   }, [])
+
+  const rerecognizeRecord = useCallback(async (id: string) => {
+    const storedRecord = recordsRef.current.find((record) => record.id === id)
+    if (!storedRecord) throw new Error('找不到要重新识别的检查记录')
+    const original = { ...storedRecord, images: deduplicateStoredImages(storedRecord.images) }
+    if (original.images.length === 0) throw new Error('这份记录没有可用于重新识别的原始图片')
+
+    const recognizedRecords: ExamRecord[] = []
+    let maximumAttempts = 0
+    for (const storedImage of original.images) {
+      const image = await materializeStoredImage(storedImage)
+      let attempts = 0
+      const result = await recognizeReport(image, preferences.azure, (attempt) => {
+        attempts = attempt
+        maximumAttempts = Math.max(maximumAttempts, attempt)
+      }, vocabulary)
+      const candidates = await toDomainRecords(result, [], attempts, vocabulary)
+      const matching = candidates.find((candidate) =>
+        candidate.normalizedReportType === original.normalizedReportType
+        || candidate.reportType === original.reportType)
+      if (matching) recognizedRecords.push(matching)
+      else if (candidates[0]) recognizedRecords.push(candidates[0])
+    }
+
+    const updated = mergeRecognizedRecord(original, recognizedRecords, maximumAttempts)
+    await saveRecord(updated)
+    return updated
+  }, [preferences.azure, saveRecord, vocabulary])
 
   const deleteRecord = useCallback(async (id: string) => {
     const record = records.find((item) => item.id === id)
@@ -313,7 +358,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const restoreBackup = useCallback(async (payload: BackupPayload) => {
-    const restoredRecords = await persistRestoredRecords(payload.records)
+    const restoredRecords = await persistRestoredRecords(payload.records.map((record) => ({
+      ...record,
+      images: deduplicateStoredImages(record.images),
+    })))
     await repository.replaceKind('event', payload.events.map((item) => ({ id: item.id, payload: item })))
     await repository.replaceKind('chemotherapyTemplate', (payload.chemotherapyTemplates ?? []).map((item) => ({ id: item.id, payload: item })))
     await repository.replaceKind('record', restoredRecords.map((item) => ({ id: item.id, payload: item })))
@@ -333,6 +381,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPreferences(nextPreferences)
     void garbageCollectNativeImages(sortedRecords, ocrJobsRef.current).catch(console.warn)
   }, [preferences.azure.apiKey])
+
+  const deduplicateImagesGlobally = useCallback(async (): Promise<ImageDeduplicationResult> => {
+    let recordsUpdated = 0
+    let imagesRemoved = 0
+    const deduplicatedRecords = recordsRef.current.map((record) => {
+      const images = deduplicateStoredImages(record.images)
+      const removed = record.images.length - images.length
+      if (removed === 0) return record
+      recordsUpdated += 1
+      imagesRemoved += removed
+      return { ...record, images }
+    })
+    const changedRecords = deduplicatedRecords.filter((record, index) => record !== recordsRef.current[index])
+    await Promise.all(changedRecords.map((record) => repository.put('record', record.id, record)))
+    recordsRef.current = deduplicatedRecords
+    setRecords(deduplicatedRecords)
+    const filesDeleted = await garbageCollectNativeImages(deduplicatedRecords, ocrJobsRef.current)
+    return {
+      recordsScanned: deduplicatedRecords.length,
+      recordsUpdated,
+      imagesRemoved,
+      filesDeleted,
+    }
+  }, [])
 
   useEffect(() => {
     const azure = preferences.azure
@@ -414,17 +486,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     deleteChemotherapyTemplate,
     saveRecord,
     saveImportedRecords,
+    rerecognizeRecord,
     deleteRecord,
     savePin,
     deletePin,
     savePreferences,
     restoreBackup,
+    deduplicateImagesGlobally,
     enqueueOcrImage,
     retryOcrJob,
     retryAllFailedOcrJobs,
     removeOcrJob,
     clearCompletedOcrJobs,
-  }), [ready, startupMessage, storageError, events, chemotherapyTemplates, records, pins, ocrJobs, ocrQueueStats, preferences, vocabulary, saveEvent, saveEvents, deleteEvent, saveChemotherapyTemplate, reorderChemotherapyTemplates, deleteChemotherapyTemplate, saveRecord, saveImportedRecords, deleteRecord, savePin, deletePin, savePreferences, restoreBackup, enqueueOcrImage, retryOcrJob, retryAllFailedOcrJobs, removeOcrJob, clearCompletedOcrJobs])
+  }), [ready, startupMessage, storageError, events, chemotherapyTemplates, records, pins, ocrJobs, ocrQueueStats, preferences, vocabulary, saveEvent, saveEvents, deleteEvent, saveChemotherapyTemplate, reorderChemotherapyTemplates, deleteChemotherapyTemplate, saveRecord, saveImportedRecords, rerecognizeRecord, deleteRecord, savePin, deletePin, savePreferences, restoreBackup, deduplicateImagesGlobally, enqueueOcrImage, retryOcrJob, retryAllFailedOcrJobs, removeOcrJob, clearCompletedOcrJobs])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }
