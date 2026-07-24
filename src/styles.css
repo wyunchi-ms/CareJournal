@@ -150,6 +150,9 @@ label { display: grid; gap: 7px; color: var(--text); font-size: .9rem; font-weig
 .history-suggestions-heading svg { width: 15px; height: 15px; }
 .history-suggestions > button { width: 100%; min-height: 44px; padding: 9px 10px; border: 0; border-radius: 8px; color: var(--text); background: transparent; text-align: left; }
 .history-suggestions > button:hover, .history-suggestions > button.active, .history-suggestions > button[aria-selected="true"] { color: var(--primary-strong); background: var(--primary-soft); }
+.history-suggestion-copy, .history-suggestion-copy strong, .history-suggestion-copy small { min-width: 0; display: block; }
+.history-suggestion-copy strong { overflow: hidden; font-size: .86rem; text-overflow: ellipsis; white-space: nowrap; }
+.history-suggestion-copy small { margin-top: 3px; overflow: hidden; color: var(--muted); font-size: .69rem; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-layout { display: grid; gap: 16px; }
 .calendar-card { overflow: hidden; padding: 12px; touch-action: pan-y; overscroll-behavior-x: contain; }
 .calendar-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 2px 4px 12px; }
@@ -514,7 +517,8 @@ legend { margin-bottom: 8px; color: var(--muted); font-size: .78rem; font-weight
 .template-row.dragging .template-row-main, .template-row.dragging .template-row-actions { visibility: hidden; }
 .template-reorder-handle { color: var(--primary-strong); cursor: grab; touch-action: none; }
 .template-reorder-handle:active { cursor: grabbing; }
-.template-drag-preview { position: fixed; z-index: 1300; min-width: 0; min-height: 66px; display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: center; overflow: hidden; border: 1px solid color-mix(in srgb, var(--primary) 62%, var(--border)); border-radius: 13px; color: var(--text); background: color-mix(in srgb, var(--surface) 94%, var(--primary-soft)); box-shadow: 0 20px 42px color-mix(in srgb, var(--primary-strong) 26%, transparent), 0 5px 14px rgba(63, 48, 43, .14); pointer-events: none; transform: scale(1.018) rotate(.15deg); transform-origin: center; will-change: top, transform; animation: template-drag-lift .17s cubic-bezier(.2, .8, .2, 1) both; }
+.template-drag-preview-positioner { position: fixed; z-index: 1300; min-width: 0; pointer-events: none; transform: translate3d(0, 0, 0); will-change: transform; }
+.template-drag-preview { min-width: 0; min-height: 66px; display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: center; overflow: hidden; border: 1px solid color-mix(in srgb, var(--primary) 62%, var(--border)); border-radius: 13px; color: var(--text); background: color-mix(in srgb, var(--surface) 94%, var(--primary-soft)); box-shadow: 0 20px 42px color-mix(in srgb, var(--primary-strong) 26%, transparent), 0 5px 14px rgba(63, 48, 43, .14); transform: scale(1.018) rotate(.15deg); transform-origin: center; animation: template-drag-lift .17s cubic-bezier(.2, .8, .2, 1) both; }
 .template-drag-preview-handle { width: 44px; height: 44px; display: grid; place-items: center; color: var(--primary-strong); }
 .template-drag-preview-content { min-width: 0; display: block; padding: 12px 13px 12px 4px; text-align: left; }
 .template-drag-preview-content > small { display: block; overflow: hidden; margin-top: 4px; color: var(--muted); font-size: .73rem; text-overflow: ellipsis; white-space: nowrap; }

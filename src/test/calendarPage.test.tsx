@@ -1,10 +1,11 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CalendarPage } from '../pages/CalendarPage'
 import type { TreatmentEvent } from '../types'
 
 const saveEvents = vi.fn(async () => undefined)
+const saveEvent = vi.fn(async () => undefined)
 
 const event = (id: string, type: TreatmentEvent['type']): TreatmentEvent => ({
   id,
@@ -42,6 +43,7 @@ vi.mock('../store/AppContext', () => ({
       updatedAt: '2026-07-01T00:00:00.000Z',
     }],
     vocabulary: { hospitals: [], departments: [] },
+    saveEvent,
     saveEvents,
   }),
 }))
@@ -49,6 +51,7 @@ vi.mock('../store/AppContext', () => ({
 afterEach(() => {
   cleanup()
   saveEvents.mockClear()
+  saveEvent.mockClear()
 })
 
 describe('calendar event filter', () => {
@@ -124,5 +127,42 @@ describe('calendar event filter', () => {
       expect.objectContaining({ cycleNumber: 2, administrationDay: 1 }),
       expect.objectContaining({ cycleNumber: 2, administrationDay: 8 }),
     ]))
+  })
+
+  it('selects a matching treatment plan template while keeping free text input', async () => {
+    render(<MemoryRouter><CalendarPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: '新建事件' }))
+    fireEvent.click(screen.getByRole('button', { name: /创建方式：按模板创建/ }))
+    fireEvent.click(screen.getByRole('radio', { name: /单次记录/ }))
+
+    const regimenInput = screen.getByRole('combobox', { name: '治疗方案' })
+    fireEvent.focus(regimenInput)
+    expect(screen.getByRole('listbox', { name: '治疗方案模板' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /21 天测试方案.*化疗.*21 天一周期/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /放疗模板/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('option', { name: /21 天测试方案/ }))
+    expect(regimenInput).toHaveValue('21 天测试方案')
+
+    fireEvent.change(regimenInput, { target: { value: '医生临时调整方案' } })
+    fireEvent.change(screen.getByRole('textbox', { name: '标题' }), { target: { value: '单次化疗' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存事件' }))
+    await waitFor(() => expect(saveEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'chemotherapy',
+      regimen: '医生临时调整方案',
+    })))
+  })
+
+  it('shows radiotherapy plans only for a radiotherapy event', () => {
+    render(<MemoryRouter><CalendarPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: '新建事件' }))
+    fireEvent.click(screen.getByRole('button', { name: /事件类型：化疗/ }))
+    fireEvent.click(screen.getByRole('radio', { name: '放疗' }))
+
+    const regimenInput = screen.getByRole('combobox', { name: '治疗方案' })
+    fireEvent.focus(regimenInput)
+    expect(screen.getByRole('option', { name: /放疗模板.*放疗.*7 天一周期/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /21 天测试方案/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('option', { name: /放疗模板/ }))
+    expect(regimenInput).toHaveValue('放疗模板')
   })
 })

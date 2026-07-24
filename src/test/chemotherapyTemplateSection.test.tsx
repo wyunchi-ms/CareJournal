@@ -24,6 +24,7 @@ afterEach(() => {
   reorderChemotherapyTemplates.mockClear()
   deleteChemotherapyTemplate.mockClear()
   chemotherapyTemplates = []
+  vi.restoreAllMocks()
   vi.useRealTimers()
 })
 
@@ -242,8 +243,89 @@ describe('chemotherapy template daily medication editor', () => {
     expect(document.querySelector('.template-drag-preview')).toHaveTextContent('浮空方案')
     expect(document.querySelector('.template-drag-preview')).toHaveTextContent('共 2 次放疗')
 
-    fireEvent.pointerUp(handle, { pointerId: 7, clientX: 30, clientY: 110 })
+    fireEvent.pointerUp(window, { pointerId: 7, clientX: 30, clientY: 110 })
     expect(row).not.toHaveClass('dragging')
+    expect(document.querySelector('.template-drag-preview')).not.toBeInTheDocument()
+  })
+
+  it('reorders smoothly past the dragged placeholder and keeps the preview inside the list', () => {
+    vi.useFakeTimers()
+    chemotherapyTemplates = ['A', 'B', 'C'].map((name) => ({
+      id: `template-${name.toLowerCase()}`,
+      name: `方案 ${name}`,
+      cycleLengthDays: 21,
+      administrationDays: [1],
+      defaultCycleCount: 1,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    }))
+    let scheduledFrame: FrameRequestCallback | undefined
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      scheduledFrame = callback
+      return 1
+    })
+    render(<ChemotherapyTemplateSection />)
+
+    const firstPlan = screen.getByText('方案 A').closest('button')!
+    fireEvent.pointerDown(firstPlan, { button: 0, clientX: 20, clientY: 110 })
+    act(() => vi.advanceTimersByTime(500))
+
+    const list = document.querySelector<HTMLElement>('.template-list')!
+    vi.spyOn(list, 'getBoundingClientRect').mockReturnValue({
+      x: 16,
+      y: 100,
+      top: 100,
+      left: 16,
+      right: 336,
+      bottom: 300,
+      width: 320,
+      height: 200,
+      toJSON: () => ({}),
+    })
+    Array.from(list.querySelectorAll<HTMLElement>('[data-template-id]')).forEach((row) => {
+      vi.spyOn(row, 'getBoundingClientRect').mockImplementation(() => {
+        const index = Array.from(list.querySelectorAll('[data-template-id]')).indexOf(row)
+        const top = 100 + index * 70
+        return {
+          x: 16,
+          y: top,
+          top,
+          left: 16,
+          right: 336,
+          bottom: top + 60,
+          width: 320,
+          height: 60,
+          toJSON: () => ({}),
+        }
+      })
+    })
+    const handle = screen.getByRole('button', { name: '拖动排序 方案 A' })
+    Object.defineProperty(handle, 'setPointerCapture', { configurable: true, value: vi.fn() })
+    Object.defineProperty(handle, 'hasPointerCapture', { configurable: true, value: vi.fn(() => false) })
+    fireEvent.pointerDown(handle, { pointerId: 8, clientX: 30, clientY: 110 })
+    fireEvent(handle, new Event('lostpointercapture', { bubbles: true }))
+    expect(document.querySelector('.template-drag-preview')).toBeInTheDocument()
+
+    fireEvent.pointerMove(window, { pointerId: 8, clientX: 30, clientY: 220 })
+    act(() => scheduledFrame?.(0))
+    expect(Array.from(list.querySelectorAll<HTMLElement>('[data-template-id]')).map((row) => row.dataset.templateId))
+      .toEqual(['template-b', 'template-a', 'template-c'])
+
+    fireEvent.pointerMove(window, { pointerId: 8, clientX: 30, clientY: 1000 })
+    act(() => scheduledFrame?.(16))
+    expect(Array.from(list.querySelectorAll<HTMLElement>('[data-template-id]')).map((row) => row.dataset.templateId))
+      .toEqual(['template-b', 'template-c', 'template-a'])
+    expect(document.querySelector<HTMLElement>('.template-drag-preview-positioner')?.style.transform)
+      .toBe('translate3d(0, 138px, 0)')
+
+    fireEvent.pointerMove(window, { pointerId: 8, clientX: 30, clientY: -100 })
+    act(() => scheduledFrame?.(32))
+    expect(Array.from(list.querySelectorAll<HTMLElement>('[data-template-id]')).map((row) => row.dataset.templateId))
+      .toEqual(['template-a', 'template-b', 'template-c'])
+    expect(document.querySelector<HTMLElement>('.template-drag-preview-positioner')?.style.transform)
+      .toBe('translate3d(0, 2px, 0)')
+
+    fireEvent.pointerUp(window, { pointerId: 8 })
     expect(document.querySelector('.template-drag-preview')).not.toBeInTheDocument()
   })
 })

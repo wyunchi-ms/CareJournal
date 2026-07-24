@@ -7,11 +7,18 @@ import { HistoryCombobox } from '../components/HistoryCombobox'
 import { Modal } from '../components/Modal'
 import { buildChemotherapyCourseEvents, getChemotherapyTemplateDayPlans, rescheduleChemotherapyEvents, type ChemotherapyRescheduleScope } from '../services/chemotherapy'
 import { useApp } from '../store/AppContext'
-import { EVENT_TYPES, newId, type EventType, type TreatmentEvent } from '../types'
+import { EVENT_TYPES, TREATMENT_PLAN_TYPES, newId, type EventType, type TreatmentEvent, type TreatmentPlanType } from '../types'
 
 const todayString = () => format(new Date(), 'yyyy-MM-dd')
 
 const eventTypeOptions: ChoiceOption[] = Object.entries(EVENT_TYPES).map(([value, type]) => ({ value, label: type.label, color: type.color }))
+const treatmentPlanTypesByEvent: Partial<Record<EventType, TreatmentPlanType[]>> = {
+  chemotherapy: ['chemotherapy'],
+  radiotherapy: ['radiotherapy'],
+  targeted: ['targeted'],
+  immunotherapy: ['immunotherapy'],
+  medication: ['maintenance', 'supportive'],
+}
 type MonthTransition = 'next' | 'previous'
 
 function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onClose }: { initialDate: string; event?: TreatmentEvent; hospitalHistory: string[]; departmentHistory: string[]; onClose: () => void }) {
@@ -45,6 +52,16 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
   const selectedTemplateDayPlans = selectedTemplate ? getChemotherapyTemplateDayPlans(selectedTemplate) : []
   const isTemplateCreation = !event && form.type === 'chemotherapy' && creationMode === 'template'
   const dateDelta = event ? differenceInCalendarDays(parseISO(form.startDate), parseISO(event.startDate)) : 0
+  const compatiblePlanTypes = treatmentPlanTypesByEvent[form.type] ?? []
+  const compatibleTemplates = treatmentTemplates.filter((template) => compatiblePlanTypes.includes(template.templateType ?? 'chemotherapy'))
+  const regimenOptions = compatibleTemplates.map((template) => template.regimen?.trim() || template.name)
+  const regimenDescriptions = Object.fromEntries(compatibleTemplates.map((template) => {
+    const templateType = TREATMENT_PLAN_TYPES[template.templateType ?? 'chemotherapy']
+    const value = template.regimen?.trim() || template.name
+    const templateName = template.regimen?.trim() && template.regimen.trim() !== template.name ? `${template.name} · ` : ''
+    return [value, `${templateName}${templateType.label} · ${template.cycleLengthDays} 天一周期`]
+  }))
+  const isTreatmentEvent = compatiblePlanTypes.length > 0
 
   function selectTemplate(id: string) {
     setSelectedTemplateId(id)
@@ -143,8 +160,17 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
         </div>}
         <HistoryCombobox label="医院" value={form.hospital} onChange={(value) => set('hospital', value)} options={hospitalHistory} placeholder="输入或选择历史医院" />
         <HistoryCombobox label="科室" value={form.department} onChange={(value) => set('department', value)} options={departmentHistory} placeholder="输入或选择历史科室" />
-        {(form.type === 'chemotherapy' || form.type === 'radiotherapy' || form.type === 'targeted' || form.type === 'immunotherapy') && <>
-          <label>治疗方案<input value={form.regimen} onChange={(e) => set('regimen', e.target.value)} placeholder="方案名称" /></label>
+        {isTreatmentEvent && <>
+          <HistoryCombobox
+            label="治疗方案"
+            value={form.regimen}
+            onChange={(value) => set('regimen', value)}
+            options={regimenOptions}
+            placeholder={regimenOptions.length ? '输入或选择方案模板' : '输入方案名称'}
+            suggestionsHeading="方案模板"
+            suggestionsLabel="治疗方案模板"
+            optionDescriptions={regimenDescriptions}
+          />
           <label>药物与剂量<input value={form.medications} onChange={(e) => set('medications', e.target.value)} placeholder="药物名称" /></label>
           <label>剂量备注<input value={form.dosage} onChange={(e) => set('dosage', e.target.value)} placeholder="如 100 mg/m²" /></label>
         </>}

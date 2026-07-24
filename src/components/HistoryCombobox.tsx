@@ -1,4 +1,4 @@
-import { ChevronDown, Clock3 } from 'lucide-react'
+import { ChevronDown, Clock3, ListChecks } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 interface HistoryComboboxProps {
@@ -7,9 +7,12 @@ interface HistoryComboboxProps {
   onChange: (value: string) => void
   options: string[]
   placeholder?: string
+  suggestionsHeading?: string
+  suggestionsLabel?: string
+  optionDescriptions?: Record<string, string>
 }
 
-export function HistoryCombobox({ label, value, onChange, options, placeholder }: HistoryComboboxProps) {
+export function HistoryCombobox({ label, value, onChange, options, placeholder, suggestionsHeading, suggestionsLabel, optionDescriptions }: HistoryComboboxProps) {
   const id = useId()
   const listId = `${id}-history`
   const rootRef = useRef<HTMLDivElement>(null)
@@ -65,10 +68,12 @@ export function HistoryCombobox({ label, value, onChange, options, placeholder }
         aria-activedescendant={activeIndex >= 0 ? `${listId}-${activeIndex}` : undefined}
         autoComplete="off"
       />
-      <button type="button" className="history-toggle" aria-label={`显示${label}历史`} onClick={() => setOpen((current) => !current)}><ChevronDown /></button>
-      {open && suggestions.length > 0 && <div id={listId} className="history-suggestions" role="listbox" aria-label={`${label}历史记录`}>
-        <div className="history-suggestions-heading"><Clock3 /><span>最近使用</span></div>
-        {suggestions.map((item, index) => <button id={`${listId}-${index}`} key={item} type="button" role="option" aria-selected={item === value} className={index === activeIndex ? 'active' : ''} onPointerDown={(event) => event.preventDefault()} onClick={() => select(item)}>{item}</button>)}
+      <button type="button" className="history-toggle" aria-label={suggestionsHeading ? `显示${label}选项` : `显示${label}历史`} onClick={() => setOpen((current) => !current)}><ChevronDown /></button>
+      {open && suggestions.length > 0 && <div id={listId} className="history-suggestions" role="listbox" aria-label={suggestionsLabel ?? `${label}历史记录`}>
+        <div className="history-suggestions-heading">{suggestionsHeading ? <ListChecks /> : <Clock3 />}<span>{suggestionsHeading ?? '最近使用'}</span></div>
+        {suggestions.map((item, index) => <button id={`${listId}-${index}`} key={item} type="button" role="option" aria-selected={item === value} className={index === activeIndex ? 'active' : ''} onPointerDown={(event) => event.preventDefault()} onClick={() => select(item)}>
+          <span className="history-suggestion-copy"><strong>{item}</strong>{optionDescriptions?.[item] && <small>{optionDescriptions[item]}</small>}</span>
+        </button>)}
       </div>}
     </div>
   </div>

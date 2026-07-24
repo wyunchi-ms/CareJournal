@@ -1,5 +1,5 @@
 import { Check, ChevronDown, ChevronUp, Copy, GripVertical, Plus, Trash2, TriangleAlert } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { getChemotherapyDayMedications, getChemotherapyTemplateDayPlans, summarizeChemotherapyMedications } from '../services/chemotherapy'
 import { useApp } from '../store/AppContext'
@@ -330,7 +330,6 @@ export function ChemotherapyTemplateSection() {
     top: number
     left: number
     width: number
-    pointerOffsetY: number
   } | null>(null)
   const [reorderError, setReorderError] = useState('')
   const longPressRef = useRef<{ timer: number; x: number; y: number } | null>(null)
@@ -338,6 +337,14 @@ export function ChemotherapyTemplateSection() {
   const draggingIdRef = useRef<string | null>(null)
   const templateListRef = useRef<HTMLDivElement>(null)
   const rowPositionsRef = useRef<Map<string, number>>(new Map())
+  const rowAnimationsRef = useRef<Map<string, Animation>>(new Map())
+  const dragPreviewElementRef = useRef<HTMLDivElement>(null)
+  const dragPointerIdRef = useRef<number | null>(null)
+  const dragPointerOffsetYRef = useRef(0)
+  const dragPreviewOriginTopRef = useRef(0)
+  const dragPreviewHeightRef = useRef(0)
+  const dragPreviewOffsetRef = useRef(0)
+  const dragPreviewFrameRef = useRef<number | null>(null)
   const displayedTemplates = reorderMode ? draftTemplates : chemotherapyTemplates
   const dragPreviewTemplate = dragPreview
     ? draftTemplates.find((template) => template.id === dragPreview.templateId)
@@ -358,8 +365,78 @@ export function ChemotherapyTemplateSection() {
     if (longPressRef.current) window.clearTimeout(longPressRef.current.timer)
   }, [])
 
+  const finishTemplateDrag = useCallback(() => {
+    if (dragPreviewFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragPreviewFrameRef.current)
+      dragPreviewFrameRef.current = null
+    }
+    if (dragPreviewElementRef.current) dragPreviewElementRef.current.style.display = 'none'
+    draggingIdRef.current = null
+    dragPointerIdRef.current = null
+    dragPreviewOffsetRef.current = 0
+    setDraggingId(null)
+    setDragPreview(null)
+  }, [])
+
+  const updateTemplateDrag = useCallback((clientY: number) => {
+    const sourceId = draggingIdRef.current
+    const templateList = templateListRef.current
+    if (!sourceId || !templateList) return
+    const listBounds = templateList.getBoundingClientRect()
+    const minimumTop = listBounds.top + 2
+    const maximumTop = Math.max(minimumTop, listBounds.bottom - dragPreviewHeightRef.current - 2)
+    const requestedTop = clientY - dragPointerOffsetYRef.current
+    const boundedTop = Math.min(maximumTop, Math.max(minimumTop, requestedTop))
+    dragPreviewOffsetRef.current = boundedTop - dragPreviewOriginTopRef.current
+    if (dragPreviewFrameRef.current === null) {
+      dragPreviewFrameRef.current = window.requestAnimationFrame(() => {
+        dragPreviewFrameRef.current = null
+        if (dragPreviewElementRef.current) {
+          dragPreviewElementRef.current.style.transform = `translate3d(0, ${dragPreviewOffsetRef.current}px, 0)`
+        }
+      })
+    }
+    const boundedPointerY = Math.min(listBounds.bottom, Math.max(listBounds.top, clientY))
+    const targetIndex = Array.from(templateList.querySelectorAll<HTMLElement>('[data-template-id]'))
+      .filter((row) => row.dataset.templateId !== sourceId)
+      .reduce((index, row) => {
+        const bounds = row.getBoundingClientRect()
+        return boundedPointerY > bounds.top + bounds.height / 2 ? index + 1 : index
+      }, 0)
+    setDraftTemplates((current) => {
+      const sourceIndex = current.findIndex((template) => template.id === sourceId)
+      if (sourceIndex < 0 || sourceIndex === targetIndex) return current
+      const next = [...current]
+      const [source] = next.splice(sourceIndex, 1)
+      next.splice(Math.min(targetIndex, next.length), 0, source)
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    const moveFromWindow = (event: PointerEvent) => {
+      if (dragPointerIdRef.current === null || event.pointerId !== dragPointerIdRef.current) return
+      event.preventDefault()
+      updateTemplateDrag(event.clientY)
+    }
+    const finishFromWindow = (event: PointerEvent) => {
+      if (dragPointerIdRef.current === null || event.pointerId !== dragPointerIdRef.current) return
+      finishTemplateDrag()
+    }
+    window.addEventListener('pointermove', moveFromWindow, { capture: true, passive: false })
+    window.addEventListener('pointerup', finishFromWindow, true)
+    window.addEventListener('pointercancel', finishFromWindow, true)
+    return () => {
+      window.removeEventListener('pointermove', moveFromWindow, true)
+      window.removeEventListener('pointerup', finishFromWindow, true)
+      window.removeEventListener('pointercancel', finishFromWindow, true)
+    }
+  }, [finishTemplateDrag, updateTemplateDrag])
+
   useLayoutEffect(() => {
     if (!reorderMode || !templateListRef.current) {
+      rowAnimationsRef.current.forEach((animation) => animation.cancel())
+      rowAnimationsRef.current.clear()
       rowPositionsRef.current.clear()
       return
     }
@@ -368,16 +445,27 @@ export function ChemotherapyTemplateSection() {
     templateListRef.current.querySelectorAll<HTMLElement>('[data-template-id]').forEach((row) => {
       const templateId = row.dataset.templateId
       if (!templateId) return
-      const top = row.getBoundingClientRect().top
+      const activeAnimation = rowAnimationsRef.current.get(templateId)
+      const visualTop = row.getBoundingClientRect().top
+      activeAnimation?.cancel()
+      const layoutTop = row.getBoundingClientRect().top
       const previousTop = rowPositionsRef.current.get(templateId)
-      const offset = previousTop === undefined ? 0 : previousTop - top
+      const offset = activeAnimation
+        ? visualTop - layoutTop
+        : previousTop === undefined ? 0 : previousTop - layoutTop
       if (!reduceMotion && templateId !== draggingId && Math.abs(offset) > 1 && typeof row.animate === 'function') {
-        row.animate(
+        const animation = row.animate(
           [{ transform: `translate3d(0, ${offset}px, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
           { duration: 190, easing: 'cubic-bezier(.2, .8, .2, 1)' },
         )
+        rowAnimationsRef.current.set(templateId, animation)
+        const removeCompletedAnimation = () => {
+          if (rowAnimationsRef.current.get(templateId) === animation) rowAnimationsRef.current.delete(templateId)
+        }
+        animation.onfinish = removeCompletedAnimation
+        animation.oncancel = removeCompletedAnimation
       }
-      nextPositions.set(templateId, top)
+      nextPositions.set(templateId, layoutTop)
     })
     rowPositionsRef.current = nextPositions
   }, [draftTemplates, draggingId, reorderMode])
@@ -414,43 +502,19 @@ export function ChemotherapyTemplateSection() {
     if (!row) return
     const bounds = row.getBoundingClientRect()
     draggingIdRef.current = templateId
+    dragPointerIdRef.current = event.pointerId
+    dragPointerOffsetYRef.current = event.clientY - bounds.top
+    dragPreviewOriginTopRef.current = bounds.top
+    dragPreviewHeightRef.current = bounds.height
+    dragPreviewOffsetRef.current = 0
     setDraggingId(templateId)
     setDragPreview({
       templateId,
       top: bounds.top,
       left: bounds.left,
       width: bounds.width,
-      pointerOffsetY: event.clientY - bounds.top,
     })
-    event.currentTarget.setPointerCapture?.(event.pointerId)
     navigator.vibrate?.(12)
-  }
-
-  function trackTemplateDrag(event: ReactPointerEvent<HTMLButtonElement>) {
-    const sourceId = draggingIdRef.current
-    if (!sourceId) return
-    setDragPreview((current) => current ? {
-      ...current,
-      top: event.clientY - current.pointerOffsetY,
-    } : current)
-    const row = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-template-id]')
-    const targetId = row?.dataset.templateId
-    if (!row || !targetId || targetId === sourceId) return
-    const targetMiddle = row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2
-    setDraftTemplates((current) => {
-      const sourceIndex = current.findIndex((template) => template.id === sourceId)
-      const targetIndex = current.findIndex((template) => template.id === targetId)
-      if (sourceIndex < targetIndex && event.clientY < targetMiddle) return current
-      if (sourceIndex > targetIndex && event.clientY > targetMiddle) return current
-      return moveTemplate(current, sourceId, targetId)
-    })
-  }
-
-  function endTemplateDrag(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
-    draggingIdRef.current = null
-    setDraggingId(null)
-    setDragPreview(null)
   }
 
   function moveDraftTemplateByOffset(templateId: string, offset: number) {
@@ -463,8 +527,7 @@ export function ChemotherapyTemplateSection() {
     try {
       await reorderChemotherapyTemplates(draftTemplates.map((template) => template.id))
       setReorderMode(false)
-      setDraggingId(null)
-      setDragPreview(null)
+      finishTemplateDrag()
       setReorderError('')
     } catch (error) {
       setReorderError(error instanceof Error ? error.message : '保存顺序失败，请重试')
@@ -535,9 +598,6 @@ export function ChemotherapyTemplateSection() {
                     aria-pressed={draggingId === template.id}
                     title="拖动排序"
                     onPointerDown={(event) => beginTemplateDrag(event, template.id)}
-                    onPointerMove={trackTemplateDrag}
-                    onPointerUp={endTemplateDrag}
-                    onPointerCancel={endTemplateDrag}
                     onKeyDown={(event) => {
                       if (event.key === 'ArrowUp') {
                         event.preventDefault()
@@ -560,16 +620,19 @@ export function ChemotherapyTemplateSection() {
     </section>
     {dragPreview && dragPreviewTemplate && dragPreviewType && createPortal(
       <div
-        className="template-drag-preview"
+        ref={dragPreviewElementRef}
+        className="template-drag-preview-positioner"
         style={{ top: dragPreview.top, left: dragPreview.left, width: dragPreview.width }}
         aria-hidden="true"
       >
-        <span className="template-drag-preview-handle"><GripVertical /></span>
-        <span className="template-drag-preview-content">
-          <span className="template-row-heading"><strong>{dragPreviewTemplate.name}</strong><span className="plan-type-tag">{dragPreviewType.label}</span></span>
-          <small>{dragPreviewTemplate.cycleLengthDays} 天一周期 · {dragPreviewDayPlans.map((plan) => `D${plan.day}`).join('、')} · {dragPreviewType.usesMedication ? `共 ${dragPreviewMedicationCount} 条用药` : dragPreviewTemplate.templateType === 'radiotherapy' ? `共 ${dragPreviewDayPlans.length} 次放疗` : `共 ${dragPreviewDayPlans.length} 项安排`}</small>
-          {dragPreviewTemplate.regimen && <span className="template-row-regimen">{dragPreviewTemplate.regimen}</span>}
-        </span>
+        <div className="template-drag-preview">
+          <span className="template-drag-preview-handle"><GripVertical /></span>
+          <span className="template-drag-preview-content">
+            <span className="template-row-heading"><strong>{dragPreviewTemplate.name}</strong><span className="plan-type-tag">{dragPreviewType.label}</span></span>
+            <small>{dragPreviewTemplate.cycleLengthDays} 天一周期 · {dragPreviewDayPlans.map((plan) => `D${plan.day}`).join('、')} · {dragPreviewType.usesMedication ? `共 ${dragPreviewMedicationCount} 条用药` : dragPreviewTemplate.templateType === 'radiotherapy' ? `共 ${dragPreviewDayPlans.length} 次放疗` : `共 ${dragPreviewDayPlans.length} 项安排`}</small>
+            {dragPreviewTemplate.regimen && <span className="template-row-regimen">{dragPreviewTemplate.regimen}</span>}
+          </span>
+        </div>
       </div>,
       document.body,
     )}
