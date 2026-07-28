@@ -1,6 +1,8 @@
 import { Maximize2, Minus, Plus, RotateCcw, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
+import { isTopModal, registerModal, unregisterModal } from './modalStack'
 
 interface PreviewTransform {
   scale: number
@@ -34,6 +36,7 @@ export function ImagePreview({ src, alt, className = '' }: { src: string; alt: s
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<PreviewTransform>(INITIAL_TRANSFORM)
   const viewRef = useRef<PreviewTransform>(INITIAL_TRANSFORM)
+  const stackId = useRef(Symbol('image-preview'))
   const stageRef = useRef<HTMLDivElement>(null)
   const imageRef = useRef<HTMLImageElement>(null)
   const pointersRef = useRef(new Map<number, Point>())
@@ -102,9 +105,11 @@ export function ImagePreview({ src, alt, className = '' }: { src: string; alt: s
 
   useEffect(() => {
     if (!open) return
+    const id = stackId.current
     const previousOverflow = document.body.style.overflow
-    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') close() }
+    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape' && isTopModal(id)) close() }
     const handleResize = () => updateView(viewRef.current)
+    registerModal(id, close)
     document.body.style.overflow = 'hidden'
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('resize', handleResize)
@@ -112,6 +117,7 @@ export function ImagePreview({ src, alt, className = '' }: { src: string; alt: s
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('resize', handleResize)
+      unregisterModal(id)
     }
   }, [close, open, updateView])
 
@@ -191,13 +197,13 @@ export function ImagePreview({ src, alt, className = '' }: { src: string; alt: s
       <img src={src} alt={alt} loading="lazy" />
       <span className="image-thumbnail-hint" aria-hidden="true"><Maximize2 /></span>
     </button>
-    {open && <div className="image-preview-backdrop" role="dialog" aria-modal="true" aria-label="图片预览" onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}>
+    {open && createPortal(<div className="image-preview-backdrop" role="dialog" aria-modal="true" aria-label="图片预览" onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}>
       <div className="image-preview-toolbar">
         <span>{Math.round(view.scale * 100)}%</span>
-        <button type="button" className="icon-button" onClick={() => changeScale(view.scale - .5)} disabled={view.scale <= MIN_SCALE} aria-label="缩小图片"><Minus /></button>
-        <button type="button" className="icon-button" onClick={() => changeScale(view.scale + .5)} disabled={view.scale >= MAX_SCALE} aria-label="放大图片"><Plus /></button>
-        <button type="button" className="icon-button" onClick={resetView} aria-label="恢复原始缩放"><RotateCcw /></button>
-        <button type="button" className="icon-button" onClick={close} aria-label="关闭图片预览"><X /></button>
+        <button type="button" className="icon-button" onClick={() => changeScale(view.scale - .5)} disabled={view.scale <= MIN_SCALE} aria-label="缩小图片" title="缩小图片"><Minus /></button>
+        <button type="button" className="icon-button" onClick={() => changeScale(view.scale + .5)} disabled={view.scale >= MAX_SCALE} aria-label="放大图片" title="放大图片"><Plus /></button>
+        <button type="button" className="icon-button" onClick={resetView} aria-label="恢复原始缩放" title="恢复原始缩放"><RotateCcw /></button>
+        <button type="button" className="icon-button" onClick={close} aria-label="关闭图片预览" title="关闭图片预览"><X /></button>
       </div>
       <div
         ref={stageRef}
@@ -220,6 +226,6 @@ export function ImagePreview({ src, alt, className = '' }: { src: string; alt: s
         />
       </div>
       <p>双指缩放，放大后单指拖动；双击可快速切换</p>
-    </div>}
+    </div>, document.body)}
   </>
 }

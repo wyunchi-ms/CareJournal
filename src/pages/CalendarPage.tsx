@@ -204,7 +204,6 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
       <div className="form-actions full-width">
         {event && <button type="button" className="button danger ghost" onClick={() => { setDeleteError(''); setDeleteConfirming(true) }}><Trash2 />删除</button>}
         <span className="spacer" />
-        <button type="button" className="button secondary" onClick={onClose}>取消</button>
         <button className="button primary" type="submit">{isTemplateCreation ? '创建周期事件' : '保存事件'}</button>
       </div>
       </form>
@@ -350,7 +349,7 @@ export function CalendarPage() {
           onClickCapture={suppressClickAfterSwipe}
         >
           <div className="calendar-toolbar">
-            <div className="month-switcher"><button className="icon-button" aria-label="上个月" onClick={() => changeMonth('previous')}><ChevronLeft /></button><strong key={monthKey} className={`calendar-month-label${transitionClass}`}>{format(month, 'yyyy年M月', { locale: zhCN })}</strong><button className="icon-button" aria-label="下个月" onClick={() => changeMonth('next')}><ChevronRight /></button><button className="text-button calendar-today" onClick={goToToday}>今天</button></div>
+            <div className="month-switcher"><button className="icon-button" aria-label="上个月" title="上个月" onClick={() => changeMonth('previous')}><ChevronLeft /></button><strong key={monthKey} className={`calendar-month-label${transitionClass}`}>{format(month, 'yyyy年M月', { locale: zhCN })}</strong><button className="icon-button" aria-label="下个月" title="下个月" onClick={() => changeMonth('next')}><ChevronRight /></button><button className="text-button calendar-today" onClick={goToToday}>今天</button></div>
             <div className="calendar-toolbar-actions">
               <ChoicePicker compact iconOnly multiple allLabel="全部事件" selectionNoun="类" label="事件筛选" icon={<Filter />} options={eventFilterOptions} value={filters} onChange={(value) => setFilters(value as EventType[])} />
               <button className="icon-button calendar-create-button" aria-label="新建事件" title="新建事件" onClick={() => setEditing('new')}><Plus /></button>

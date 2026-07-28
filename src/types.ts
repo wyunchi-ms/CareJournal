@@ -66,13 +66,13 @@ export const CHEMOTHERAPY_DOSE_UNITS = [
 ] as const
 
 export const TREATMENT_PLAN_TYPES = {
-  chemotherapy: { label: '化疗', description: '按周期维护每日用药和剂量', color: '#91462f', usesMedication: true },
-  radiotherapy: { label: '放疗', description: '维护放疗周期和每日安排', color: '#b97818', usesMedication: false },
-  maintenance: { label: '维持治疗', description: '记录长期或周期性维持用药', color: '#567a5b', usesMedication: true },
-  targeted: { label: '靶向治疗', description: '记录靶向药物和周期安排', color: '#39776f', usesMedication: true },
-  immunotherapy: { label: '免疫治疗', description: '记录免疫治疗药物和周期安排', color: '#46738a', usesMedication: true },
-  supportive: { label: '支持治疗', description: '记录补液、升白等支持治疗', color: '#796a57', usesMedication: true },
-  other: { label: '其他方案', description: '记录其他周期性治疗安排', color: '#766b67', usesMedication: false },
+  chemotherapy: { label: '化疗', description: '按周期维护每日用药和剂量', color: '#A23B36', usesMedication: true },
+  radiotherapy: { label: '放疗', description: '维护放疗周期和每日安排', color: '#A66000', usesMedication: false },
+  maintenance: { label: '维持治疗', description: '记录长期或周期性维持用药', color: '#2F7552', usesMedication: true },
+  targeted: { label: '靶向治疗', description: '记录靶向药物和周期安排', color: '#087A70', usesMedication: true },
+  immunotherapy: { label: '免疫治疗', description: '记录免疫治疗药物和周期安排', color: '#3568A8', usesMedication: true },
+  supportive: { label: '支持治疗', description: '记录补液、升白等支持治疗', color: '#7651A8', usesMedication: true },
+  other: { label: '其他方案', description: '记录其他周期性治疗安排', color: '#68616C', usesMedication: false },
 } as const
 
 export type TreatmentPlanType = keyof typeof TREATMENT_PLAN_TYPES

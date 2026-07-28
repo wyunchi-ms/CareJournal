@@ -21,7 +21,7 @@ export function ChemotherapyTemplatePreview({ template, onEdit }: ChemotherapyTe
   return <div className="template-preview">
     <header className="template-preview-header">
       <div>
-        <span className="plan-type-tag">{planType.label}</span>
+        <span className="plan-type-tag" data-plan-type={getTreatmentPlanType(template)}>{planType.label}</span>
         <h3>{template.name}</h3>
         {template.regimen && <p>{template.regimen}</p>}
       </div>

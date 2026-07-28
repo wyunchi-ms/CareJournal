@@ -72,6 +72,7 @@ describe('import page', () => {
     expect(screen.queryByText('后台识别说明')).not.toBeInTheDocument()
     expect(screen.queryByText('逐文件请求')).not.toBeInTheDocument()
     expect(screen.getByText('还没有识别任务')).toBeInTheDocument()
+    expect(screen.getByText(/文件会按顺序加入后台识别队列/)).toBeInTheDocument()
   })
 
   it('uses native recursive folder scanning instead of a web directory input on Android', () => {

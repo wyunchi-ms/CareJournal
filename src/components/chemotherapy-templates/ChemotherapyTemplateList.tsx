@@ -1,8 +1,9 @@
-import { Check, Copy, GripVertical, Plus, Trash2 } from 'lucide-react'
+import { Check, Copy, GripVertical, ListFilter, Pill, Plus, Search, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { getChemotherapyDayMedications, getChemotherapyTemplateDayPlans } from '../../services/chemotherapy'
-import { TREATMENT_PLAN_TYPES, type ChemotherapyTemplate } from '../../types'
+import { TREATMENT_PLAN_TYPES, type ChemotherapyTemplate, type TreatmentPlanType } from '../../types'
+import { ChoicePicker } from '../ChoicePicker'
 import { SwipeableListItem } from '../SwipeableListItem'
 import { getTreatmentPlanType } from './templateUtils'
 
@@ -43,6 +44,8 @@ export function ChemotherapyTemplateList({
     width: number
   } | null>(null)
   const [reorderError, setReorderError] = useState('')
+  const [selectedTypes, setSelectedTypes] = useState<TreatmentPlanType[]>([])
+  const [query, setQuery] = useState('')
   const draggingIdRef = useRef<string | null>(null)
   const templateListRef = useRef<HTMLDivElement>(null)
   const rowPositionsRef = useRef<Map<string, number>>(new Map())
@@ -54,7 +57,40 @@ export function ChemotherapyTemplateList({
   const dragPreviewHeightRef = useRef(0)
   const dragPreviewOffsetRef = useRef(0)
   const dragPreviewFrameRef = useRef<number | null>(null)
-  const displayedTemplates = reorderMode ? draftTemplates : templates
+  const typeOptions = (Object.keys(TREATMENT_PLAN_TYPES) as TreatmentPlanType[])
+    .map((value) => {
+      const type = TREATMENT_PLAN_TYPES[value]
+      const count = templates.filter((template) => getTreatmentPlanType(template) === value).length
+      return {
+        value,
+        label: type.label,
+        description: `${count} 个方案 · ${type.description}`,
+        color: type.color,
+        count,
+      }
+    })
+    .filter((option) => option.count > 0)
+  const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN')
+  const filteredTemplates = templates.filter((template) => {
+    const templateType = getTreatmentPlanType(template)
+    if (selectedTypes.length && !selectedTypes.includes(templateType)) return false
+    if (!normalizedQuery) return true
+    const dayPlans = getChemotherapyTemplateDayPlans(template)
+    const searchableText = [
+      template.name,
+      template.regimen,
+      template.hospital,
+      template.department,
+      TREATMENT_PLAN_TYPES[templateType].label,
+      ...dayPlans.flatMap((plan) => [
+        plan.radiotherapySite,
+        plan.notes,
+        ...getChemotherapyDayMedications(plan).flatMap((medication) => [medication.name, medication.administration, medication.notes]),
+      ]),
+    ].filter(Boolean).join(' ').toLocaleLowerCase('zh-CN')
+    return searchableText.includes(normalizedQuery)
+  })
+  const displayedTemplates = reorderMode ? draftTemplates : filteredTemplates
   const dragPreviewTemplate = dragPreview
     ? draftTemplates.find((template) => template.id === dragPreview.templateId)
     : undefined
@@ -221,12 +257,47 @@ export function ChemotherapyTemplateList({
 
   return <>
     <section className="chemotherapy-template-section treatment-template-page">
-      <div className="template-page-toolbar">
-        <div><h2>{reorderMode ? '调整方案顺序' : '治疗方案'}</h2><p>{reorderMode ? '拖动左侧把手调整；也可用方向键移动。' : '长按任一方案可进入排序模式。'}</p></div>
+      {templates.length > 0 && <div className={`toolbar card compact template-page-toolbar${reorderMode ? ' reorder-mode' : ''}`}>
         {reorderMode
-          ? <button type="button" className="button template-reorder-done" onClick={() => void finishReorder()}><Check />完成</button>
-          : <button type="button" className="icon-button template-add-button" aria-label="新建治疗方案" title="新建治疗方案" onClick={onCreate}><Plus /></button>}
-      </div>
+          ? <>
+            <div className="template-reorder-copy"><h2>调整方案顺序</h2><p>拖动左侧把手调整；也可用方向键移动。</p></div>
+            <button type="button" className="button template-reorder-done" onClick={() => void finishReorder()}><Check />完成</button>
+          </>
+          : <>
+            <label className="search-box">
+              <Search />
+              <span className="sr-only">搜索治疗方案</span>
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索方案名称或用药" />
+            </label>
+            <ChoicePicker
+              compact
+              iconOnly
+              label="方案类型"
+              icon={<ListFilter />}
+              multiple
+              allLabel="全部类型"
+              selectionNoun="类"
+              options={typeOptions}
+              value={selectedTypes}
+              onChange={(value) => setSelectedTypes(value as TreatmentPlanType[])}
+              emptyText="暂无方案类型"
+            />
+            <button type="button" className="icon-button template-add-button" aria-label="新建治疗方案" title="新建治疗方案" onClick={onCreate}><Plus /></button>
+          </>}
+      </div>}
+      {!reorderMode && selectedTypes.length > 0 && <div className="active-filter-row template-active-filters" aria-label="已选方案类型">
+        {selectedTypes.map((type) => <button
+          key={type}
+          type="button"
+          className="filter-chip template-filter-chip"
+          data-plan-type={type}
+          onClick={() => setSelectedTypes((current) => current.filter((item) => item !== type))}
+          aria-label={`移除筛选：${TREATMENT_PLAN_TYPES[type].label}`}
+        >
+          <span>{TREATMENT_PLAN_TYPES[type].label}</span><X />
+        </button>)}
+        <button type="button" className="text-button" onClick={() => setSelectedTypes([])}>清除全部</button>
+      </div>}
       {reorderError && <p className="form-error" role="alert">{reorderError}</p>}
       <div ref={templateListRef} className={`template-list${reorderMode ? ' reorder-mode' : ''}`}>
         {displayedTemplates.map((template) => {
@@ -285,13 +356,23 @@ export function ChemotherapyTemplateList({
               aria-disabled={reorderMode}
               onClick={() => { if (!reorderMode) onOpen(template) }}
             >
-              <span className="template-row-heading"><strong>{template.name}</strong><span className="plan-type-tag">{templateType.label}</span></span>
+              <span className="template-row-heading"><strong>{template.name}</strong><span className="plan-type-tag" data-plan-type={getTreatmentPlanType(template)}>{templateType.label}</span></span>
               <small>{template.cycleLengthDays} 天一周期 · {dayPlans.map((plan) => `D${plan.day}`).join('、')} · {templateType.usesMedication ? `共 ${medicationCount} 条用药` : template.templateType === 'radiotherapy' ? `共 ${dayPlans.length} 次放疗` : `共 ${dayPlans.length} 项安排`}</small>
               {template.regimen && <span className="template-row-regimen">{template.regimen}</span>}
             </button>
           </SwipeableListItem>
         })}
-        {templates.length === 0 && <button type="button" className="template-empty" onClick={onCreate}><Plus /><span><strong>创建第一个治疗方案</strong><small>选择方案类型，再设置周期和每日安排。</small></span></button>}
+        {templates.length === 0 && <div className="empty-state card collection-empty-state template-empty-state">
+          <Pill />
+          <h3>还没有治疗方案</h3>
+          <p>先选择治疗类型，再设置周期和每日安排。</p>
+          <button type="button" className="button primary" onClick={onCreate}><Plus />创建第一个治疗方案</button>
+        </div>}
+        {templates.length > 0 && displayedTemplates.length === 0 && <div className="empty-state card filtered-empty-state">
+          <Search />
+          <h3>没有符合条件的方案</h3>
+          <p>调整搜索词或移除类型筛选后再试。</p>
+        </div>}
       </div>
     </section>
     {dragPreview && dragPreviewTemplate && dragPreviewType && createPortal(
@@ -304,7 +385,7 @@ export function ChemotherapyTemplateList({
         <div className="template-drag-preview">
           <span className="template-drag-preview-handle"><GripVertical /></span>
           <span className="template-drag-preview-content">
-            <span className="template-row-heading"><strong>{dragPreviewTemplate.name}</strong><span className="plan-type-tag">{dragPreviewType.label}</span></span>
+            <span className="template-row-heading"><strong>{dragPreviewTemplate.name}</strong><span className="plan-type-tag" data-plan-type={getTreatmentPlanType(dragPreviewTemplate)}>{dragPreviewType.label}</span></span>
             <small>{dragPreviewTemplate.cycleLengthDays} 天一周期 · {dragPreviewDayPlans.map((plan) => `D${plan.day}`).join('、')} · {dragPreviewType.usesMedication ? `共 ${dragPreviewMedicationCount} 条用药` : dragPreviewTemplate.templateType === 'radiotherapy' ? `共 ${dragPreviewDayPlans.length} 次放疗` : `共 ${dragPreviewDayPlans.length} 项安排`}</small>
             {dragPreviewTemplate.regimen && <span className="template-row-regimen">{dragPreviewTemplate.regimen}</span>}
           </span>

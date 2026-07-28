@@ -94,7 +94,7 @@ export function Modal({ title, onClose, children, wide = false, swipeToClose = f
       <section className={`modal-card${wide ? ' wide' : ''}${bottomSheet ? ' bottom-sheet' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} onTouchStart={startSwipe} onTouchEnd={finishSwipe}>
         <header className="modal-header">
           <h2 id={titleId}>{title}</h2>
-          <button className="icon-button" onClick={onClose} aria-label="关闭"><X /></button>
+          <button className="icon-button" onClick={onClose} aria-label="关闭" title="关闭"><X /></button>
         </header>
         <div className="modal-body">{children}</div>
       </section>

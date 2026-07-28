@@ -1,7 +1,7 @@
 import { differenceInCalendarDays, format, parseISO } from 'date-fns'
 import type { EChartsType } from 'echarts'
 import ReactECharts from 'echarts-for-react'
-import { Bookmark, BookmarkCheck, BookmarkX, ChartNoAxesCombined, ChevronRight, Eye, EyeOff, RotateCcw, Search } from 'lucide-react'
+import { Bookmark, BookmarkCheck, BookmarkX, CalendarPlus, ChartNoAxesCombined, ChevronRight, Eye, EyeOff, FileUp, RotateCcw, Search } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChoicePicker } from '../components/ChoicePicker'
 import { ConfirmSheet } from '../components/ConfirmSheet'
@@ -176,19 +176,6 @@ export function ChartsPage() {
   }
 
   return <>
-    {pins.length > 0 && <div className="saved-charts-access">
-      <button
-        type="button"
-        className="saved-charts-trigger"
-        aria-label={`打开已保存图表，共 ${pins.length} 个`}
-        onClick={() => { setSavedQuery(''); setSavedChartsOpen(true) }}
-      >
-        <BookmarkCheck aria-hidden="true" />
-        <span>已保存图表</span>
-        <small>{pins.length}</small>
-        <ChevronRight aria-hidden="true" />
-      </button>
-    </div>}
     {savedChartsOpen && <Modal title={`已保存图表（${pins.length}）`} onClose={() => setSavedChartsOpen(false)}>
       <label className="search-box saved-chart-search">
         <Search aria-hidden="true" />
@@ -232,8 +219,24 @@ export function ChartsPage() {
       onCancel={() => setDeletingPin(null)}
       onConfirm={() => void confirmDeletePin()}
     />}
-    <section className="chart-controls card">
-      <div className="chart-controls-toolbar"><div className="segmented" role="group" aria-label="图表模式"><button className={mode === 'trend' ? 'active' : ''} onClick={() => setMode('trend')}>实际日期趋势</button><button className={mode === 'cycle' ? 'active' : ''} onClick={() => setMode('cycle')}>化疗周期叠加</button></div></div>
+    {indicators.length > 0 && <section className="chart-controls card">
+      <div className={`chart-controls-toolbar${pins.length > 0 ? ' has-saved-charts' : ''}`}>
+        <div className="segmented" role="group" aria-label="图表模式">
+          <button className={mode === 'trend' ? 'active' : ''} onClick={() => setMode('trend')}>实际日期趋势</button>
+          <button className={mode === 'cycle' ? 'active' : ''} onClick={() => setMode('cycle')}>化疗周期叠加</button>
+        </div>
+        {pins.length > 0 && <button
+          type="button"
+          className="saved-charts-trigger"
+          aria-label={`打开已保存图表，共 ${pins.length} 个`}
+          title={`已保存图表（${pins.length}）`}
+          onClick={() => { setSavedQuery(''); setSavedChartsOpen(true) }}
+        >
+          <BookmarkCheck aria-hidden="true" />
+          <span>已保存</span>
+          <small>{pins.length}</small>
+        </button>}
+      </div>
       <div className="control-groups">
         <IndicatorPicker
           options={indicators}
@@ -245,9 +248,9 @@ export function ChartsPage() {
         />
         {mode === 'cycle' && <ChoicePicker label="叠加周期" multiple allLabel="全部周期" orderByRecent={false} options={cyclesNewestFirst.map((cycle) => ({ value: cycle.id, label: cycle.title, description: `Day 1：${cycle.dayOne}${cycle.events.length > 1 ? ` · ${cycle.events.length} 次给药` : ''}` }))} value={currentCycles} onChange={(value) => setSelectedCycles(value as string[])} emptyText="暂无化疗周期" />}
       </div>
-    </section>
+    </section>}
     <section className="chart-card card">
-      <div className="chart-card-header">
+      {indicators.length > 0 && <div className="chart-card-header">
         <div className="chart-card-heading">
           <span>{mode === 'trend' ? '实际日期趋势' : '化疗周期叠加'}</span>
           <h2>{currentChartTitle}</h2>
@@ -275,8 +278,12 @@ export function ChartsPage() {
             {currentPin ? <BookmarkCheck /> : <Bookmark />}
           </button>
         </div>
-      </div>
-      {indicators.length === 0 ? <div className="empty-state"><ChartNoAxesCombined /><h3>还没有可绘制的指标</h3><p>导入含数值指标的检查报告后，趋势图会自动出现。</p></div> : mode === 'cycle' && chemotherapyCycles.length === 0 ? <div className="empty-state"><RotateCcw /><h3>还没有化疗周期</h3><p>先在病程日历中创建化疗事件并设置 Day 1。</p></div> : <ReactECharts option={mode === 'trend' ? trendOption : cycleOption} style={{ height: 460 }} notMerge onChartReady={(instance) => { chartInstanceRef.current = instance }} />}
+      </div>}
+      {indicators.length === 0
+        ? <div className="empty-state"><ChartNoAxesCombined /><h3>还没有可绘制的指标</h3><p>导入含数值指标的检查报告后，趋势图会自动出现。</p><a className="button primary" href="#/import"><FileUp />导入检查报告</a></div>
+        : mode === 'cycle' && chemotherapyCycles.length === 0
+          ? <div className="empty-state"><RotateCcw /><h3>还没有化疗周期</h3><p>先在病程日历中创建化疗事件并设置 Day 1。</p><a className="button primary" href="#/calendar"><CalendarPlus />创建化疗事件</a></div>
+          : <ReactECharts option={mode === 'trend' ? trendOption : cycleOption} style={{ height: 460 }} notMerge onChartReady={(instance) => { chartInstanceRef.current = instance }} />}
     </section>
   </>
 }

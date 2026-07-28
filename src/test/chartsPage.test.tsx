@@ -135,7 +135,9 @@ describe('charts page indicator selection', () => {
     expect(activeBookmark).toHaveAttribute('aria-pressed', 'true')
     expect(activeBookmark).not.toHaveClass('active')
 
-    fireEvent.click(screen.getByRole('button', { name: '打开已保存图表，共 2 个' }))
+    const savedChartsTrigger = screen.getByRole('button', { name: '打开已保存图表，共 2 个' })
+    expect(savedChartsTrigger.closest('.chart-controls-toolbar')).not.toBeNull()
+    fireEvent.click(savedChartsTrigger)
     const dialog = screen.getByRole('dialog', { name: '已保存图表（2）' })
 
     fireEvent.change(screen.getByRole('textbox', { name: '搜索已保存图表' }), { target: { value: '周期' } })

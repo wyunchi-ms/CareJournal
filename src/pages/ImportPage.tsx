@@ -300,7 +300,7 @@ export function ImportPage() {
               onRemove={() => setDeletingJobIds([job.id])}
             />)}
           </div>
-          {ocrJobs.length === 0 && !preparing && <div className="empty-queue"><FileImage /><h2>还没有识别任务</h2></div>}
+          {ocrJobs.length === 0 && !preparing && <div className="empty-queue"><FileImage /><h2>还没有识别任务</h2><p>从上方拍照、选择图片或扫描文件夹，文件会按顺序加入后台识别队列。</p></div>}
         </section>
       </div>
       {deletingJobIds.length > 0 && <ConfirmSheet

@@ -29,8 +29,52 @@ afterEach(() => {
 })
 
 describe('chemotherapy template daily medication editor', () => {
+  it('uses a compact type filter, semantic tags, and no repeated page title', () => {
+    chemotherapyTemplates = [{
+      id: 'template-chemo',
+      templateType: 'chemotherapy',
+      name: 'ICE',
+      cycleLengthDays: 21,
+      administrationDays: [1],
+      defaultCycleCount: 1,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    }, {
+      id: 'template-radio',
+      templateType: 'radiotherapy',
+      name: '全中枢放疗',
+      cycleLengthDays: 17,
+      administrationDays: [1],
+      defaultCycleCount: 1,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    }]
+    render(<ChemotherapyTemplatesPage />)
+
+    expect(screen.queryByRole('heading', { name: '治疗方案' })).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '搜索治疗方案' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '新建治疗方案' })).toBeInTheDocument()
+    expect(screen.getByText('化疗').closest('.plan-type-tag')).toHaveAttribute('data-plan-type', 'chemotherapy')
+    expect(screen.getByText('放疗').closest('.plan-type-tag')).toHaveAttribute('data-plan-type', 'radiotherapy')
+
+    fireEvent.click(screen.getByRole('button', { name: '方案类型：全部类型' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /放疗.*1 个方案/ }))
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+
+    expect(screen.getByText('全中枢放疗')).toBeInTheDocument()
+    expect(screen.queryByText('ICE')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '移除筛选：放疗' }))
+    expect(screen.getByText('ICE')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索治疗方案' }), { target: { value: 'ICE' } })
+    expect(screen.getByText('ICE')).toBeInTheDocument()
+    expect(screen.queryByText('全中枢放疗')).not.toBeInTheDocument()
+  })
+
   it('creates collapsible consecutive days and copies the previous day medication', () => {
     render(<ChemotherapyTemplatesPage />)
+    expect(screen.getAllByRole('button', { name: /创建第一个治疗方案/ })).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: '新建治疗方案' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /创建第一个治疗方案/ }))
     fireEvent.change(screen.getByRole('spinbutton', { name: '本周期给药天数' }), { target: { value: '3' } })
 

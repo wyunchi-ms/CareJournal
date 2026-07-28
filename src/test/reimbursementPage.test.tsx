@@ -92,6 +92,7 @@ describe('ReimbursementPage', () => {
   it('shows checklist progress, reused sources and image/PDF/camera inputs', () => {
     render(<MemoryRouter><ReimbursementPage /></MemoryRouter>)
 
+    expect(screen.getByRole('textbox', { name: '搜索报销计划' })).toBeInTheDocument()
     expect(screen.getByText('0/1')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /打开报销计划：放疗第 1 次/ }))
     expect(screen.getByText('来自检查记录')).toBeInTheDocument()
@@ -102,11 +103,45 @@ describe('ReimbursementPage', () => {
     expect(document.querySelector<HTMLInputElement>('input[capture="environment"]')).toHaveAttribute('accept', 'image/*')
   })
 
+  it('filters reimbursement plans from the compact toolbar', () => {
+    render(<MemoryRouter><ReimbursementPage /></MemoryRouter>)
+
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索报销计划' }), { target: { value: '不存在的医院' } })
+    expect(screen.queryByRole('button', { name: /打开报销计划：放疗第 1 次/ })).not.toBeInTheDocument()
+    expect(screen.getByText('没有符合条件的报销计划')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索报销计划' }), { target: { value: '测试医院' } })
+    expect(screen.getByRole('button', { name: /打开报销计划：放疗第 1 次/ })).toBeInTheDocument()
+  })
+
+  it('filters by reimbursement type and gives each type a stable tag tone', () => {
+    mockPlans = [
+      plan,
+      {
+        ...plan,
+        id: 'plan-public',
+        eventTitle: '医保计划',
+        coverage: 'public_medical',
+      },
+    ]
+    render(<MemoryRouter><ReimbursementPage /></MemoryRouter>)
+
+    expect(screen.getByText('商业保险').closest('.coverage-badge')).toHaveAttribute('data-coverage', 'commercial')
+    expect(screen.getByText('基本医保').closest('.coverage-badge')).toHaveAttribute('data-coverage', 'public_medical')
+    fireEvent.click(screen.getByRole('button', { name: '报销类型：全部类型' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /商业保险/ }))
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+
+    expect(screen.getByRole('button', { name: /打开报销计划：放疗第 1 次/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /打开报销计划：医保计划/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '移除筛选：商业保险' })).toHaveAttribute('data-coverage', 'commercial')
+  })
+
   it('shows only the empty-state creation action when there are no plans', () => {
     mockPlans = []
     render(<MemoryRouter><ReimbursementPage /></MemoryRouter>)
 
-    expect(screen.queryByRole('button', { name: '新建' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '新建报销计划' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '创建第一个计划' })).toBeInTheDocument()
   })
 

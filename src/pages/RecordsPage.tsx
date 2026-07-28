@@ -180,7 +180,7 @@ function RecordEditForm({ record, onCancel, onSaved }: { record: ExamRecord; onC
         {indicators.length === 0 && <p className="muted-text">这份报告暂时没有结构化指标。</p>}
         {indicators.map((item, index) => <fieldset className="indicator-editor" key={item.id}>
           <legend>指标 {index + 1}</legend>
-          <div className="indicator-editor-heading"><strong>{item.normalizedName || item.rawName || `指标 ${index + 1}`}</strong><button type="button" className="icon-button danger" aria-label={`移除指标 ${index + 1}`} onClick={() => setIndicators((current) => current.filter((candidate) => candidate.id !== item.id))}><Trash2 /></button></div>
+          <div className="indicator-editor-heading"><strong>{item.normalizedName || item.rawName || `指标 ${index + 1}`}</strong><button type="button" className="icon-button danger" aria-label={`移除指标 ${index + 1}`} title={`移除指标 ${index + 1}`} onClick={() => setIndicators((current) => current.filter((candidate) => candidate.id !== item.id))}><Trash2 /></button></div>
           <div className="form-grid indicator-fields">
             <ChoicePicker label="标准指标" historyKey="standard-indicator" options={[...INDICATORS.map((definition) => ({ value: definition.code, label: definition.name, description: definition.code })), { value: 'OTHER', label: '其他指标' }]} value={INDICATORS.some((definition) => definition.code === item.normalizedCode) ? item.normalizedCode : 'OTHER'} onChange={(value) => {
               const definition = INDICATORS.find((candidate) => candidate.code === value)
@@ -348,12 +348,12 @@ export function RecordsPage() {
   }
 
   return <>
-    <section className="toolbar card compact records-toolbar">
+    {records.length > 0 && <section className="toolbar card compact records-toolbar">
       <label className="search-box"><Search /><span className="sr-only">搜索记录</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索医院、报告或指标" /></label>
       <ChoicePicker compact iconOnly label="检查类型" icon={<ListFilter />} multiple allLabel="全部类型" selectionNoun="类" options={typeGroups.map((group) => ({ value: group.label, label: group.label, description: `${group.count} 份记录${group.aliases.some((alias) => alias !== group.label) ? ` · 原名称：${group.aliases.join('、')}` : ''}` }))} value={selectedTypes} onChange={(value) => setSelectedTypes(value as string[])} emptyText="暂无检查类型" />
       <Link className="icon-button records-import-button" to="/import" aria-label="导入报告" title="导入报告"><FileUp /></Link>
-    </section>
-    {selectedTypes.length > 0 && <div className="active-filter-row" aria-label="已选检查类型">{selectedTypes.map((type) => <button key={type} type="button" className="filter-chip" onClick={() => toggleType(type)} aria-label={`移除筛选：${type}`}><span>{type}</span><X /></button>)}<button type="button" className="text-button" onClick={() => setSelectedTypes([])}>清除全部</button></div>}
+    </section>}
+    {records.length > 0 && selectedTypes.length > 0 && <div className="active-filter-row" aria-label="已选检查类型">{selectedTypes.map((type) => <button key={type} type="button" className="filter-chip" onClick={() => toggleType(type)} aria-label={`移除筛选：${type}`}><span>{type}</span><X /></button>)}<button type="button" className="text-button" onClick={() => setSelectedTypes([])}>清除全部</button></div>}
     {listEditMode && <div className="list-edit-toolbar records-edit-toolbar" aria-label="批量管理检查记录">
       <label className="selection-control"><input type="checkbox" checked={filtered.length > 0 && filtered.every((record) => selectedRecordIds.includes(record.id))} onChange={(event) => setSelectedRecordIds(event.target.checked ? filtered.map((record) => record.id) : [])} /><span>全选</span></label>
       <span>已选 {selectedRecordIds.length} 项</span>
@@ -361,8 +361,10 @@ export function RecordsPage() {
       <button type="button" className="text-button" onClick={() => { setListEditMode(false); setSelectedRecordIds([]) }}>完成</button>
     </div>}
     <section className="record-list card">
-      <div className="section-heading"><h2>记录列表</h2><small>显示 {filtered.length} 条</small></div>
-      {filtered.length === 0 && <div className="empty-state"><FileImage /><h3>暂无符合条件的记录</h3><p>可以调整筛选条件，或通过“导入”页面添加检查报告。</p></div>}
+      {records.length > 0 && <div className="section-heading"><h2>记录列表</h2><small>显示 {filtered.length} 条</small></div>}
+      {filtered.length === 0 && (records.length === 0
+        ? <div className="empty-state collection-empty-state"><FileImage /><h2>还没有检查记录</h2><p>导入第一份检查报告后，这里会按日期整理报告、指标和异常结果。</p><Link className="button primary" to="/import"><FileUp />导入第一份报告</Link></div>
+        : <div className="empty-state filtered-empty-state"><Search /><h3>没有符合条件的记录</h3><p>调整搜索词或移除筛选条件后再试。</p></div>)}
       <div className="record-date-groups">
         {dateGroups.map((group) => {
           const date = parseISO(group.date)
@@ -399,7 +401,7 @@ export function RecordsPage() {
         })}
       </div>
     </section>
-    <DateFastScroller items={dateGroups.map(({ date, targetId }) => ({ date, targetId }))} />
+    {dateGroups.length > 0 && <DateFastScroller items={dateGroups.map(({ date, targetId }) => ({ date, targetId }))} />}
     {selected && <Modal title={editing ? '编辑检查报告' : recordType(selected)} onClose={closeRecordDetail} wide swipeToClose={!editing}>{editing ? <RecordEditForm record={selected} onCancel={() => setEditing(false)} onSaved={(updated) => { setSelected(updated); setEditing(false) }} /> : <RecordDetail record={selected} onClose={closeRecordDetail} onEdit={() => setEditing(true)} onRecognized={setSelected} />}</Modal>}
     {deletingRecordIds.length > 0 && <ConfirmSheet
       title={deletingRecordIds.length > 1 ? '批量删除检查记录' : '删除检查记录'}
