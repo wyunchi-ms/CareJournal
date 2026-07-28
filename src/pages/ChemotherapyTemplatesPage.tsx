@@ -1,5 +1,5 @@
-import { TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
+import { ConfirmSheet } from '../components/ConfirmSheet'
 import { ChemotherapyTemplateForm } from '../components/chemotherapy-templates/ChemotherapyTemplateForm'
 import { ChemotherapyTemplateList } from '../components/chemotherapy-templates/ChemotherapyTemplateList'
 import { ChemotherapyTemplatePreview } from '../components/chemotherapy-templates/ChemotherapyTemplatePreview'
@@ -18,6 +18,8 @@ export function ChemotherapyTemplatesPage() {
   const [selected, setSelected] = useState<ChemotherapyTemplate | 'new' | null>(null)
   const [mode, setMode] = useState<'preview' | 'edit'>('preview')
   const [deleting, setDeleting] = useState<ChemotherapyTemplate | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
   async function duplicateTemplate(template: ChemotherapyTemplate) {
     const now = new Date().toISOString()
@@ -40,8 +42,16 @@ export function ChemotherapyTemplatesPage() {
 
   async function confirmDelete() {
     if (!deleting) return
-    await deleteChemotherapyTemplate(deleting.id)
-    setDeleting(null)
+    setDeleteBusy(true)
+    setDeleteError('')
+    try {
+      await deleteChemotherapyTemplate(deleting.id)
+      setDeleting(null)
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : '删除失败，请重试')
+    } finally {
+      setDeleteBusy(false)
+    }
   }
 
   return <>
@@ -50,7 +60,7 @@ export function ChemotherapyTemplatesPage() {
       onCreate={() => { setSelected('new'); setMode('edit') }}
       onOpen={(template) => { setSelected(template); setMode('preview') }}
       onDuplicate={(template) => void duplicateTemplate(template)}
-      onDelete={setDeleting}
+      onDelete={(template) => { setDeleteError(''); setDeleting(template) }}
       onReorder={reorderChemotherapyTemplates}
     />
     {selected && <Modal title={selected === 'new' ? '新建治疗方案' : mode === 'preview' ? '治疗方案预览' : '编辑治疗方案'} onClose={() => setSelected(null)} wide>
@@ -58,19 +68,14 @@ export function ChemotherapyTemplatesPage() {
         ? <ChemotherapyTemplatePreview template={selected} onEdit={() => setMode('edit')} />
         : <ChemotherapyTemplateForm template={selected === 'new' ? undefined : selected} onClose={() => setSelected(null)} />}
     </Modal>}
-    {deleting && <Modal title="确认删除治疗方案" onClose={() => setDeleting(null)}>
-      <div className="delete-dialog-warning">
-        <span className="delete-dialog-icon"><TriangleAlert /></span>
-        <div>
-          <h3>确定删除“{deleting.name}”？</h3>
-          <p>此操作不可撤销。已用方案生成的病程事件会保留，但之后不能再用这个方案创建新计划。</p>
-        </div>
-      </div>
-      <div className="form-actions">
-        <span className="spacer" />
-        <button type="button" className="button secondary" onClick={() => setDeleting(null)}>取消</button>
-        <button type="button" className="button confirm-delete" onClick={() => void confirmDelete()}>确认删除</button>
-      </div>
-    </Modal>}
+    {deleting && <ConfirmSheet
+      title="删除治疗方案"
+      message={`确定删除“${deleting.name}”？`}
+      description="此操作不可撤销。已用方案生成的病程事件会保留，但之后不能再用这个方案创建新计划。"
+      busy={deleteBusy}
+      error={deleteError}
+      onCancel={() => setDeleting(null)}
+      onConfirm={() => void confirmDelete()}
+    />}
   </>
 }

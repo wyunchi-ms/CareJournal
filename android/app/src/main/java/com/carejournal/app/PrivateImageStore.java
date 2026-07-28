@@ -127,10 +127,12 @@ final class PrivateImageStore {
     private static String normalizeMimeType(String mimeType) {
         if (mimeType == null) return "image/jpeg";
         String normalized = mimeType.trim().toLowerCase(Locale.ROOT);
+        if ("application/pdf".equals(normalized)) return normalized;
         return normalized.startsWith("image/") ? normalized : "image/jpeg";
     }
 
     private static String extensionFor(String mimeType) {
+        if ("application/pdf".equals(mimeType)) return ".pdf";
         if ("image/png".equals(mimeType)) return ".png";
         if ("image/webp".equals(mimeType)) return ".webp";
         return ".jpg";

@@ -3,9 +3,10 @@ import { repository } from '../db/repository'
 import { eventForRecord, mergeRecognizedRecord, recognizeReport, toDomainRecords } from '../services/ocr'
 import { materializeStoredImage } from '../services/folderImport'
 import { deduplicateStoredImages, sameStoredImage } from '../services/images'
-import { garbageCollectNativeImages, migrateLegacyNativeImages, persistRestoredRecords, persistStoredImage } from '../services/imageStorage'
+import { garbageCollectNativeImages, migrateLegacyNativeImages, persistRestoredRecords, persistRestoredReimbursementPlans, persistStoredImage } from '../services/imageStorage'
 import { buildVocabulary } from '../services/vocabulary'
-import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, DynamicVocabulary, ExamRecord, OcrQueueItem, StoredImage, TreatmentEvent } from '../types'
+import { keepHospitalReimbursementMaterials } from '../services/reimbursement'
+import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, DynamicVocabulary, ExamRecord, OcrQueueItem, ReimbursementPlan, StoredImage, TreatmentEvent } from '../types'
 import { DEFAULT_PREFERENCES, newId } from '../types'
 
 interface OcrQueueStats {
@@ -32,6 +33,7 @@ interface AppState {
   events: TreatmentEvent[]
   chemotherapyTemplates: ChemotherapyTemplate[]
   records: ExamRecord[]
+  reimbursementPlans: ReimbursementPlan[]
   pins: ChartPin[]
   ocrJobs: OcrQueueItem[]
   ocrQueueStats: OcrQueueStats
@@ -47,6 +49,8 @@ interface AppState {
   saveImportedRecords: (records: ExamRecord[], events: TreatmentEvent[]) => Promise<{ added: number; merged: number }>
   rerecognizeRecord: (id: string) => Promise<ExamRecord>
   deleteRecord: (id: string) => Promise<void>
+  saveReimbursementPlan: (plan: ReimbursementPlan) => Promise<void>
+  deleteReimbursementPlan: (id: string) => Promise<void>
   savePin: (pin: ChartPin) => Promise<void>
   deletePin: (id: string) => Promise<void>
   savePreferences: (preferences: AppPreferences) => Promise<void>
@@ -80,10 +84,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<TreatmentEvent[]>([])
   const [chemotherapyTemplates, setChemotherapyTemplates] = useState<ChemotherapyTemplate[]>([])
   const [records, setRecords] = useState<ExamRecord[]>([])
+  const [reimbursementPlans, setReimbursementPlans] = useState<ReimbursementPlan[]>([])
   const [pins, setPins] = useState<ChartPin[]>([])
   const [ocrJobs, setOcrJobs] = useState<OcrQueueItem[]>([])
   const [preferences, setPreferences] = useState<AppPreferences>(DEFAULT_PREFERENCES)
   const recordsRef = useRef<ExamRecord[]>([])
+  const reimbursementPlansRef = useRef<ReimbursementPlan[]>([])
   const ocrJobsRef = useRef<OcrQueueItem[]>([])
   const processingOcrRef = useRef(false)
   const vocabulary = useMemo(() => buildVocabulary([...events, ...records, ...chemotherapyTemplates]), [events, records, chemotherapyTemplates])
@@ -98,13 +104,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       setStartupMessage('正在读取本地病程记录…')
       await repository.removePersistedCompletedOcrJobs()
-      const [loadedEvents, loadedTemplates, loadedRecords, loadedPins, loadedPreferences, loadedOcrJobs] = await Promise.all([
+      const [loadedEvents, loadedTemplates, loadedRecords, loadedPins, loadedPreferences, loadedOcrJobs, loadedReimbursementPlans] = await Promise.all([
         repository.list<TreatmentEvent>('event'),
         repository.list<ChemotherapyTemplate>('chemotherapyTemplate'),
         repository.list<ExamRecord>('record'),
         repository.list<ChartPin>('pin'),
         repository.list<AppPreferences>('preferences'),
         repository.list<OcrQueueItem>('ocrJob'),
+        repository.list<ReimbursementPlan>('reimbursementPlan'),
       ])
       if (!active) return
       setStorageError(null)
@@ -125,8 +132,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const resumedJobs = loadedOcrJobs.map((job) => job.status === 'processing' ? { ...job, status: 'queued' as const, phase: 'waiting' as const, progress: 0, error: undefined, updatedAt: new Date().toISOString() } : job).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       ocrJobsRef.current = resumedJobs
       setOcrJobs(resumedJobs)
+      const hospitalReimbursementPlans = loadedReimbursementPlans.map(keepHospitalReimbursementMaterials)
+      await Promise.all(hospitalReimbursementPlans
+        .filter((plan, index) => plan !== loadedReimbursementPlans[index])
+        .map((plan) => repository.put('reimbursementPlan', plan.id, plan)))
+      const sortedReimbursementPlans = byDateDescending(hospitalReimbursementPlans)
+      reimbursementPlansRef.current = sortedReimbursementPlans
+      setReimbursementPlans(sortedReimbursementPlans)
       await Promise.all(resumedJobs.filter((job) => loadedOcrJobs.find((loaded) => loaded.id === job.id)?.status === 'processing').map((job) => repository.put('ocrJob', job.id, job)))
-      await garbageCollectNativeImages(sortedRecords, resumedJobs)
+      await garbageCollectNativeImages(sortedRecords, resumedJobs, sortedReimbursementPlans)
       setReady(true)
     })().catch((error) => {
       console.error(error)
@@ -136,6 +150,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => { recordsRef.current = records }, [records])
+  useEffect(() => { reimbursementPlansRef.current = reimbursementPlans }, [reimbursementPlans])
 
   useEffect(() => {
     document.documentElement.dataset.theme = preferences.darkMode ? 'dark' : 'light'
@@ -277,8 +292,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     recordsRef.current = nextRecords
     setRecords(nextRecords)
     setEvents((current) => current.filter((item) => !record?.linkedEventIds.includes(item.id)))
-    void garbageCollectNativeImages(nextRecords, ocrJobsRef.current).catch(console.warn)
+    void garbageCollectNativeImages(nextRecords, ocrJobsRef.current, reimbursementPlansRef.current).catch(console.warn)
   }, [records])
+
+  const saveReimbursementPlan = useCallback(async (plan: ReimbursementPlan) => {
+    const hospitalPlan = keepHospitalReimbursementMaterials(plan)
+    await repository.put('reimbursementPlan', hospitalPlan.id, hospitalPlan)
+    setReimbursementPlans((current) => byDateDescending([
+      ...current.filter((item) => item.id !== hospitalPlan.id),
+      hospitalPlan,
+    ]))
+  }, [])
+
+  const deleteReimbursementPlan = useCallback(async (id: string) => {
+    await repository.remove('reimbursementPlan', id)
+    const nextPlans = reimbursementPlansRef.current.filter((item) => item.id !== id)
+    reimbursementPlansRef.current = nextPlans
+    setReimbursementPlans(nextPlans)
+    void garbageCollectNativeImages(recordsRef.current, ocrJobsRef.current, nextPlans).catch(console.warn)
+  }, [])
 
   const savePin = useCallback(async (pin: ChartPin) => {
     await repository.put('pin', pin.id, pin)
@@ -345,7 +377,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const nextJobs = ocrJobsRef.current.filter((job) => job.id !== id)
     ocrJobsRef.current = nextJobs
     setOcrJobs(nextJobs)
-    void garbageCollectNativeImages(recordsRef.current, nextJobs).catch(console.warn)
+    void garbageCollectNativeImages(recordsRef.current, nextJobs, reimbursementPlansRef.current).catch(console.warn)
   }, [])
 
   const clearCompletedOcrJobs = useCallback(async () => {
@@ -354,7 +386,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const nextJobs = ocrJobsRef.current.filter((job) => job.status !== 'completed')
     ocrJobsRef.current = nextJobs
     setOcrJobs(nextJobs)
-    void garbageCollectNativeImages(recordsRef.current, nextJobs).catch(console.warn)
+    void garbageCollectNativeImages(recordsRef.current, nextJobs, reimbursementPlansRef.current).catch(console.warn)
   }, [])
 
   const restoreBackup = useCallback(async (payload: BackupPayload) => {
@@ -362,10 +394,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...record,
       images: deduplicateStoredImages(record.images),
     })))
+    const restoredReimbursementPlans = await persistRestoredReimbursementPlans((payload.reimbursementPlans ?? []).map(keepHospitalReimbursementMaterials))
     await repository.replaceKind('event', payload.events.map((item) => ({ id: item.id, payload: item })))
     await repository.replaceKind('chemotherapyTemplate', (payload.chemotherapyTemplates ?? []).map((item) => ({ id: item.id, payload: item })))
     await repository.replaceKind('record', restoredRecords.map((item) => ({ id: item.id, payload: item })))
     await repository.replaceKind('pin', payload.pins.map((item) => ({ id: item.id, payload: item })))
+    await repository.replaceKind('reimbursementPlan', restoredReimbursementPlans.map((item) => ({ id: item.id, payload: item })))
     const nextPreferences: AppPreferences = {
       ...DEFAULT_PREFERENCES,
       ...payload.preferences,
@@ -378,8 +412,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     recordsRef.current = sortedRecords
     setRecords(sortedRecords)
     setPins(payload.pins)
+    const sortedReimbursementPlans = byDateDescending(restoredReimbursementPlans)
+    reimbursementPlansRef.current = sortedReimbursementPlans
+    setReimbursementPlans(sortedReimbursementPlans)
     setPreferences(nextPreferences)
-    void garbageCollectNativeImages(sortedRecords, ocrJobsRef.current).catch(console.warn)
+    void garbageCollectNativeImages(sortedRecords, ocrJobsRef.current, sortedReimbursementPlans).catch(console.warn)
   }, [preferences.azure.apiKey])
 
   const deduplicateImagesGlobally = useCallback(async (): Promise<ImageDeduplicationResult> => {
@@ -397,7 +434,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await Promise.all(changedRecords.map((record) => repository.put('record', record.id, record)))
     recordsRef.current = deduplicatedRecords
     setRecords(deduplicatedRecords)
-    const filesDeleted = await garbageCollectNativeImages(deduplicatedRecords, ocrJobsRef.current)
+    const filesDeleted = await garbageCollectNativeImages(deduplicatedRecords, ocrJobsRef.current, reimbursementPlansRef.current)
     return {
       recordsScanned: deduplicatedRecords.length,
       recordsUpdated,
@@ -473,6 +510,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     events,
     chemotherapyTemplates,
     records,
+    reimbursementPlans,
     pins,
     ocrJobs,
     ocrQueueStats,
@@ -488,6 +526,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     saveImportedRecords,
     rerecognizeRecord,
     deleteRecord,
+    saveReimbursementPlan,
+    deleteReimbursementPlan,
     savePin,
     deletePin,
     savePreferences,
@@ -498,7 +538,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     retryAllFailedOcrJobs,
     removeOcrJob,
     clearCompletedOcrJobs,
-  }), [ready, startupMessage, storageError, events, chemotherapyTemplates, records, pins, ocrJobs, ocrQueueStats, preferences, vocabulary, saveEvent, saveEvents, deleteEvent, saveChemotherapyTemplate, reorderChemotherapyTemplates, deleteChemotherapyTemplate, saveRecord, saveImportedRecords, rerecognizeRecord, deleteRecord, savePin, deletePin, savePreferences, restoreBackup, deduplicateImagesGlobally, enqueueOcrImage, retryOcrJob, retryAllFailedOcrJobs, removeOcrJob, clearCompletedOcrJobs])
+  }), [ready, startupMessage, storageError, events, chemotherapyTemplates, records, reimbursementPlans, pins, ocrJobs, ocrQueueStats, preferences, vocabulary, saveEvent, saveEvents, deleteEvent, saveChemotherapyTemplate, reorderChemotherapyTemplates, deleteChemotherapyTemplate, saveRecord, saveImportedRecords, rerecognizeRecord, deleteRecord, saveReimbursementPlan, deleteReimbursementPlan, savePin, deletePin, savePreferences, restoreBackup, deduplicateImagesGlobally, enqueueOcrImage, retryOcrJob, retryAllFailedOcrJobs, removeOcrJob, clearCompletedOcrJobs])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

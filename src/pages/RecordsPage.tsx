@@ -1,11 +1,15 @@
 import { format, parseISO } from 'date-fns'
-import { ChevronRight, FileImage, FileUp, ListFilter, Pencil, Plus, RefreshCw, Save, Search, Trash2, TriangleAlert, X } from 'lucide-react'
+import { zhCN } from 'date-fns/locale'
+import { ChevronRight, FileImage, FileUp, ListFilter, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChoicePicker } from '../components/ChoicePicker'
+import { ConfirmSheet } from '../components/ConfirmSheet'
+import { DateFastScroller } from '../components/DateFastScroller'
 import { HistoryCombobox } from '../components/HistoryCombobox'
 import { Modal } from '../components/Modal'
 import { ImagePreview } from '../components/ImagePreview'
+import { SwipeableListItem } from '../components/SwipeableListItem'
 import { INDICATORS, normalizeIndicator } from '../data/indicatorAliases'
 import { normalizeReportType, REPORT_TYPES } from '../data/reportTypeAliases'
 import { sha256 } from '../services/images'
@@ -178,7 +182,7 @@ function RecordEditForm({ record, onCancel, onSaved }: { record: ExamRecord; onC
           <legend>指标 {index + 1}</legend>
           <div className="indicator-editor-heading"><strong>{item.normalizedName || item.rawName || `指标 ${index + 1}`}</strong><button type="button" className="icon-button danger" aria-label={`移除指标 ${index + 1}`} onClick={() => setIndicators((current) => current.filter((candidate) => candidate.id !== item.id))}><Trash2 /></button></div>
           <div className="form-grid indicator-fields">
-            <ChoicePicker label="标准指标" options={[...INDICATORS.map((definition) => ({ value: definition.code, label: definition.name, description: definition.code })), { value: 'OTHER', label: '其他指标' }]} value={INDICATORS.some((definition) => definition.code === item.normalizedCode) ? item.normalizedCode : 'OTHER'} onChange={(value) => {
+            <ChoicePicker label="标准指标" historyKey="standard-indicator" options={[...INDICATORS.map((definition) => ({ value: definition.code, label: definition.name, description: definition.code })), { value: 'OTHER', label: '其他指标' }]} value={INDICATORS.some((definition) => definition.code === item.normalizedCode) ? item.normalizedCode : 'OTHER'} onChange={(value) => {
               const definition = INDICATORS.find((candidate) => candidate.code === value)
               setIndicator(item.id, definition ? { normalizedCode: definition.code, normalizedName: definition.name, unit: item.unit || definition.standardUnit || '' } : { normalizedCode: item.normalizedCode.startsWith('CUSTOM_') ? item.normalizedCode : 'OTHER', normalizedName: item.normalizedName === '其他指标' ? item.normalizedName : item.rawName || '其他指标' })
             }} />
@@ -187,7 +191,7 @@ function RecordEditForm({ record, onCancel, onSaved }: { record: ExamRecord; onC
             <label>参考下限<input value={item.referenceLow} onChange={(event) => setIndicator(item.id, { referenceLow: event.target.value })} inputMode="decimal" placeholder="可选" /></label>
             <label>参考上限<input value={item.referenceHigh} onChange={(event) => setIndicator(item.id, { referenceHigh: event.target.value })} inputMode="decimal" placeholder="可选" /></label>
             <label className="full-width">报告原始参考范围<input value={item.referenceText} onChange={(event) => setIndicator(item.id, { referenceText: event.target.value })} placeholder="例如 3.5–9.5" /></label>
-            <div className="full-width"><ChoicePicker label="异常状态" options={abnormalOptions} value={item.abnormalFlag} onChange={(value) => setIndicator(item.id, { abnormalFlag: value as AbnormalFlag })} /></div>
+            <div className="full-width"><ChoicePicker label="异常状态" historyKey="abnormal-status" options={abnormalOptions} value={item.abnormalFlag} onChange={(value) => setIndicator(item.id, { abnormalFlag: value as AbnormalFlag })} /></div>
           </div>
         </fieldset>)}
       </div>
@@ -246,18 +250,20 @@ function RecordDetail({ record, onClose, onEdit, onRecognized }: { record: ExamR
         {recognizing ? '重新识别中…' : '重新识别'}
       </button>
     </div>
-    {deleteConfirming && <Modal title="删除检查记录" onClose={() => { if (!deleting) setDeleteConfirming(false) }}>
-      <div className="delete-dialog">
-        <div className="delete-dialog-warning"><span className="delete-dialog-icon"><TriangleAlert /></span><div><strong>确定删除这份记录吗？</strong><p>关联的检查事件也会一并删除，此操作无法撤销。</p></div></div>
-        {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
-        <div className="delete-dialog-actions"><button type="button" className="button secondary" autoFocus disabled={deleting} onClick={() => setDeleteConfirming(false)}>取消</button><button type="button" className="button danger confirm-delete" disabled={deleting} onClick={() => void confirmDelete()}><Trash2 />{deleting ? '删除中…' : '确认删除'}</button></div>
-      </div>
-    </Modal>}
+    {deleteConfirming && <ConfirmSheet
+      title="删除检查记录"
+      message="确定删除这份记录吗？"
+      description="关联的检查事件也会一并删除，此操作无法撤销。"
+      busy={deleting}
+      error={deleteError}
+      onCancel={() => setDeleteConfirming(false)}
+      onConfirm={() => void confirmDelete()}
+    />}
   </div>
 }
 
 export function RecordsPage() {
-  const { records } = useApp()
+  const { records, deleteRecord } = useApp()
   const location = useLocation()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -271,6 +277,11 @@ export function RecordsPage() {
   const [selected, setSelected] = useState<ExamRecord | null>(() =>
     requestedRecordId ? records.find((record) => record.id === requestedRecordId) ?? null : null)
   const [editing, setEditing] = useState(false)
+  const [listEditMode, setListEditMode] = useState(false)
+  const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([])
+  const [deletingRecordIds, setDeletingRecordIds] = useState<string[]>([])
+  const [listDeleteBusy, setListDeleteBusy] = useState(false)
+  const [listDeleteError, setListDeleteError] = useState('')
 
   const typeGroups = useMemo<TypeGroup[]>(() => {
     const groups = new Map<string, { count: number; aliases: Set<string> }>()
@@ -291,6 +302,16 @@ export function RecordsPage() {
     return true
   }).sort((a, b) => b.examDate.localeCompare(a.examDate)), [records, selectedTypes, deferredQuery])
 
+  const dateGroups = useMemo(() => {
+    const groups = new Map<string, ExamRecord[]>()
+    filtered.forEach((record) => groups.set(record.examDate, [...(groups.get(record.examDate) ?? []), record]))
+    return [...groups.entries()].map(([date, items]) => ({
+      date,
+      targetId: `record-day-${date}`,
+      records: items,
+    }))
+  }, [filtered])
+
   const toggleType = (label: string) => setSelectedTypes((current) => current.includes(label) ? current.filter((item) => item !== label) : [...current, label])
 
   function closeRecordDetail() {
@@ -306,6 +327,26 @@ export function RecordsPage() {
     setSearchParams(nextSearchParams, { replace: true })
   }
 
+  function enterListEditMode(id: string) {
+    setListEditMode(true)
+    setSelectedRecordIds((current) => current.includes(id) ? current : [...current, id])
+  }
+
+  async function confirmDeleteRecords() {
+    setListDeleteBusy(true)
+    setListDeleteError('')
+    try {
+      for (const id of deletingRecordIds) await deleteRecord(id)
+      setDeletingRecordIds([])
+      setSelectedRecordIds([])
+      setListEditMode(false)
+    } catch (error) {
+      setListDeleteError(error instanceof Error ? error.message : '删除检查记录失败，请重试')
+    } finally {
+      setListDeleteBusy(false)
+    }
+  }
+
   return <>
     <section className="toolbar card compact records-toolbar">
       <label className="search-box"><Search /><span className="sr-only">搜索记录</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索医院、报告或指标" /></label>
@@ -313,15 +354,61 @@ export function RecordsPage() {
       <Link className="icon-button records-import-button" to="/import" aria-label="导入报告" title="导入报告"><FileUp /></Link>
     </section>
     {selectedTypes.length > 0 && <div className="active-filter-row" aria-label="已选检查类型">{selectedTypes.map((type) => <button key={type} type="button" className="filter-chip" onClick={() => toggleType(type)} aria-label={`移除筛选：${type}`}><span>{type}</span><X /></button>)}<button type="button" className="text-button" onClick={() => setSelectedTypes([])}>清除全部</button></div>}
+    {listEditMode && <div className="list-edit-toolbar records-edit-toolbar" aria-label="批量管理检查记录">
+      <label className="selection-control"><input type="checkbox" checked={filtered.length > 0 && filtered.every((record) => selectedRecordIds.includes(record.id))} onChange={(event) => setSelectedRecordIds(event.target.checked ? filtered.map((record) => record.id) : [])} /><span>全选</span></label>
+      <span>已选 {selectedRecordIds.length} 项</span>
+      <button type="button" className="button danger ghost" disabled={!selectedRecordIds.length} onClick={() => setDeletingRecordIds(selectedRecordIds)}><Trash2 />删除</button>
+      <button type="button" className="text-button" onClick={() => { setListEditMode(false); setSelectedRecordIds([]) }}>完成</button>
+    </div>}
     <section className="record-list card">
       <div className="section-heading"><h2>记录列表</h2><small>显示 {filtered.length} 条</small></div>
       {filtered.length === 0 && <div className="empty-state"><FileImage /><h3>暂无符合条件的记录</h3><p>可以调整筛选条件，或通过“导入”页面添加检查报告。</p></div>}
-      {filtered.map((record) => {
-        const abnormalCount = record.indicators.filter((item) => ['high', 'low', 'critical'].includes(item.abnormalFlag)).length
-        const normalizedType = recordType(record)
-        return <button className="record-row" key={record.id} onClick={() => { setSelected(record); setEditing(false) }}><span className="record-date"><strong>{format(parseISO(record.examDate), 'dd')}</strong><small>{format(parseISO(record.examDate), 'yyyy.MM')}</small></span><span className="record-main"><strong>{normalizedType}</strong><small>{record.hospital || '医院未记录'} · {record.indicators.length} 项指标</small></span>{abnormalCount > 0 && <span className="abnormal-badge">{abnormalCount} 项异常</span>}<ChevronRight /></button>
-      })}
+      <div className="record-date-groups">
+        {dateGroups.map((group) => {
+          const date = parseISO(group.date)
+          return <div className="record-day-group" id={group.targetId} key={group.date}>
+            <h3 className="record-day-heading"><strong>{format(date, 'yyyy年M月d日')}</strong><span>{format(date, 'EEEE', { locale: zhCN })}</span><small>{group.records.length} 份</small></h3>
+            {group.records.map((record) => {
+              const abnormalCount = record.indicators.filter((item) => ['high', 'low', 'critical'].includes(item.abnormalFlag)).length
+              const normalizedType = recordType(record)
+              return <SwipeableListItem
+                itemId={record.id}
+                label={normalizedType}
+                className="record-row-container"
+                surfaceClassName={`record-row-surface${listEditMode ? ' editing' : ''}`}
+                editMode={listEditMode}
+                onLongPress={() => enterListEditMode(record.id)}
+                actions={[{
+                  id: 'delete',
+                  label: '删除',
+                  accessibilityLabel: `删除检查记录：${normalizedType}`,
+                  icon: <Trash2 />,
+                  tone: 'danger',
+                  onSelect: () => setDeletingRecordIds([record.id]),
+                }]}
+                key={record.id}
+              >
+                {listEditMode && <label className="record-row-select" aria-label={`选择 ${normalizedType}`}><input type="checkbox" checked={selectedRecordIds.includes(record.id)} onChange={() => setSelectedRecordIds((current) => current.includes(record.id) ? current.filter((id) => id !== record.id) : [...current, record.id])} /></label>}
+                <button className="record-row" onClick={() => {
+                  if (listEditMode) setSelectedRecordIds((current) => current.includes(record.id) ? current.filter((id) => id !== record.id) : [...current, record.id])
+                  else { setSelected(record); setEditing(false) }
+                }}><span className="record-main"><strong>{normalizedType}</strong><small>{record.hospital || '医院未记录'} · {record.indicators.length} 项指标</small></span>{abnormalCount > 0 && <span className="abnormal-badge">{abnormalCount} 项异常</span>}<ChevronRight /></button>
+              </SwipeableListItem>
+            })}
+          </div>
+        })}
+      </div>
     </section>
+    <DateFastScroller items={dateGroups.map(({ date, targetId }) => ({ date, targetId }))} />
     {selected && <Modal title={editing ? '编辑检查报告' : recordType(selected)} onClose={closeRecordDetail} wide swipeToClose={!editing}>{editing ? <RecordEditForm record={selected} onCancel={() => setEditing(false)} onSaved={(updated) => { setSelected(updated); setEditing(false) }} /> : <RecordDetail record={selected} onClose={closeRecordDetail} onEdit={() => setEditing(true)} onRecognized={setSelected} />}</Modal>}
+    {deletingRecordIds.length > 0 && <ConfirmSheet
+      title={deletingRecordIds.length > 1 ? '批量删除检查记录' : '删除检查记录'}
+      message={`确定删除选中的 ${deletingRecordIds.length} 份检查记录吗？`}
+      description="关联的检查事件也会一并删除，此操作无法撤销。"
+      busy={listDeleteBusy}
+      error={listDeleteError}
+      onCancel={() => { setDeletingRecordIds([]); setListDeleteError('') }}
+      onConfirm={() => void confirmDeleteRecords()}
+    />}
   </>
 }

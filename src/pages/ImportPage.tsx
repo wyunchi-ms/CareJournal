@@ -1,7 +1,9 @@
 import { AlertCircle, Camera, CheckCircle2, Clock3, FileImage, FolderOpen, RefreshCw, Trash2, XCircle } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
 import { useRef, useState } from 'react'
+import { ConfirmSheet } from '../components/ConfirmSheet'
 import { ImagePreview } from '../components/ImagePreview'
+import { SwipeableListItem } from '../components/SwipeableListItem'
 import { canImportAndroidFolder, folderSourceToStoredImage, pickAndroidImageFolder } from '../services/folderImport'
 import { prepareImage } from '../services/images'
 import { storedImageSource } from '../services/imageStorage'
@@ -30,11 +32,53 @@ function isImageFile(file: File) {
   return file.type.startsWith('image/') || /\.(?:jpe?g|png|webp)$/i.test(file.name)
 }
 
-function QueueRow({ job }: { job: OcrQueueItem }) {
-  const { retryOcrJob, removeOcrJob } = useApp()
+function QueueRow({
+  job,
+  editMode,
+  selected,
+  onToggle,
+  onEnterEdit,
+  onRemove,
+}: {
+  job: OcrQueueItem
+  editMode: boolean
+  selected: boolean
+  onToggle: () => void
+  onEnterEdit: () => void
+  onRemove: () => void
+}) {
+  const { retryOcrJob } = useApp()
   const previewSource = storedImageSource(job.image)
   return (
-    <article className={`ocr-job ${job.status}`}>
+    <SwipeableListItem
+      itemId={job.id}
+      label={job.image.name}
+      className={`ocr-job-row ${job.status}`}
+      surfaceClassName={`ocr-job ${job.status}${editMode ? ' editing' : ''}`}
+      editMode={editMode}
+      onLongPress={job.status === 'processing' ? undefined : onEnterEdit}
+      actions={[
+        ...(job.status === 'failed' ? [{
+          id: 'retry',
+          label: '重试',
+          accessibilityLabel: `重试 ${job.image.name}`,
+          icon: <RefreshCw />,
+          tone: 'primary' as const,
+          onSelect: () => void retryOcrJob(job.id),
+        }] : []),
+        ...(job.status !== 'processing' ? [{
+          id: 'remove',
+          label: '移除',
+          accessibilityLabel: `移除 ${job.image.name}`,
+          icon: <Trash2 />,
+          tone: 'danger' as const,
+          onSelect: onRemove,
+        }] : []),
+      ]}
+    >
+      {editMode && <label className="ocr-job-select" aria-label={`选择 ${job.image.name}`}>
+        <input type="checkbox" checked={selected} disabled={job.status === 'processing'} onChange={onToggle} />
+      </label>}
       {previewSource
         ? <ImagePreview src={previewSource} alt={`待识别检查报告：${job.image.name}`} className="ocr-job-image" />
         : <div className="ocr-job-image ocr-job-placeholder" aria-hidden="true"><FolderOpen /></div>}
@@ -71,11 +115,7 @@ function QueueRow({ job }: { job: OcrQueueItem }) {
         </small>
         {job.error && <p className="job-error" role="alert">{job.error}</p>}
       </div>
-      <div className="ocr-job-actions">
-        {job.status === 'failed' && <button className="icon-button" aria-label={`重试 ${job.image.name}`} title="重试" onClick={() => void retryOcrJob(job.id)}><RefreshCw /></button>}
-        {job.status !== 'processing' && <button className="icon-button" aria-label={`移除 ${job.image.name}`} title="从队列移除" onClick={() => void removeOcrJob(job.id)}><Trash2 /></button>}
-      </div>
-    </article>
+    </SwipeableListItem>
   )
 }
 
@@ -86,7 +126,7 @@ export function ImportPage() {
     ocrQueueStats,
     enqueueOcrImage,
     retryAllFailedOcrJobs,
-    clearCompletedOcrJobs,
+    removeOcrJob,
   } = useApp()
   const inputRef = useRef<HTMLInputElement>(null)
   const directoryRef = useRef<HTMLInputElement>(null)
@@ -96,9 +136,40 @@ export function ImportPage() {
   const [preparing, setPreparing] = useState<PreparationProgress | null>(null)
   const [scanning, setScanning] = useState(false)
   const [message, setMessage] = useState('')
+  const [queueEditMode, setQueueEditMode] = useState(false)
+  const [selectedJobIds, setSelectedJobIds] = useState<string[]>([])
+  const [deletingJobIds, setDeletingJobIds] = useState<string[]>([])
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const azureConfigured = Boolean(preferences.azure.endpoint && preferences.azure.apiKey && preferences.azure.deployment && preferences.azure.apiVersion)
   const activeCount = ocrQueueStats.queued + ocrQueueStats.processing
   const busy = scanning || Boolean(preparing)
+  const removableJobIds = ocrJobs.filter((job) => job.status !== 'processing').map((job) => job.id)
+  const allRemovableSelected = removableJobIds.length > 0 && removableJobIds.every((id) => selectedJobIds.includes(id))
+
+  function enterQueueEditMode(id: string) {
+    setQueueEditMode(true)
+    setSelectedJobIds((current) => current.includes(id) ? current : [...current, id])
+  }
+
+  function exitQueueEditMode() {
+    setQueueEditMode(false)
+    setSelectedJobIds([])
+  }
+
+  async function confirmRemoveJobs() {
+    setDeleteBusy(true)
+    setDeleteError('')
+    try {
+      for (const id of deletingJobIds) await removeOcrJob(id)
+      setDeletingJobIds([])
+      exitQueueEditMode()
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : '移除任务失败，请重试')
+    } finally {
+      setDeleteBusy(false)
+    }
+  }
 
   async function selectFiles(files: FileList | null) {
     if (!files?.length) return
@@ -206,16 +277,41 @@ export function ImportPage() {
             </div>
             <div className="queue-actions">
               {ocrQueueStats.failed > 0 && <button className="button secondary" onClick={() => void retryAllFailedOcrJobs()}><RefreshCw />重试全部失败项</button>}
-              {ocrQueueStats.completed > 0 && <button className="button secondary" onClick={() => void clearCompletedOcrJobs()}><Trash2 />清除已完成项</button>}
             </div>
           </section>}
 
+          {queueEditMode && <div className="list-edit-toolbar" aria-label="批量管理识别任务">
+            <label className="selection-control">
+              <input type="checkbox" checked={allRemovableSelected} onChange={(event) => setSelectedJobIds(event.target.checked ? removableJobIds : [])} />
+              <span>全选</span>
+            </label>
+            <span>已选 {selectedJobIds.length} 项</span>
+            <button type="button" className="button danger ghost" disabled={!selectedJobIds.length} onClick={() => setDeletingJobIds(selectedJobIds)}><Trash2 />移除</button>
+            <button type="button" className="text-button" onClick={exitQueueEditMode}>完成</button>
+          </div>}
           <div className="ocr-job-list" aria-live="polite">
-            {ocrJobs.map((job) => <QueueRow key={job.id} job={job} />)}
+            {ocrJobs.map((job) => <QueueRow
+              key={job.id}
+              job={job}
+              editMode={queueEditMode}
+              selected={selectedJobIds.includes(job.id)}
+              onToggle={() => setSelectedJobIds((current) => current.includes(job.id) ? current.filter((id) => id !== job.id) : [...current, job.id])}
+              onEnterEdit={() => enterQueueEditMode(job.id)}
+              onRemove={() => setDeletingJobIds([job.id])}
+            />)}
           </div>
           {ocrJobs.length === 0 && !preparing && <div className="empty-queue"><FileImage /><h2>还没有识别任务</h2></div>}
         </section>
       </div>
+      {deletingJobIds.length > 0 && <ConfirmSheet
+        title={deletingJobIds.length > 1 ? '批量移除识别任务' : '移除识别任务'}
+        message={`确定移除选中的 ${deletingJobIds.length} 个任务吗？`}
+        description="正在处理的任务不会进入可选范围；已写入的检查记录不会被删除。"
+        busy={deleteBusy}
+        error={deleteError}
+        onCancel={() => { setDeletingJobIds([]); setDeleteError('') }}
+        onConfirm={() => void confirmRemoveJobs()}
+      />}
     </>
   )
 }

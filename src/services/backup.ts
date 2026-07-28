@@ -1,5 +1,7 @@
-import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, ExamRecord, TreatmentEvent } from '../types'
-import { makeRecordsPortable } from './imageStorage'
+import { Capacitor } from '@capacitor/core'
+import { Directory, Filesystem } from '@capacitor/filesystem'
+import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, ExamRecord, ReimbursementPlan, TreatmentEvent } from '../types'
+import { makeRecordsPortable, makeReimbursementPlansPortable } from './imageStorage'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -26,9 +28,10 @@ async function deriveKey(password: string, salt: Uint8Array<ArrayBuffer>) {
   )
 }
 
-export async function exportBackup(events: TreatmentEvent[], chemotherapyTemplates: ChemotherapyTemplate[], records: ExamRecord[], pins: ChartPin[], preferences: AppPreferences, password: string) {
+export async function exportBackup(events: TreatmentEvent[], chemotherapyTemplates: ChemotherapyTemplate[], records: ExamRecord[], pins: ChartPin[], reimbursementPlans: ReimbursementPlan[], preferences: AppPreferences, password: string) {
   if (password.length < 8) throw new Error('备份密码至少需要 8 位')
   const portableRecords = await makeRecordsPortable(records)
+  const portableReimbursementPlans = await makeReimbursementPlansPortable(reimbursementPlans)
   const payload: BackupPayload = {
     version: 1,
     exportedAt: new Date().toISOString(),
@@ -36,6 +39,7 @@ export async function exportBackup(events: TreatmentEvent[], chemotherapyTemplat
     chemotherapyTemplates,
     records: portableRecords,
     pins,
+    reimbursementPlans: portableReimbursementPlans,
     preferences: {
       darkMode: preferences.darkMode,
       chartIndicatorOrder: preferences.chartIndicatorOrder,
@@ -68,11 +72,34 @@ export async function importBackup(file: File, password: string): Promise<Backup
   }
 }
 
-export function downloadBlob(blob: Blob, filename: string) {
+function blobBase64(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = String(reader.result)
+      resolve(result.slice(result.indexOf(',') + 1))
+    }
+    reader.onerror = () => reject(reader.error ?? new Error('无法读取待保存文件'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+export async function downloadBlob(blob: Blob, filename: string) {
+  if (Capacitor.isNativePlatform()) {
+    const path = `CareJournal/${filename}`
+    await Filesystem.writeFile({
+      path,
+      data: await blobBase64(blob),
+      directory: Directory.Documents,
+      recursive: true,
+    })
+    return `Documents/${path}`
+  }
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = filename
   anchor.click()
   URL.revokeObjectURL(url)
+  return filename
 }

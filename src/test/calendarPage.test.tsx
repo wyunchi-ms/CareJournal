@@ -1,12 +1,15 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { format, subMonths } from 'date-fns'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CalendarPage } from '../pages/CalendarPage'
 import type { TreatmentEvent } from '../types'
 
 const saveEvents = vi.fn(async () => undefined)
 const saveEvent = vi.fn(async () => undefined)
+const deleteEvent = vi.fn(async () => undefined)
 const currentDate = new Date().toISOString().slice(0, 10)
+const previousMonthDate = format(subMonths(new Date(), 1), 'yyyy-MM-15')
 
 const event = (id: string, type: TreatmentEvent['type']): TreatmentEvent => ({
   id,
@@ -28,6 +31,7 @@ vi.mock('../store/AppContext', () => ({
       event('2', 'chemotherapy'),
       event('3', 'surgery'),
       { ...event('linked-exam', 'examination'), startDate: currentDate, endDate: currentDate, linkedRecordIds: ['record-1'] },
+      { ...event('historic-exam', 'examination'), startDate: previousMonthDate, endDate: previousMonthDate, linkedRecordIds: ['record-2'] },
     ],
     chemotherapyTemplates: [{
       id: 'template-1',
@@ -51,18 +55,21 @@ vi.mock('../store/AppContext', () => ({
     vocabulary: { hospitals: [], departments: [] },
     saveEvent,
     saveEvents,
+    deleteEvent,
   }),
 }))
 
 function RecordsDestination() {
   const location = useLocation()
-  return <div data-testid="records-destination">{location.search} {JSON.stringify(location.state)}</div>
+  const navigate = useNavigate()
+  return <div data-testid="records-destination">{location.search} {JSON.stringify(location.state)}<button onClick={() => navigate(-1)}>返回病程</button></div>
 }
 
 afterEach(() => {
   cleanup()
   saveEvents.mockClear()
   saveEvent.mockClear()
+  deleteEvent.mockClear()
 })
 
 describe('calendar event filter', () => {
@@ -96,6 +103,32 @@ describe('calendar event filter', () => {
 
     expect(screen.getByTestId('records-destination')).toHaveTextContent('?recordId=record-1')
     expect(screen.getByTestId('records-destination')).toHaveTextContent('"recordDetailOrigin":"/calendar"')
+  })
+
+  it('restores the viewed month and selected date after returning from an examination detail', () => {
+    render(<MemoryRouter initialEntries={['/calendar']}>
+      <Routes>
+        <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/records" element={<RecordsDestination />} />
+      </Routes>
+    </MemoryRouter>)
+
+    fireEvent.click(screen.getByRole('button', { name: '上个月' }))
+    const calendar = screen.getByRole('region', { name: '月历' })
+    const viewedMonth = calendar.querySelector('.calendar-month-label')?.textContent
+    const targetDay = Array.from(calendar.querySelectorAll<HTMLButtonElement>('.day-cell:not(.muted)'))
+      .find((day) => day.querySelector('.day-number')?.textContent === '15')
+    expect(targetDay).toBeDefined()
+    fireEvent.click(targetDay!)
+    fireEvent.click(within(screen.getByRole('region', { name: '选中日期的事件' }))
+      .getByRole('button', { name: /examination-historic-exam/ }))
+
+    expect(screen.getByTestId('records-destination')).toHaveTextContent(`"recordDetailOrigin":"/calendar?month=${previousMonthDate.slice(0, 7)}&date=${previousMonthDate}"`)
+    fireEvent.click(screen.getByRole('button', { name: '返回病程' }))
+
+    expect(screen.getByRole('region', { name: '月历' }).querySelector('.calendar-month-label')).toHaveTextContent(viewedMonth!)
+    expect(within(screen.getByRole('region', { name: '选中日期的事件' }))
+      .getByRole('button', { name: /examination-historic-exam/ })).toBeInTheDocument()
   })
 
   it('keeps calendar controls in the calendar card and places the agenda below it', () => {
@@ -136,22 +169,25 @@ describe('calendar event filter', () => {
     expect(getMonthLabel()).toHaveTextContent(initialMonth!)
   })
 
-  it('creates all cycle administration events from a chemotherapy template', async () => {
+  it('defaults chemotherapy creation to one cycle without the event-count preview card', async () => {
     render(<MemoryRouter><CalendarPage /></MemoryRouter>)
     fireEvent.click(screen.getByRole('button', { name: '新建事件' }))
 
     expect(screen.getByRole('button', { name: /创建方式：按模板创建/ })).toBeInTheDocument()
-    expect(screen.getByText('将创建 4 个给药事件')).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: '创建周期数' })).toHaveValue(1)
+    expect(screen.queryByText(/将创建 \d+ 个给药事件/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /化疗模板：21 天测试方案/ }))
     expect(screen.queryByRole('radio', { name: /放疗模板/ })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('radio', { name: /21 天测试方案/ }))
+    expect(screen.getByRole('spinbutton', { name: '创建周期数' })).toHaveValue(1)
     fireEvent.click(screen.getByRole('button', { name: '创建周期事件' }))
 
-    expect(saveEvents).toHaveBeenCalledWith(expect.arrayContaining([
+    await waitFor(() => expect(saveEvents).toHaveBeenCalled())
+    const createdEvents = (saveEvents.mock.calls[0] as unknown as [TreatmentEvent[]])[0]
+    expect(createdEvents).toHaveLength(2)
+    expect(createdEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({ cycleNumber: 1, administrationDay: 1 }),
       expect.objectContaining({ cycleNumber: 1, administrationDay: 8 }),
-      expect.objectContaining({ cycleNumber: 2, administrationDay: 1 }),
-      expect.objectContaining({ cycleNumber: 2, administrationDay: 8 }),
     ]))
   })
 
@@ -190,5 +226,23 @@ describe('calendar event filter', () => {
     expect(screen.queryByRole('option', { name: /21 天测试方案/ })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('option', { name: /放疗模板/ }))
     expect(regimenInput).toHaveValue('放疗模板')
+  })
+
+  it('confirms event deletion with the shared bottom sheet', async () => {
+    render(<MemoryRouter><CalendarPage /></MemoryRouter>)
+    const calendar = screen.getByRole('region', { name: '月历' })
+    const eventDay = Array.from(calendar.querySelectorAll<HTMLButtonElement>('.day-cell:not(.muted)'))
+      .find((day) => day.querySelector('.day-number')?.textContent === '22')
+    expect(eventDay).toBeDefined()
+    fireEvent.click(eventDay!)
+    fireEvent.click(within(screen.getByRole('region', { name: '选中日期的事件' })).getByRole('button', { name: /chemotherapy-1/ }))
+
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    const confirmation = screen.getByRole('dialog', { name: '删除病程事件' })
+    expect(confirmation).toHaveClass('bottom-sheet')
+    expect(deleteEvent).not.toHaveBeenCalled()
+
+    fireEvent.click(within(confirmation).getByRole('button', { name: '确认删除' }))
+    await waitFor(() => expect(deleteEvent).toHaveBeenCalledWith('1'))
   })
 })

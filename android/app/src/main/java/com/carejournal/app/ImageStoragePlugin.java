@@ -231,6 +231,7 @@ public class ImageStoragePlugin extends Plugin {
     }
 
     private static String mimeTypeForPath(String storagePath) {
+        if (storagePath != null && storagePath.toLowerCase().endsWith(".pdf")) return "application/pdf";
         if (storagePath != null && storagePath.toLowerCase().endsWith(".png")) return "image/png";
         if (storagePath != null && storagePath.toLowerCase().endsWith(".webp")) return "image/webp";
         return "image/jpeg";

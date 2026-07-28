@@ -249,6 +249,7 @@ export function ChemotherapyTemplateForm({ template, onClose }: ChemotherapyTemp
                         <ChoicePicker
                           compact
                           label={`D${plan.day} 第${medicationIndex + 1}种药物单位`}
+                          historyKey="medication-unit"
                           value={item.unit ?? ''}
                           onChange={(value) => updateMedication(plan.id, item.id, { unit: String(value) })}
                           options={item.unit && !CHEMOTHERAPY_DOSE_UNITS.some((unit) => unit.value === item.unit)

@@ -1,9 +1,15 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChoicePicker } from '../components/ChoicePicker'
 import { HistoryCombobox } from '../components/HistoryCombobox'
+import { getRecentChoices, RECENT_CHOICE_LIMIT, rememberRecentChoice } from '../services/recentChoices'
 
 describe('unified choice controls', () => {
+  afterEach(() => {
+    cleanup()
+    window.localStorage.clear()
+  })
+
   it('filters and selects historical text while keeping free input available', () => {
     const onChange = vi.fn()
     const { rerender } = render(<HistoryCombobox label="医院" value="" onChange={onChange} options={['协和医院', '人民医院', '协和医院']} />)
@@ -43,5 +49,58 @@ describe('unified choice controls', () => {
     expect(document.documentElement.style.overflow).toBe('hidden')
     fireEvent.click(screen.getByRole('button', { name: '完成' }))
     expect(document.documentElement.style.overflow).toBe('')
+  })
+
+  it('moves the most recently selected choices to the front', () => {
+    render(<ChoicePicker
+      label="排序测试"
+      value="first"
+      onChange={vi.fn()}
+      options={[
+        { value: 'first', label: '第一个' },
+        { value: 'second', label: '第二个' },
+        { value: 'third', label: '第三个' },
+      ]}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: '排序测试：第一个' }))
+    fireEvent.click(screen.getByRole('radio', { name: '第三个' }))
+    fireEvent.click(screen.getByRole('button', { name: '排序测试：第一个' }))
+
+    expect(screen.getAllByRole('radio').map((option) => option.textContent)).toEqual(['第三个', '第一个', '第二个'])
+  })
+
+  it('shares recent text choices across fields with the same history key', () => {
+    const firstRender = render(<HistoryCombobox
+      label="医院"
+      historyKey="hospital"
+      value=""
+      onChange={vi.fn()}
+      options={['协和医院', '人民医院']}
+    />)
+
+    fireEvent.focus(screen.getByRole('combobox', { name: '医院' }))
+    fireEvent.click(screen.getByRole('option', { name: '人民医院' }))
+    firstRender.unmount()
+
+    render(<HistoryCombobox
+      label="就诊医院"
+      historyKey="hospital"
+      value=""
+      onChange={vi.fn()}
+      options={['协和医院', '人民医院']}
+    />)
+    fireEvent.focus(screen.getByRole('combobox', { name: '就诊医院' }))
+
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['人民医院', '协和医院'])
+  })
+
+  it('keeps only the five latest distinct values', () => {
+    for (let index = 0; index < RECENT_CHOICE_LIMIT + 2; index += 1) {
+      rememberRecentChoice('检查类型', `类型 ${index}`)
+    }
+    rememberRecentChoice('检查类型', '类型 4')
+
+    expect(getRecentChoices('检查类型')).toEqual(['类型 4', '类型 6', '类型 5', '类型 3', '类型 2'])
   })
 })

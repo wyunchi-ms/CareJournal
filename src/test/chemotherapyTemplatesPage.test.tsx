@@ -134,12 +134,14 @@ describe('chemotherapy template daily medication editor', () => {
     render(<ChemotherapyTemplatesPage />)
 
     expect(screen.getByText('维持治疗')).toBeInTheDocument()
+    fireEvent.keyDown(screen.getByRole('button', { name: /维持方案.*维持治疗/ }), { key: 'ArrowLeft' })
     fireEvent.click(screen.getByRole('button', { name: '删除方案 维持方案' }))
-    expect(screen.getByRole('dialog', { name: '确认删除治疗方案' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '删除治疗方案' })).toHaveClass('bottom-sheet')
     expect(deleteChemotherapyTemplate).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
     expect(deleteChemotherapyTemplate).not.toHaveBeenCalled()
 
+    fireEvent.keyDown(screen.getByRole('button', { name: /维持方案.*维持治疗/ }), { key: 'ArrowLeft' })
     fireEvent.click(screen.getByRole('button', { name: '删除方案 维持方案' }))
     fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
     await waitFor(() => expect(deleteChemotherapyTemplate).toHaveBeenCalledWith('template-1'))
@@ -164,7 +166,7 @@ describe('chemotherapy template daily medication editor', () => {
 
     expect(screen.queryByRole('button', { name: '编辑方案 ICE' })).not.toBeInTheDocument()
     const card = screen.getByText('ICE').closest('article')!
-    expect(card.querySelectorAll('.template-row-actions .icon-button')).toHaveLength(2)
+    expect(card.querySelectorAll('.swipeable-list-action')).toHaveLength(2)
     fireEvent.click(screen.getByText('ICE').closest('button')!)
     const preview = screen.getByRole('dialog', { name: '治疗方案预览' })
     expect(within(preview).queryByRole('textbox', { name: '方案名称' })).not.toBeInTheDocument()

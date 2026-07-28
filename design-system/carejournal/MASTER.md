@@ -1,204 +1,328 @@
-# Design System Master File
+# CareJournal 设计报告
 
-> **LOGIC:** When building a specific page, first check `design-system/pages/[page-name].md`.
-> If that file exists, its rules **override** this Master file.
-> If not, strictly follow the rules below.
+> 版本：1.2
+>
+> 更新日期：2026-07-28
+>
+> 状态：项目 UI/UX 的全局设计依据。页面专项规范如与本文冲突，以明确记录的页面专项规范为准。
 
----
+## 1. 产品气质与设计目标
 
-**Project:** CareJournal
-**Generated:** 2026-07-20 17:02:31
-**Category:** Healthcare App
+CareJournal 是长期使用的个人病程记录工具，不是医院业务系统，也不是营销产品。界面需要让用户在身体不适、注意力有限或数据很多时，仍能迅速找到最重要的信息并完成操作。
 
----
+整体风格可以概括为：
 
-## Global Rules
+- **温和可信**：暖色纸张感代替冰冷的医院蓝，降低长期使用的心理压力。
+- **信息优先**：先显示日期、名称、状态、异常、进度等关键内容，装饰服务于层级，不抢注意力。
+- **克制整洁**：不重复标题、说明和入口；不因为“有空间”就加入 Card、图标或文字。
+- **移动端优先**：以 360–430px 手机为主要场景，再扩展到平板和桌面。
+- **渐进展开**：浏览状态简洁；编辑、排序、批量操作和次要字段在需要时才出现。
+- **可预测**：返回上一页、删除确认、左滑操作、长按编辑等行为在全 App 保持一致。
 
-### Color Palette
+设计判断的优先顺序是：
 
-| Role | Hex | CSS Variable |
-|------|-----|--------------|
-| Primary | `#0891B2` | `--color-primary` |
-| Secondary | `#22D3EE` | `--color-secondary` |
-| CTA/Accent | `#059669` | `--color-cta` |
-| Background | `#ECFEFF` | `--color-background` |
-| Text | `#164E63` | `--color-text` |
+1. 用户能否快速看到当前最重要的信息。
+2. 是否能避免误操作和重复操作。
+3. 手机首屏是否足够简洁。
+4. 视觉是否统一、美观。
 
-**Color Notes:** Calm cyan + health green
+### 1.1 核心界面模式
 
-### Typography
+CareJournal 不把每个功能视为独立设计题，而是根据内容密度、数据状态和用户任务选择通用界面模式。
 
-- **Heading Font:** Atkinson Hyperlegible
-- **Body Font:** Atkinson Hyperlegible
-- **Mood:** accessible, readable, inclusive, WCAG, dyslexia-friendly, clear
-- **Google Fonts:** [Atkinson Hyperlegible + Atkinson Hyperlegible](https://fonts.google.com/share?selection.family=Atkinson+Hyperlegible:wght@400;700)
+#### A. 高密度时序列表
 
-**CSS Import:**
-```css
-@import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap');
-```
+适用于需要浏览较多、具有日期或顺序属性的结构化数据。
 
-### Spacing Variables
+- 顶部不重复放大页面标题，直接显示搜索、筛选和最常用入口。
+- 搜索框占据主要空间，筛选、导入等辅助操作保持紧凑。
+- 已启用的筛选条件显示为可移除标签，让当前范围始终可见。
+- 数据先按最自然的业务维度聚合；有时间属性时优先按完整年月日分组。
+- 默认按从近到远排列，分组标题可同时提供日期、星期和数量。
+- 长列表提供快速索引；拖动索引时显示完整的分组标识。
+- 列表项只显示名称、来源/数量等核心元信息和一个高价值状态。
+- 点击进入详情，左滑显示单项操作，长按进入批量编辑。
+- 详情关闭后保留搜索、筛选、滚动位置和当前分组上下文。
+- 无匹配结果时就地反馈，不清除或替换原有筛选工具。
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| `--space-xs` | `4px` / `0.25rem` | Tight gaps |
-| `--space-sm` | `8px` / `0.5rem` | Icon gaps, inline spacing |
-| `--space-md` | `16px` / `1rem` | Standard padding |
-| `--space-lg` | `24px` / `1.5rem` | Section padding |
-| `--space-xl` | `32px` / `2rem` | Large gaps |
-| `--space-2xl` | `48px` / `3rem` | Section margins |
-| `--space-3xl` | `64px` / `4rem` | Hero padding |
+#### B. 零数据状态
 
-### Shadow Depths
+适用于集合尚未产生任何内容，但用户存在明确下一步的场景。
 
-| Level | Value | Usage |
-|-------|-------|-------|
-| `--shadow-sm` | `0 1px 2px rgba(0,0,0,0.05)` | Subtle lift |
-| `--shadow-md` | `0 4px 6px rgba(0,0,0,0.1)` | Cards, buttons |
-| `--shadow-lg` | `0 10px 15px rgba(0,0,0,0.1)` | Modals, dropdowns |
-| `--shadow-xl` | `0 20px 25px rgba(0,0,0,0.15)` | Hero images, featured cards |
+- 保留紧凑的模块上下文，让用户知道当前功能是什么。
+- 隐藏 Header 中与空状态重复的主操作。
+- 内容区使用一个边界清楚、视觉克制的空状态容器。
+- 只包含一个图标、一个短标题、一段下一步说明和一个主按钮。
+- 主按钮使用具体动作，例如“创建第一条记录”，不使用含义模糊的“开始”。
+- 整个可视区域只能有一个创建入口，避免无意义选择。
+- 空状态在手机首屏内完整可见，不使用过长说明或大面积装饰。
+- 数据出现后移除空状态，并把常规主操作恢复到 Header。
 
----
+#### C. 状态驱动的结构选择
 
-## Component Specs
+设计或重构界面时按以下顺序决定：
 
-### Buttons
+1. 用户当前主要任务是浏览、创建、编辑，还是查看状态？
+2. 数据是空、少量、长列表，还是高密度可视化？
+3. 选择与任务和数据状态匹配的通用模式。
+4. 只有通用模式无法支持核心任务时，才增加专项结构。
+5. 专项结构仍遵守统一的颜色、间距、弹层、返回、左滑和长按规则。
 
-```css
-/* Primary Button */
-.btn-primary {
-  background: #059669;
-  color: white;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-weight: 600;
-  transition: all 200ms ease;
-  cursor: pointer;
-}
+## 2. 视觉语言
 
-.btn-primary:hover {
-  opacity: 0.9;
-  transform: translateY(-1px);
-}
+### 2.1 色彩
 
-/* Secondary Button */
-.btn-secondary {
-  background: transparent;
-  color: #0891B2;
-  border: 2px solid #0891B2;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-weight: 600;
-  transition: all 200ms ease;
-  cursor: pointer;
-}
-```
+当前暖色系统是正式方向，不采用通用医疗产品常见的高饱和青蓝色。
 
-### Cards
+| 角色 | 当前颜色 | 用途 |
+|---|---:|---|
+| 主色 | `#B1583E` | 选中状态、强调线、品牌识别 |
+| 主色深色 | `#7E402E` | 主按钮、强操作、重要数字 |
+| 主色浅色 | `#F7E7DC` | 选中背景、轻提示 |
+| 页面背景 | `#F7F0E8` | 页面底色 |
+| Card 背景 | `#FFFCF8` | 内容承载 |
+| 主文字 | `#3F302B` | 标题、关键数据 |
+| 次文字 | `#6D5A52` | 日期、来源、说明 |
+| 边框 | `#E3D2C5` | 分组和边界 |
+| 成功 | `#34745B` | 已完成、正常、成功 |
+| 危险 | `#B43B46` | 删除、严重异常、错误 |
+| 警告 | `#97601E` | 注意事项、待处理状态 |
 
-```css
-.card {
-  background: #ECFEFF;
-  border-radius: 12px;
-  padding: 24px;
-  box-shadow: var(--shadow-md);
-  transition: all 200ms ease;
-  cursor: pointer;
-}
+规则：
 
-.card:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-2px);
-}
-```
+- 主色只用于主操作和状态强调，不能让整页到处都是棕红色。
+- 危险色只表达危险、删除或异常，不能作为普通装饰。
+- 状态不能只依靠颜色，必须同时有文字、图标、形状或数值。
+- 深色模式保持相同语义和层级，不简单反相。
 
-### Inputs
+### 2.2 字体与数字
 
-```css
-.input {
-  padding: 12px 16px;
-  border: 1px solid #E2E8F0;
-  border-radius: 8px;
-  font-size: 16px;
-  transition: border-color 200ms ease;
-}
+- 字体栈：`Atkinson Hyperlegible`、`Noto Sans SC`、`Microsoft YaHei`、系统字体。
+- 标题使用较高字重，不依赖超大字号制造层级。
+- 关键医疗数据、日期、进度数字使用稳定宽度或清晰对齐。
+- 正文避免过细、过浅；移动端辅助文字也必须可读。
+- 列表中的日期写完整年月日；图表坐标、图例等高密度区域允许使用短标签、纯数字等专业缩写。
 
-.input:focus {
-  border-color: #0891B2;
-  outline: none;
-  box-shadow: 0 0 0 3px #0891B220;
-}
-```
+### 2.3 圆角、阴影与图标
 
-### Modals
+- 主 Card 圆角约 `18px`，控件约 `9–11px`，保持柔和但不过度“气泡化”。
+- 阴影只用于页面 Card、弹层和悬浮状态；普通列表项优先使用分割线或轻背景。
+- 图标统一使用 Lucide SVG，常规尺寸 `20–24px`。
+- 不使用 Emoji 作为功能图标，不混用不同风格的图标库。
+- 图标按钮最小触控面积 `44×44px`，必须提供可访问名称和提示。
 
-```css
-.modal-overlay {
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-}
+## 3. 信息层级与页面结构
 
-.modal {
-  background: white;
-  border-radius: 16px;
-  padding: 32px;
-  box-shadow: var(--shadow-xl);
-  max-width: 500px;
-  width: 90%;
-}
-```
+### 3.1 页面是否需要大标题
 
----
+**顶级导航页面不自动添加大号 H1。** 当前导航项已经提供模块上下文，再显示一次同名大标题会浪费首屏。
 
-## Style Guidelines
+页面标题按以下规则处理：
 
-**Style:** Accessible & Ethical
+| 场景 | 标题策略 |
+|---|---|
+| 顶级浏览页面 | 默认不放大 H1；直接显示当前最有用的工具栏、时间、筛选或内容 |
+| 集合管理页面 | 可使用一行紧凑标题栏，标题、数量/说明和唯一主操作放在同一区域 |
+| 详情、预览、编辑、新建 | 必须有明确标题，放在弹层或页面顶部 |
+| 页面内部模块 | 使用 H2 或小标题，只有确实形成独立信息区时才出现 |
+| 空状态 | 使用自己的简短标题，说明为什么为空以及下一步 |
 
-**Keywords:** High contrast, large text (16px+), keyboard navigation, screen reader friendly, WCAG compliant, focus state, semantic
+常见界面类型建议：
 
-**Best For:** Government, healthcare, education, inclusive products, large audience, legal compliance, public
+| 界面类型 | 顶部结构 | 主操作 |
+|---|---|---|
+| 高密度列表 | 搜索、筛选和紧凑工具栏直接置顶 | 导入或新建 |
+| 时间导航 | 当前时间范围与切换控件作为上下文 | 右侧新建图标 |
+| 数据可视化 | 模式和数据维度选择直接置顶 | 保存放在可视化容器内 |
+| 集合管理 | 紧凑标题、数量和一行必要说明 | 有数据时右侧“新建” |
+| 系统配置 | 不重复模块大标题 | 各设置容器使用独立标题 |
+| 导入与后台任务 | 来源选择和任务状态直接置顶 | 选择文件、拍照或扫描 |
 
-**Key Effects:** Clear focus rings (3-4px), ARIA labels, skip links, responsive design, reduced motion, 44x44px touch targets
+### 3.2 首屏内容
 
-### Page Pattern
+- 页面顶部优先放用户当前要判断或操作的内容，不放欢迎语、口号和宽泛说明。
+- 说明文字最多一到两行；能由布局和标签表达的内容不再写说明 Card。
+- 同一层级只保留一个主操作。
+- 页面 Header 与第一条列表之间留出明确的大间隔；列表项之间使用较小、稳定的间隔。
+- 不在 Card 内重复嵌套多个视觉重量相同的 Card。
 
-**Pattern Name:** AI Personalization Landing
+## 4. “新建 / 创建 / 保存 / 生成”的用词和入口
 
-- **Conversion Strategy:** 20%+ conversion with personalization. Requires analytics integration. Fallback for new users.
-- **CTA Placement:** Context-aware placement based on user segment
-- **Section Order:** 1. Dynamic hero (personalized), 2. Relevant features, 3. Tailored testimonials, 4. Smart CTA
+### 4.1 用词
 
----
+| 行为 | 推荐文案 | 示例 |
+|---|---|---|
+| 打开一个空白编辑器 | `新建` | 新建记录、新建模板 |
+| 新建弹层标题 | `新建 + 对象` | 新建记录 |
+| 保存人工录入内容 | `保存` | 保存记录、保存模板 |
+| 根据已有数据自动产出 | `生成` | 生成清单 |
+| 从文件或相机加入内容 | `导入 / 拍照` | 导入文件、拍照导入 |
+| 修改已有对象 | `编辑 + 对象` | 编辑记录 |
+| 只读查看 | `对象 + 预览` 或对象名称 | 模板预览 |
 
-## Anti-Patterns (Do NOT Use)
+不要在同一屏同时出现“新建”“创建第一个”“开始创建”等多个同义入口。
 
-- ❌ Bright neon colors
-- ❌ Motion-heavy animations
-- ❌ AI purple/pink gradients
+### 4.2 新建入口
 
-### Additional Forbidden Patterns
+- **列表非空**：Header 右侧保留一个新建入口。
+  - 空间足够时使用 `+ 新建`。
+  - 手机紧凑工具栏中可只显示加号，但必须有 `aria-label` 和 `title`。
+- **列表为空**：隐藏 Header 中重复的新建入口，只在空状态保留一个明确按钮，例如“创建第一条记录”。
+- 新建入口放在用户预期的位置：页面右上角、相关 Card 右上角或空状态中心。
+- 不使用悬浮按钮遮挡列表，除非页面结构确实没有稳定 Header。
 
-- ❌ **Emojis as icons** — Use SVG icons (Heroicons, Lucide, Simple Icons)
-- ❌ **Missing cursor:pointer** — All clickable elements must have cursor:pointer
-- ❌ **Layout-shifting hovers** — Avoid scale transforms that shift layout
-- ❌ **Low contrast text** — Maintain 4.5:1 minimum contrast ratio
-- ❌ **Instant state changes** — Always use transitions (150-300ms)
-- ❌ **Invisible focus states** — Focus states must be visible for a11y
+## 5. Card 与列表
 
----
+### 5.1 Card
 
-## Pre-Delivery Checklist
+Card 用于表达一个独立任务或信息区域，而不是给所有内容加边框。
 
-Before delivering any UI code, verify:
+- 页面摘要、数据可视化、设置模块、时间导航、空状态可以使用 Card。
+- 连续列表优先由一个外层 Card 承载，列表项内部保持轻量。
+- Card 头部只放标题、关键状态和最多一个直接相关的操作。
+- Card 内容过长时，先删减重复信息，再考虑折叠或进入详情。
+- 标题区域与列表区域的间隔应大于列表项之间的间隔。
 
-- [ ] No emojis used as icons (use SVG instead)
-- [ ] All icons from consistent icon set (Heroicons/Lucide)
-- [ ] `cursor-pointer` on all clickable elements
-- [ ] Hover states with smooth transitions (150-300ms)
-- [ ] Light mode: text contrast 4.5:1 minimum
-- [ ] Focus states visible for keyboard navigation
-- [ ] `prefers-reduced-motion` respected
-- [ ] Responsive: 375px, 768px, 1024px, 1440px
-- [ ] No content hidden behind fixed navbars
-- [ ] No horizontal scroll on mobile
+### 5.2 列表项信息顺序
+
+一个标准列表项最多包含：
+
+1. 主标题：名称或类型。
+2. 一行核心元信息：完整日期、来源、分类或数量。
+3. 一个高价值状态：异常数、完成进度或业务状态。
+4. 进入详情的方向提示（需要时）。
+
+次要内容应截断或进入详情，不把列表项做成迷你详情页。
+
+默认排序：
+
+- 有时间语义的记录按**从近到远**排列。
+- 时序数据优先按完整年月日分组。
+- 最近使用值按使用顺序优先。
+- 序号、阶段和分组名称允许重复，不能假设展示标签全局唯一。
+
+### 5.3 统一交互
+
+- 普通点击：进入详情或选择当前项。
+- 左滑：露出删除、标记、重试、复制、置顶等单项操作。
+- 长按：进入批量选择或排序编辑模式。
+- 编辑模式：显示选择框或拖动把手，并提供“全选 / 批量操作 / 完成”。
+- 同一时间尽量只展开一条列表项的滑动操作。
+- 键盘用户可用左方向键展开、右方向键或 `Esc` 收起。
+- 表单内部的字段增删属于编辑操作，不强制使用列表左滑。
+
+危险操作必须在底部确认框中二次确认；不使用系统确认弹窗，也不混用居中确认框。
+
+## 6. 弹层、详情与编辑
+
+- 详情、新建、编辑和选择器使用应用内统一弹层。
+- 手机端弹层从底部承载，桌面端居中；Header 固定显示标题和关闭按钮。
+- 返回手势先关闭最上层弹层，再返回准确的上一页和上一页状态。
+- 浏览详情允许下滑关闭时，编辑表单应避免容易误关闭。
+- 删除、覆盖恢复等确认统一使用底部确认框，明确说明影响范围。
+- 详情默认是预览模式；右下角或底部提供编辑入口。不要一进入就暴露可拖动、可修改状态。
+- 编辑模式只保留“保存”等必要完成操作；无意义的重复取消按钮可以省略，因为顶部关闭或返回已经提供退出方式。若存在未保存数据，退出前再提示。
+
+## 7. 表单、选择器与搜索
+
+- 所有输入必须有明确 Label，Placeholder 只做示例，不能代替 Label。
+- 一屏只强调当前步骤需要填写的字段；可选备注、用法等采用展开方式。
+- 下拉选择器记住最近使用值，近期使用项排在前面。
+- 数据量较多的选择器必须提供搜索。
+- 单选、多选、置顶和排序是不同状态，默认进入浏览/选择状态；长按后才进入排序。
+- 多选完成操作放在底部或紧凑工具栏，并持续显示已选数量。
+- 数字、日期、电话等字段使用合适的输入键盘和格式。
+- 外部识别或导入的数据应先完成命名、格式和单位标准化，界面不让用户承担换算和兼容风险。
+
+## 8. 空状态、状态反馈与错误
+
+标准空状态包含：
+
+1. 一个克制的线性图标。
+2. 一句说明当前为什么为空。
+3. 一句下一步建议。
+4. 仅一个主按钮（确有可执行下一步时）。
+
+规则：
+
+- 空状态不要再同时保留 Header 新建按钮。
+- 加载使用进度、Spinner 或骨架，不用静止空白。
+- 成功反馈尽量就地显示，不用频繁弹窗打断。
+- 错误信息说明“发生了什么”和“用户可以怎么做”。
+- 后台长任务提供全局、非阻塞进度入口。
+
+## 9. 图表和高密度数据
+
+- 手机上优先扩大绘图区，删除重复轴标题和说明。
+- 图例使用简短、稳定的标签；用于区分同名数据的详细信息放在详情或选择器中，不长期占据绘图区。
+- 横坐标只显示必要数字，单位放在确实需要的位置。
+- 多序列使用稳定且互不重复的颜色。
+- 容易造成拥挤的辅助线、事件标记和注释默认隐藏，用户点击后显示。
+- 切换数据维度或模式时清除旧 Tooltip 和浮动标签。
+- Tooltip 用于精确值，不要把所有数值永久绘制在图上。
+
+## 10. 导航与状态保持
+
+- Android 返回手势等同“返回上一步”，不能跳到固定页面。
+- 从列表、时间视图或筛选结果进入详情后，应返回原入口，并恢复时间范围、筛选条件和选中状态。
+- 顶级导航切换与页面内钻取需要区分：导航切换改变模块，返回只撤销最近一次钻取。
+- 手机使用底部导航，桌面使用左侧导航；当前项必须有清晰选中状态。
+- 固定导航、日期快速索引和浮动状态条必须避让安全区，不能遮挡内容。
+
+## 11. 响应式、动效与无障碍
+
+- 基准检查宽度：`360px`、`375px`、`430px`、`768px`、桌面。
+- 手机页面左右内边距约 `14–16px`；内容不能横向溢出。
+- 所有主要点击目标至少 `44×44px`。
+- 正文和关键状态满足至少 4.5:1 对比度。
+- 键盘焦点必须清晰可见；隐藏的左滑操作未展开时不能进入 Tab 顺序或被读屏重复播报。
+- 图片必须有替代文本；可查看的内容图片点击后能够进入缩放预览。
+- 动效时长控制在 `150–300ms`，只表达层级、方向和状态变化。
+- 尊重 `prefers-reduced-motion`，不使用大幅弹跳、旋转或持续装饰动画。
+- Hover 不改变元素尺寸，不造成布局跳动。
+
+## 12. 明确避免的设计
+
+- 每个页面机械地放一个大标题。
+- 同一空页面出现两个“新建”按钮。
+- 用说明 Card 重复用户从界面已经能看懂的内容。
+- 列表项常驻删除、编辑、标记等一排图标。
+- 把浏览页默认做成编辑或拖动模式。
+- 系统确认框、居中确认框和底部确认框混用。
+- 在手机图表中显示完整长日期、冗余轴标题和所有辅助标记。
+- 过多嵌套 Card、粗阴影、渐变、亮色装饰和无意义动画。
+- 只用颜色表达异常、完成或选中。
+- 为了“专业”堆叠医疗术语，牺牲普通用户的可理解性。
+
+## 13. 新页面交付检查清单
+
+### 页面结构
+
+- [ ] 顶级页面是否真的需要标题，而不是习惯性添加 H1？
+- [ ] 首屏是否直接呈现当前最重要的内容或操作？
+- [ ] 是否只有一个主操作？
+- [ ] 空状态是否移除了重复的新建入口？
+- [ ] 高密度时序列表是否具备搜索、筛选、聚合、快速定位和统一列表交互？
+- [ ] 零数据状态是否只保留一个具体、明确的主入口？
+
+### 信息与布局
+
+- [ ] 列表项是否只保留标题、核心元信息和一个关键状态？
+- [ ] 标题区与列表间隔是否大于列表项之间间隔？
+- [ ] 是否避免了 Card 套 Card 和重复说明？
+- [ ] 360px 宽度下是否无截断错位和横向滚动？
+
+### 交互
+
+- [ ] 列表单项操作是否通过左滑出现？
+- [ ] 批量选择或排序是否通过长按进入？
+- [ ] 删除是否使用统一底部确认框？
+- [ ] 返回是否恢复真正的上一页及其筛选、月份和选中状态？
+
+### 可访问性与反馈
+
+- [ ] 点击目标是否至少 44×44px？
+- [ ] 图标按钮、图片和表单是否有可访问名称？
+- [ ] 状态是否不只依靠颜色？
+- [ ] 加载、成功、错误和空状态是否都有明确反馈？
+- [ ] 是否支持键盘、深色模式和减少动态效果？

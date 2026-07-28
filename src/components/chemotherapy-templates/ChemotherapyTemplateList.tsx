@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Pointer
 import { createPortal } from 'react-dom'
 import { getChemotherapyDayMedications, getChemotherapyTemplateDayPlans } from '../../services/chemotherapy'
 import { TREATMENT_PLAN_TYPES, type ChemotherapyTemplate } from '../../types'
+import { SwipeableListItem } from '../SwipeableListItem'
 import { getTreatmentPlanType } from './templateUtils'
 
 interface ChemotherapyTemplateListProps {
@@ -42,8 +43,6 @@ export function ChemotherapyTemplateList({
     width: number
   } | null>(null)
   const [reorderError, setReorderError] = useState('')
-  const longPressRef = useRef<{ timer: number; x: number; y: number } | null>(null)
-  const suppressClickRef = useRef(false)
   const draggingIdRef = useRef<string | null>(null)
   const templateListRef = useRef<HTMLDivElement>(null)
   const rowPositionsRef = useRef<Map<string, number>>(new Map())
@@ -65,15 +64,6 @@ export function ChemotherapyTemplateList({
     (count, plan) => count + getChemotherapyDayMedications(plan).filter((item) => item.name.trim()).length,
     0,
   )
-
-  function clearLongPress() {
-    if (longPressRef.current) window.clearTimeout(longPressRef.current.timer)
-    longPressRef.current = null
-  }
-
-  useEffect(() => () => {
-    if (longPressRef.current) window.clearTimeout(longPressRef.current.timer)
-  }, [])
 
   const finishTemplateDrag = useCallback(() => {
     if (dragPreviewFrameRef.current !== null) {
@@ -107,8 +97,8 @@ export function ChemotherapyTemplateList({
       })
     }
     const boundedPointerY = Math.min(listBounds.bottom, Math.max(listBounds.top, clientY))
-    const targetIndex = Array.from(templateList.querySelectorAll<HTMLElement>('[data-template-id]'))
-      .filter((row) => row.dataset.templateId !== sourceId)
+    const targetIndex = Array.from(templateList.querySelectorAll<HTMLElement>('[data-list-item-id]'))
+      .filter((row) => row.dataset.listItemId !== sourceId)
       .reduce((index, row) => {
         const bounds = row.getBoundingClientRect()
         return boundedPointerY > bounds.top + bounds.height / 2 ? index + 1 : index
@@ -152,8 +142,8 @@ export function ChemotherapyTemplateList({
     }
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
     const nextPositions = new Map<string, number>()
-    templateListRef.current.querySelectorAll<HTMLElement>('[data-template-id]').forEach((row) => {
-      const templateId = row.dataset.templateId
+    templateListRef.current.querySelectorAll<HTMLElement>('[data-list-item-id]').forEach((row) => {
+      const templateId = row.dataset.listItemId
       if (!templateId) return
       const activeAnimation = rowAnimationsRef.current.get(templateId)
       const visualTop = row.getBoundingClientRect().top
@@ -180,26 +170,11 @@ export function ChemotherapyTemplateList({
     rowPositionsRef.current = nextPositions
   }, [draftTemplates, draggingId, reorderMode])
 
-  function beginLongPress(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (reorderMode || event.button !== 0) return
-    clearLongPress()
-    longPressRef.current = {
-      x: event.clientX,
-      y: event.clientY,
-      timer: window.setTimeout(() => {
-        longPressRef.current = null
-        suppressClickRef.current = true
-        setDraftTemplates([...templates])
-        setReorderError('')
-        setReorderMode(true)
-        navigator.vibrate?.(25)
-      }, 500),
-    }
-  }
-
-  function trackLongPress(event: ReactPointerEvent<HTMLButtonElement>) {
-    const pending = longPressRef.current
-    if (pending && Math.hypot(event.clientX - pending.x, event.clientY - pending.y) > 8) clearLongPress()
+  function enterReorderMode() {
+    if (reorderMode) return
+    setDraftTemplates([...templates])
+    setReorderError('')
+    setReorderMode(true)
   }
 
   function moveDraftTemplate(sourceId: string, targetId: string) {
@@ -208,7 +183,7 @@ export function ChemotherapyTemplateList({
 
   function beginTemplateDrag(event: ReactPointerEvent<HTMLButtonElement>, templateId: string) {
     event.preventDefault()
-    const row = event.currentTarget.closest<HTMLElement>('[data-template-id]')
+    const row = event.currentTarget.closest<HTMLElement>('[data-list-item-id]')
     if (!row) return
     const bounds = row.getBoundingClientRect()
     draggingIdRef.current = templateId
@@ -258,53 +233,63 @@ export function ChemotherapyTemplateList({
           const dayPlans = getChemotherapyTemplateDayPlans(template)
           const templateType = TREATMENT_PLAN_TYPES[getTreatmentPlanType(template)]
           const medicationCount = dayPlans.reduce((count, plan) => count + getChemotherapyDayMedications(plan).filter((item) => item.name.trim()).length, 0)
-          return <article className={`template-row${draggingId === template.id ? ' dragging' : ''}`} data-template-id={template.id} key={template.id}>
+          return <SwipeableListItem
+            itemId={template.id}
+            itemDataAttribute="data-template-id"
+            as="article"
+            label={template.name}
+            className={`template-row${draggingId === template.id ? ' dragging' : ''}`}
+            surfaceClassName="template-row-surface"
+            editMode={reorderMode}
+            onLongPress={enterReorderMode}
+            actions={[
+              {
+                id: 'copy',
+                label: '复制',
+                accessibilityLabel: `复制方案 ${template.name}`,
+                icon: <Copy />,
+                onSelect: () => onDuplicate(template),
+              },
+              {
+                id: 'delete',
+                label: '删除',
+                accessibilityLabel: `删除方案 ${template.name}`,
+                icon: <Trash2 />,
+                tone: 'danger',
+                onSelect: () => onDelete(template),
+              },
+            ]}
+            key={template.id}
+          >
+            {reorderMode && <button
+              type="button"
+              className="icon-button template-reorder-handle"
+              data-list-gesture-ignore
+              aria-label={`拖动排序 ${template.name}`}
+              aria-pressed={draggingId === template.id}
+              title="拖动排序"
+              onPointerDown={(event) => beginTemplateDrag(event, template.id)}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  moveDraftTemplateByOffset(template.id, -1)
+                } else if (event.key === 'ArrowDown') {
+                  event.preventDefault()
+                  moveDraftTemplateByOffset(template.id, 1)
+                }
+              }}
+            ><GripVertical /></button>}
             <button
               type="button"
               className="template-row-main"
               aria-disabled={reorderMode}
-              onPointerDown={beginLongPress}
-              onPointerMove={trackLongPress}
-              onPointerUp={clearLongPress}
-              onPointerCancel={clearLongPress}
-              onContextMenu={(event) => { if (!reorderMode) event.preventDefault() }}
-              onClick={() => {
-                if (suppressClickRef.current) {
-                  suppressClickRef.current = false
-                  return
-                }
-                if (!reorderMode) onOpen(template)
-              }}
+              onClick={() => { if (!reorderMode) onOpen(template) }}
             >
               <span className="template-row-heading"><strong>{template.name}</strong><span className="plan-type-tag">{templateType.label}</span></span>
               <small>{template.cycleLengthDays} 天一周期 · {dayPlans.map((plan) => `D${plan.day}`).join('、')} · {templateType.usesMedication ? `共 ${medicationCount} 条用药` : template.templateType === 'radiotherapy' ? `共 ${dayPlans.length} 次放疗` : `共 ${dayPlans.length} 项安排`}</small>
               {template.regimen && <span className="template-row-regimen">{template.regimen}</span>}
             </button>
-            <div className="template-row-actions">
-              {reorderMode
-                ? <button
-                    type="button"
-                    className="icon-button template-reorder-handle"
-                    aria-label={`拖动排序 ${template.name}`}
-                    aria-pressed={draggingId === template.id}
-                    title="拖动排序"
-                    onPointerDown={(event) => beginTemplateDrag(event, template.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'ArrowUp') {
-                        event.preventDefault()
-                        moveDraftTemplateByOffset(template.id, -1)
-                      } else if (event.key === 'ArrowDown') {
-                        event.preventDefault()
-                        moveDraftTemplateByOffset(template.id, 1)
-                      }
-                    }}
-                  ><GripVertical /></button>
-                : <>
-                  <button type="button" className="icon-button" aria-label={`复制方案 ${template.name}`} title="复制方案" onClick={() => onDuplicate(template)}><Copy /></button>
-                  <button type="button" className="icon-button danger" aria-label={`删除方案 ${template.name}`} title="删除方案" onClick={() => onDelete(template)}><Trash2 /></button>
-                </>}
-            </div>
-          </article>
+          </SwipeableListItem>
         })}
         {templates.length === 0 && <button type="button" className="template-empty" onClick={onCreate}><Plus /><span><strong>创建第一个治疗方案</strong><small>选择方案类型，再设置周期和每日安排。</small></span></button>}
       </div>

@@ -1,5 +1,6 @@
 import { ChevronDown, Clock3, ListChecks } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { sortByRecentChoices, useRecentChoices } from '../services/recentChoices'
 
 interface HistoryComboboxProps {
   label: string
@@ -10,23 +11,28 @@ interface HistoryComboboxProps {
   suggestionsHeading?: string
   suggestionsLabel?: string
   optionDescriptions?: Record<string, string>
+  historyKey?: string
+  restrictToOptions?: boolean
 }
 
-export function HistoryCombobox({ label, value, onChange, options, placeholder, suggestionsHeading, suggestionsLabel, optionDescriptions }: HistoryComboboxProps) {
+export function HistoryCombobox({ label, value, onChange, options, placeholder, suggestionsHeading, suggestionsLabel, optionDescriptions, historyKey, restrictToOptions = false }: HistoryComboboxProps) {
   const id = useId()
   const listId = `${id}-history`
   const rootRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
+  const { recentChoices, remember } = useRecentChoices(label, historyKey)
   const normalizedOptions = useMemo(() => {
     const seen = new Set<string>()
-    return options.map((item) => item.trim()).filter((item) => {
+    const sourceOptions = restrictToOptions ? options : [...recentChoices, ...options]
+    const uniqueOptions = sourceOptions.map((item) => item.trim()).filter((item) => {
       const key = item.toLocaleLowerCase('zh-CN')
       if (!item || seen.has(key)) return false
       seen.add(key)
       return true
     })
-  }, [options])
+    return sortByRecentChoices(uniqueOptions, recentChoices, (item) => item)
+  }, [options, recentChoices, restrictToOptions])
   const suggestions = useMemo(() => {
     const query = value.trim().toLocaleLowerCase('zh-CN')
     return query ? normalizedOptions.filter((item) => item.toLocaleLowerCase('zh-CN').includes(query)) : normalizedOptions
@@ -41,6 +47,7 @@ export function HistoryCombobox({ label, value, onChange, options, placeholder, 
   }, [])
 
   function select(item: string) {
+    remember(item)
     onChange(item)
     setOpen(false)
     setActiveIndex(-1)
@@ -54,6 +61,7 @@ export function HistoryCombobox({ label, value, onChange, options, placeholder, 
         value={value}
         onChange={(event) => { onChange(event.target.value); setOpen(true); setActiveIndex(-1) }}
         onFocus={() => setOpen(true)}
+        onBlur={() => remember(value)}
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown' && suggestions.length) { event.preventDefault(); setOpen(true); setActiveIndex((current) => Math.min(current + 1, suggestions.length - 1)) }
           if (event.key === 'ArrowUp' && suggestions.length) { event.preventDefault(); setActiveIndex((current) => Math.max(current - 1, 0)) }

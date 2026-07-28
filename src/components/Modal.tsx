@@ -53,7 +53,7 @@ function unlockPageScroll() {
   if (snapshot.scrollY > 0) window.scrollTo(0, snapshot.scrollY)
 }
 
-export function Modal({ title, onClose, children, wide = false, swipeToClose = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; swipeToClose?: boolean }) {
+export function Modal({ title, onClose, children, wide = false, swipeToClose = false, bottomSheet = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; swipeToClose?: boolean; bottomSheet?: boolean }) {
   const titleId = useId()
   const stackId = useRef(Symbol(title))
   const onCloseRef = useRef(onClose)
@@ -90,8 +90,8 @@ export function Modal({ title, onClose, children, wide = false, swipeToClose = f
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <section className={`modal-card${wide ? ' wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} onTouchStart={startSwipe} onTouchEnd={finishSwipe}>
+    <div className={`modal-backdrop${bottomSheet ? ' bottom-sheet-backdrop' : ''}`} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <section className={`modal-card${wide ? ' wide' : ''}${bottomSheet ? ' bottom-sheet' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} onTouchStart={startSwipe} onTouchEnd={finishSwipe}>
         <header className="modal-header">
           <h2 id={titleId}>{title}</h2>
           <button className="icon-button" onClick={onClose} aria-label="关闭"><X /></button>

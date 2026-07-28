@@ -43,8 +43,8 @@ const record = (id: string, reportType: string): ExamRecord => ({
 const records = [
   record('1', '实验室检验'),
   record('2', '实验室检验报告'),
-  record('3', 'MRI'),
-  record('4', 'CT'),
+  { ...record('3', 'MRI'), examDate: '2026-06-12' },
+  { ...record('4', 'CT'), examDate: '2025-12-30' },
 ]
 
 vi.mock('../store/AppContext', () => ({
@@ -93,6 +93,20 @@ describe('record type filter', () => {
     expect(screen.queryByText('CT', { selector: '.record-main strong' })).not.toBeInTheDocument()
   })
 
+  it('groups records by year, month and day and exposes a date fast scroller', () => {
+    const { container } = render(<MemoryRouter><RecordsPage /></MemoryRouter>)
+    const page = within(container)
+
+    expect(page.getByText('2026年7月21日')).toBeInTheDocument()
+    expect(page.getByText('2026年6月12日')).toBeInTheDocument()
+    expect(page.getByText('2025年12月30日')).toBeInTheDocument()
+    const scroller = page.getByRole('slider', { name: '按日期快速滑动' })
+    expect(scroller).toHaveAttribute('aria-valuemax', '3')
+    fireEvent.keyDown(scroller, { key: 'End' })
+    expect(scroller).toHaveAttribute('aria-valuetext', '2025-12-30')
+    expect(page.getByText('2025/12/30')).toBeInTheDocument()
+  })
+
   it('uses the simplified table, previews images, and confirms deletion twice', async () => {
     render(<MemoryRouter><RecordsPage /></MemoryRouter>)
     fireEvent.click(document.querySelector('.record-row')!)
@@ -123,7 +137,7 @@ describe('record type filter', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '删除记录' }))
     expect(deleteRecordMock).not.toHaveBeenCalled()
-    expect(screen.getByRole('dialog', { name: '删除检查记录' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '删除检查记录' })).toHaveClass('bottom-sheet')
     expect(screen.getByText('确定删除这份记录吗？')).toBeInTheDocument()
     fireEvent.click(within(screen.getByRole('dialog', { name: '删除检查记录' })).getByRole('button', { name: '取消' }))
     expect(screen.queryByRole('dialog', { name: '删除检查记录' })).not.toBeInTheDocument()
@@ -204,10 +218,10 @@ describe('record type filter', () => {
     render(<MemoryRouter initialEntries={['/records']}><App /></MemoryRouter>)
     const navigation = screen.getByRole('navigation', { name: '主导航' })
     const links = within(navigation).getAllByRole('link')
-    expect(links).toHaveLength(5)
-    expect(links.map((link) => link.textContent)).toEqual(['方案', '检查', '病程', '图表', '设置'])
+    expect(links).toHaveLength(6)
+    expect(links.map((link) => link.textContent)).toEqual(['方案', '检查', '病程', '图表', '报销', '设置'])
     expect(within(navigation).getByRole('link', { name: '方案' })).toHaveAttribute('href', '/chemotherapy-templates')
-    expect(within(navigation).getByRole('link', { name: '病程' })).toHaveClass('nav-item-primary')
+    expect(within(navigation).getByRole('link', { name: '检查' })).toHaveClass('active')
     expect(within(navigation).queryByRole('link', { name: '导入' })).not.toBeInTheDocument()
     expect(screen.getByRole('main').querySelector('a[href="/import"]')).toBeInTheDocument()
   })

@@ -136,6 +136,71 @@ export interface StoredImage {
   relativePath?: string
 }
 
+export const REIMBURSEMENT_COVERAGES = {
+  public_medical: { label: '基本医保', claimable: true },
+  commercial: { label: '商业保险', claimable: true },
+  public_and_commercial: { label: '医保 + 商保', claimable: true },
+  self_pay: { label: '自费（不报销）', claimable: false },
+  international_excluded: { label: '国际医疗／除外责任', claimable: false },
+} as const
+
+export type ReimbursementCoverage = keyof typeof REIMBURSEMENT_COVERAGES
+
+export type ReimbursementMaterialKind =
+  | 'claim_application'
+  | 'identity'
+  | 'bank_account'
+  | 'medical_insurance_form'
+  | 'invoice'
+  | 'expense_detail'
+  | 'medical_record'
+  | 'diagnosis'
+  | 'prescription'
+  | 'examination_order'
+  | 'test_report'
+  | 'imaging_report'
+  | 'pathology_report'
+  | 'inpatient_record'
+  | 'discharge_summary'
+  | 'treatment_record'
+  | 'radiotherapy_record'
+  | 'surgery_record'
+  | 'settlement_statement'
+  | 'referral'
+  | 'other'
+
+export interface ReimbursementAttachment extends StoredImage {
+  source: 'record' | 'upload' | 'camera'
+  sourceRecordId?: string
+  createdAt: string
+}
+
+export interface ReimbursementMaterial {
+  id: string
+  kind: ReimbursementMaterialKind
+  label: string
+  required: boolean
+  completed: boolean
+  notes?: string
+  attachments: ReimbursementAttachment[]
+}
+
+export interface ReimbursementPlan {
+  id: string
+  eventId: string
+  relatedEventIds?: string[]
+  eventType: EventType
+  eventTitle: string
+  eventDate: string
+  hospital?: string
+  coverage: ReimbursementCoverage
+  reimbursedAt?: string
+  materials: ReimbursementMaterial[]
+  notes?: string
+  createdAt: string
+  updatedAt: string
+}
+
 export type OcrQueueStatus = 'queued' | 'processing' | 'completed' | 'failed'
 export type OcrQueuePhase = 'waiting' | 'recognizing' | 'saving' | 'done' | 'error'
 
@@ -210,6 +275,7 @@ export interface BackupPayload {
   chemotherapyTemplates?: ChemotherapyTemplate[]
   records: ExamRecord[]
   pins: ChartPin[]
+  reimbursementPlans?: ReimbursementPlan[]
   preferences: Omit<AppPreferences, 'azure'> & { azure: Omit<AzureSettings, 'apiKey'> }
 }
 

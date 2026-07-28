@@ -40,6 +40,7 @@ vi.mock('../pages/SettingsPage', () => ({ SettingsPage: () => <h1>设置页面</
 vi.mock('../pages/ChemotherapyTemplatesPage', () => ({ ChemotherapyTemplatesPage: () => <h1>方案页面</h1> }))
 vi.mock('../pages/ChartsPage', () => ({ ChartsPage: () => <h1>图表页面</h1> }))
 vi.mock('../pages/ImportPage', () => ({ ImportPage: () => <h1>导入页面</h1> }))
+vi.mock('../pages/ReimbursementPage', () => ({ ReimbursementPage: () => <h1>报销页面</h1> }))
 
 function AppWithModal() {
   const [open, setOpen] = useState(true)

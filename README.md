@@ -15,6 +15,10 @@
 
 OCR 队列在切换应用页面后会继续运行。如果操作系统终止应用或浏览器标签页，任务会暂停，并在下次打开应用时从未完成项继续。
 
+## 设计规范
+
+页面标题、新建入口、Card、列表交互、弹层、图表和移动端布局统一遵循 [CareJournal 设计报告](design-system/carejournal/MASTER.md)。
+
 ## 本地运行
 
 ```powershell

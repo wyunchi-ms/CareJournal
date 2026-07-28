@@ -1,5 +1,5 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
-import type { ExamRecord, OcrQueueItem, StoredImage } from '../types'
+import type { ExamRecord, OcrQueueItem, ReimbursementPlan, StoredImage } from '../types'
 
 interface PersistedImageResult {
   mimeType: string
@@ -69,7 +69,7 @@ export async function migrateLegacyNativeImages(): Promise<ImageMigrationResult>
   return NativeImageStorage.migrateLegacyImages()
 }
 
-export async function garbageCollectNativeImages(records: ExamRecord[], jobs: OcrQueueItem[]) {
+export async function garbageCollectNativeImages(records: ExamRecord[], jobs: OcrQueueItem[], reimbursementPlans: ReimbursementPlan[] = []) {
   if (!usesNativeImageStorage()) return 0
   const storagePaths = new Set<string>()
   for (const record of records) {
@@ -79,6 +79,13 @@ export async function garbageCollectNativeImages(records: ExamRecord[], jobs: Oc
   }
   for (const job of jobs) {
     if (job.image.storagePath) storagePaths.add(job.image.storagePath)
+  }
+  for (const plan of reimbursementPlans) {
+    for (const material of plan.materials) {
+      for (const attachment of material.attachments) {
+        if (attachment.storagePath) storagePaths.add(attachment.storagePath)
+      }
+    }
   }
   const result = await NativeImageStorage.garbageCollect({ storagePaths: [...storagePaths] })
   return result.deleted
@@ -107,6 +114,43 @@ export async function persistRestoredRecords(records: ExamRecord[]): Promise<Exa
     const images: StoredImage[] = []
     for (const image of record.images) images.push(await persistStoredImage(image))
     restored.push({ ...record, images })
+  }
+  return restored
+}
+
+export async function makeReimbursementPlansPortable(plans: ReimbursementPlan[]): Promise<ReimbursementPlan[]> {
+  const portable: ReimbursementPlan[] = []
+  for (const plan of plans) {
+    const materials: ReimbursementPlan['materials'] = []
+    for (const material of plan.materials) {
+      const attachments: typeof material.attachments = []
+      for (const attachment of material.attachments) {
+        const materialized = await materializeNativeStoredImage(attachment)
+        const portableAttachment = { ...attachment, ...materialized }
+        delete portableAttachment.storagePath
+        delete portableAttachment.localUri
+        attachments.push(portableAttachment)
+      }
+      materials.push({ ...material, attachments })
+    }
+    portable.push({ ...plan, materials })
+  }
+  return portable
+}
+
+export async function persistRestoredReimbursementPlans(plans: ReimbursementPlan[]): Promise<ReimbursementPlan[]> {
+  if (!usesNativeImageStorage()) return plans
+  const restored: ReimbursementPlan[] = []
+  for (const plan of plans) {
+    const materials: ReimbursementPlan['materials'] = []
+    for (const material of plan.materials) {
+      const attachments: typeof material.attachments = []
+      for (const attachment of material.attachments) {
+        attachments.push({ ...attachment, ...await persistStoredImage(attachment) })
+      }
+      materials.push({ ...material, attachments })
+    }
+    restored.push({ ...plan, materials })
   }
   return restored
 }
