@@ -1,6 +1,6 @@
 import { format, parseISO } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
-import { ChevronRight, FileImage, FileUp, ListFilter, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
+import { ChevronRight, FileImage, FileText, FileUp, ListFilter, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChoicePicker } from '../components/ChoicePicker'
@@ -9,6 +9,7 @@ import { DateFastScroller } from '../components/DateFastScroller'
 import { HistoryCombobox } from '../components/HistoryCombobox'
 import { Modal } from '../components/Modal'
 import { ImagePreview } from '../components/ImagePreview'
+import { PdfPreview } from '../components/PdfPreview'
 import { SwipeableListItem } from '../components/SwipeableListItem'
 import { INDICATORS, normalizeIndicator } from '../data/indicatorAliases'
 import { normalizeReportType, REPORT_TYPES } from '../data/reportTypeAliases'
@@ -237,15 +238,20 @@ function RecordDetail({ record, onClose, onEdit, onRecognized }: { record: ExamR
   return <div className="record-detail">
     <div className="detail-summary"><div><span>检查日期</span><strong>{record.examDate}</strong></div><div><span>医院</span><strong title={record.hospital || '未记录'}>{record.hospital || '未记录'}</strong></div></div>
     <section><div className="record-section-heading"><h3>指标明细 <small>{record.indicators.length} 项</small></h3><button type="button" className="icon-button edit-report-button" onClick={onEdit} aria-label="编辑报告" title="编辑报告"><Pencil /></button></div>{record.indicators.length ? <div className="indicator-table-wrap"><table className="indicator-table"><thead><tr><th>指标</th><th>结果</th><th>参考范围</th></tr></thead><tbody>{record.indicators.map((item) => <tr key={item.id} className={`indicator-row ${item.abnormalFlag}`} aria-label={`${item.normalizedName}，${flagLabel(item) || '状态未标记'}`}><td title={item.rawName !== item.normalizedName ? `医院原始名称：${item.rawName}` : undefined}><strong>{item.normalizedName}{item.unit && <span className="indicator-unit">（{item.unit}）</span>}</strong></td><td><strong>{resultText(item)}</strong><span className="sr-only">{flagLabel(item)}</span></td><td>{item.referenceText || [item.referenceLow, item.referenceHigh].filter((value) => value !== null).join('–') || '—'}</td></tr>)}</tbody></table></div> : <p className="muted-text">这份报告没有结构化数值指标。</p>}</section>
-    {record.images.length > 0 && <section><h3>原始图片</h3><div className="image-gallery">{record.images.map((image) => {
+    {record.images.length > 0 && <section><h3>原始文件</h3><div className="image-gallery">{record.images.map((image) => {
       const source = storedImageSource(image)
+      if (image.mimeType === 'application/pdf' || /\.pdf$/i.test(image.name)) {
+        return source
+          ? <PdfPreview key={image.id} src={source} name={image.name} description="PDF 检查报告" className="record-pdf-file" />
+          : <div key={image.id} className="record-pdf-file unavailable"><FileText /><span><strong>{image.name}</strong><small>PDF 内容不可用</small></span></div>
+      }
       return source ? <ImagePreview key={image.id} src={source} alt={`检查报告：${image.name}`} /> : null
     })}</div></section>}
     {record.summary && <section className="report-conclusion"><h3>报告结论</h3><p className="summary-text">{record.summary}</p></section>}
     {recognizeError && <p className="form-error record-detail-action-error" role="alert">{recognizeError}</p>}
     <div className="record-detail-actions">
       <button className="button danger ghost" onClick={() => setDeleteConfirming(true)}><Trash2 />删除记录</button>
-      <button type="button" className="button secondary" disabled={recognizing || record.images.length === 0} onClick={() => void recognizeAgain()} title={record.images.length === 0 ? '这份记录没有原始图片' : '用原始图片重新识别并更新当前记录'}>
+      <button type="button" className="button secondary" disabled={recognizing || record.images.length === 0} onClick={() => void recognizeAgain()} title={record.images.length === 0 ? '这份记录没有原始文件' : '用原始文件重新识别并更新当前记录'}>
         {recognizing ? <span className="spinner" /> : <RefreshCw />}
         {recognizing ? '重新识别中…' : '重新识别'}
       </button>

@@ -1,14 +1,15 @@
 import { differenceInCalendarDays, format, parseISO } from 'date-fns'
 import type { EChartsType } from 'echarts'
 import ReactECharts from 'echarts-for-react'
-import { Bookmark, BookmarkCheck, BookmarkX, CalendarPlus, ChartNoAxesCombined, ChevronRight, Eye, EyeOff, FileUp, RotateCcw, Search } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Bookmark, BookmarkCheck, BookmarkX, CalendarPlus, ChartNoAxesCombined, ChevronRight, Eye, EyeOff, FileUp, GripVertical, RotateCcw, Search } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { ChoicePicker } from '../components/ChoicePicker'
 import { ConfirmSheet } from '../components/ConfirmSheet'
 import { IndicatorPicker } from '../components/IndicatorPicker'
 import { Modal } from '../components/Modal'
 import { SwipeableListItem } from '../components/SwipeableListItem'
 import { sortChartIndicators } from '../services/chartIndicators'
+import { moveChartPin, sortChartPins } from '../services/chartPins'
 import { groupChemotherapyCycles } from '../services/chemotherapy'
 import { useApp } from '../store/AppContext'
 import { EVENT_TYPES, newId, type ChartPin } from '../types'
@@ -24,7 +25,7 @@ function cycleSeriesColor(index: number) {
 }
 
 export function ChartsPage() {
-  const { records, events, pins, preferences, savePin, deletePin, savePreferences } = useApp()
+  const { records, events, pins, preferences, savePin, reorderPins, deletePin, savePreferences } = useApp()
   const indicatorOrder = preferences.chartIndicatorOrder
   const pinnedIndicatorCodes = preferences.chartPinnedIndicatorCodes
   const indicators = useMemo(() => {
@@ -47,11 +48,17 @@ export function ChartsPage() {
   const [selectedCycles, setSelectedCycles] = useState<string[]>([])
   const [savedChartsOpen, setSavedChartsOpen] = useState(false)
   const [savedQuery, setSavedQuery] = useState('')
+  const [savedChartsReordering, setSavedChartsReordering] = useState(false)
+  const [draftPinOrder, setDraftPinOrder] = useState<string[]>([])
+  const [draggingPinId, setDraggingPinId] = useState<string | null>(null)
+  const [savedOrderError, setSavedOrderError] = useState('')
   const [deletingPin, setDeletingPin] = useState<ChartPin | null>(null)
   const [deletePinBusy, setDeletePinBusy] = useState(false)
   const [deletePinError, setDeletePinError] = useState('')
   const [showEventMarkers, setShowEventMarkers] = useState(false)
   const chartInstanceRef = useRef<EChartsType | null>(null)
+  const draftPinOrderRef = useRef<string[]>([])
+  const dragTargetPinIdRef = useRef<string | null>(null)
 
   const currentCode = indicators.some((item) => item.code === selectedCode) ? selectedCode : indicators[0]?.code ?? ''
   const currentCycles = selectedCycles.length ? selectedCycles : chemotherapyCycles.map((cycle) => cycle.id)
@@ -72,16 +79,20 @@ export function ChartsPage() {
       && pin.cycleEventIds.every((id) => currentCycles.includes(id))
     ))
   ))
+  const orderedPins = useMemo(() => sortChartPins(pins), [pins])
+  const pinById = useMemo(() => new Map(orderedPins.map((pin) => [pin.id, pin])), [orderedPins])
   const filteredPins = useMemo(() => {
     const query = savedQuery.trim().toLocaleLowerCase('zh-CN')
-    return [...pins]
-      .sort((first, second) => second.createdAt.localeCompare(first.createdAt))
+    return orderedPins
       .filter((pin) => {
         if (!query) return true
         const modeLabel = pin.mode === 'trend' ? '实际日期趋势' : '化疗周期叠加'
         return `${pin.title} ${modeLabel}`.toLocaleLowerCase('zh-CN').includes(query)
       })
-  }, [pins, savedQuery])
+  }, [orderedPins, savedQuery])
+  const visiblePins = savedChartsReordering
+    ? draftPinOrder.map((id) => pinById.get(id)).filter((pin): pin is ChartPin => Boolean(pin))
+    : filteredPins
 
   const trendOption = useMemo(() => ({
     color: seriesColors,
@@ -169,25 +180,101 @@ export function ChartsPage() {
   }
 
   function applyPin(pin: ChartPin) {
+    if (savedChartsReordering) return
     setMode(pin.mode)
     setSelectedCode(pin.indicatorCodes[0] ?? '')
     setSelectedCycles(pin.cycleEventIds)
     setSavedChartsOpen(false)
   }
 
+  function setPinOrder(next: string[]) {
+    draftPinOrderRef.current = next
+    setDraftPinOrder(next)
+  }
+
+  function enterSavedChartsReordering() {
+    if (pins.length < 2) return
+    setSavedQuery('')
+    setSavedOrderError('')
+    setPinOrder(orderedPins.map((pin) => pin.id))
+    setSavedChartsReordering(true)
+  }
+
+  function closeSavedCharts() {
+    setSavedChartsOpen(false)
+    setSavedQuery('')
+    setSavedChartsReordering(false)
+    setDraggingPinId(null)
+    setSavedOrderError('')
+  }
+
+  function persistPinOrder(next: string[]) {
+    setPinOrder(next)
+    void reorderPins(next).catch((error) => {
+      setSavedOrderError(error instanceof Error ? error.message : '保存排序失败，请重试')
+    })
+  }
+
+  function startPinDrag(event: ReactPointerEvent<HTMLButtonElement>, pinId: string) {
+    event.preventDefault()
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    dragTargetPinIdRef.current = null
+    setDraggingPinId(pinId)
+  }
+
+  function dragPin(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!draggingPinId || typeof document.elementFromPoint !== 'function') return
+    event.preventDefault()
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-saved-chart-id]')
+    const targetId = target?.dataset.savedChartId
+    if (!targetId || targetId === draggingPinId) {
+      dragTargetPinIdRef.current = null
+      return
+    }
+    if (targetId === dragTargetPinIdRef.current) return
+    dragTargetPinIdRef.current = targetId
+    const next = moveChartPin(draftPinOrderRef.current, draggingPinId, targetId)
+    if (next !== draftPinOrderRef.current) setPinOrder(next)
+  }
+
+  function finishPinDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!draggingPinId) return
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture?.(event.pointerId)
+    dragTargetPinIdRef.current = null
+    setDraggingPinId(null)
+    persistPinOrder(draftPinOrderRef.current)
+  }
+
+  function movePinByKeyboard(pinId: string, direction: -1 | 1) {
+    const currentOrder = draftPinOrderRef.current
+    const index = currentOrder.indexOf(pinId)
+    const targetId = currentOrder[index + direction]
+    if (!targetId) return
+    persistPinOrder(moveChartPin(currentOrder, pinId, targetId))
+  }
+
   return <>
-    {savedChartsOpen && <Modal title={`已保存图表（${pins.length}）`} onClose={() => setSavedChartsOpen(false)}>
-      <label className="search-box saved-chart-search">
-        <Search aria-hidden="true" />
-        <span className="sr-only">搜索已保存图表</span>
-        <input value={savedQuery} onChange={(event) => setSavedQuery(event.target.value)} placeholder="搜索指标或图表模式" autoFocus />
-      </label>
+    {savedChartsOpen && <Modal title={savedChartsReordering ? '已保存图表（排序）' : `已保存图表（${pins.length}）`} onClose={closeSavedCharts}>
+      <div className={`saved-chart-tools${savedChartsReordering ? ' editing' : ''}`}>
+        {savedChartsReordering
+          ? <p><GripVertical /><span><strong>拖动调整图表顺序</strong><small>键盘可在把手上使用上下方向键</small></span></p>
+          : <label className="search-box saved-chart-search">
+              <Search aria-hidden="true" />
+              <span className="sr-only">搜索已保存图表</span>
+              <input value={savedQuery} onChange={(event) => setSavedQuery(event.target.value)} placeholder={pins.length > 1 ? '搜索图表，长按条目排序' : '搜索指标或图表模式'} autoFocus />
+            </label>}
+        {savedChartsReordering && <button type="button" className="button secondary saved-chart-order-done" onClick={() => { setSavedChartsReordering(false); setDraggingPinId(null) }}>完成</button>}
+      </div>
+      {savedOrderError && <p className="form-error" role="alert">{savedOrderError}</p>}
       <div className="saved-chart-list">
-        {filteredPins.map((pin) => <SwipeableListItem
+        {visiblePins.map((pin) => <SwipeableListItem
           itemId={pin.id}
+          itemDataAttribute="data-saved-chart-id"
           label={pin.title}
-          className="saved-chart-row"
+          className={`saved-chart-row${savedChartsReordering ? ' editing' : ''}${draggingPinId === pin.id ? ' dragging' : ''}`}
           surfaceClassName="saved-chart-surface"
+          editMode={savedChartsReordering}
+          onLongPress={pins.length > 1 ? enterSavedChartsReordering : undefined}
           actions={[{
             id: 'delete',
             label: '删除',
@@ -198,16 +285,31 @@ export function ChartsPage() {
           }]}
           key={pin.id}
         >
-          <button type="button" className="saved-chart-apply" onClick={() => applyPin(pin)}>
+          {savedChartsReordering && <button
+            type="button"
+            className="saved-chart-drag-handle"
+            aria-label={`拖动排序：${pin.title}`}
+            title="拖动排序；键盘可用上下方向键"
+            onPointerDown={(event) => startPinDrag(event, pin.id)}
+            onPointerMove={dragPin}
+            onPointerUp={finishPinDrag}
+            onPointerCancel={finishPinDrag}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+              event.preventDefault()
+              movePinByKeyboard(pin.id, event.key === 'ArrowUp' ? -1 : 1)
+            }}
+          ><GripVertical /></button>}
+          <button type="button" className="saved-chart-apply" aria-disabled={savedChartsReordering || undefined} tabIndex={savedChartsReordering ? -1 : 0} onClick={() => applyPin(pin)}>
             <span className="saved-chart-icon"><Bookmark aria-hidden="true" /></span>
             <span className="saved-chart-copy">
               <strong>{pin.title}</strong>
               <small>{pin.mode === 'trend' ? '实际日期趋势' : `化疗周期叠加 · ${pin.cycleEventIds.length} 个周期`}</small>
             </span>
-            <ChevronRight aria-hidden="true" />
+            {!savedChartsReordering && <ChevronRight aria-hidden="true" />}
           </button>
         </SwipeableListItem>)}
-        {filteredPins.length === 0 && <div className="empty-inline"><Search /><strong>没有匹配的图表</strong><p>换个指标名称或图表模式试试。</p></div>}
+        {visiblePins.length === 0 && <div className="empty-inline"><Search /><strong>没有匹配的图表</strong><p>换个指标名称或图表模式试试。</p></div>}
       </div>
     </Modal>}
     {deletingPin && <ConfirmSheet
@@ -230,7 +332,7 @@ export function ChartsPage() {
           className="saved-charts-trigger"
           aria-label={`打开已保存图表，共 ${pins.length} 个`}
           title={`已保存图表（${pins.length}）`}
-          onClick={() => { setSavedQuery(''); setSavedChartsOpen(true) }}
+          onClick={() => { setSavedQuery(''); setSavedChartsReordering(false); setSavedOrderError(''); setSavedChartsOpen(true) }}
         >
           <BookmarkCheck aria-hidden="true" />
           <span>已保存</span>

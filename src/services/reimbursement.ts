@@ -21,6 +21,32 @@ interface MaterialDefinition {
   required?: boolean
 }
 
+export type ReimbursementPlanStatus = 'unmarked' | 'pending' | 'reimbursed'
+
+export function reimbursementPlanStatus(plan: ReimbursementPlan): ReimbursementPlanStatus {
+  if (plan.reimbursedAt || plan.reimbursementStatus === 'reimbursed') return 'reimbursed'
+  if (plan.reimbursementStatus === 'pending') return 'pending'
+  return 'unmarked'
+}
+
+export function reimbursementPlanStatusLabel(plan: ReimbursementPlan) {
+  const status = reimbursementPlanStatus(plan)
+  if (status === 'pending') return '待报销'
+  if (status === 'reimbursed') return '已报销'
+  return '未标记'
+}
+
+export function advanceReimbursementStatus(plan: ReimbursementPlan, now = new Date().toISOString()): ReimbursementPlan {
+  const status = reimbursementPlanStatus(plan)
+  if (status === 'unmarked') {
+    return { ...plan, reimbursementStatus: 'pending', reimbursedAt: undefined }
+  }
+  if (status === 'pending') {
+    return { ...plan, reimbursementStatus: 'reimbursed', reimbursedAt: now }
+  }
+  return { ...plan, reimbursementStatus: 'pending', reimbursedAt: undefined }
+}
+
 const baseByCoverage: Record<ReimbursementCoverage, MaterialDefinition[]> = {
   public_medical: [],
   commercial: [],
@@ -320,7 +346,7 @@ export async function buildReimbursementZip(plans: ReimbursementPlan[]) {
       `日期：${plan.eventDate}`,
       `医院：${plan.hospital || '未记录'}`,
       `报销类型：${REIMBURSEMENT_COVERAGES[plan.coverage].label}`,
-      `报销状态：${plan.reimbursedAt ? '已报销' : '待报销'}`,
+      `报销状态：${reimbursementPlanStatusLabel(plan)}`,
       `完成进度：${completed}/${plan.materials.length}`,
       '',
       ...plan.materials.map((item) => `${item.completed ? '☑' : '☐'} ${item.label}${item.required ? '' : '（按需）'} · ${item.attachments.length} 个文件`),

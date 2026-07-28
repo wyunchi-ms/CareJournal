@@ -31,7 +31,10 @@ const record = (id: string, reportType: string): ExamRecord => ({
     referenceText: '5–10',
     abnormalFlag: 'low',
   }] : [],
-  images: id === '1' ? [{ id: 'image-1', name: '报告.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,iVBORw0KGgo=', sha256: 'image-1' }] : [],
+  images: id === '1' ? [
+    { id: 'image-1', name: '报告.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,iVBORw0KGgo=', sha256: 'image-1' },
+    { id: 'pdf-1', name: '报告.pdf', mimeType: 'application/pdf', dataUrl: 'data:application/pdf;base64,JVBERi0xLjQ=', sha256: 'pdf-1' },
+  ] : [],
   linkedEventIds: [],
   fingerprint: id,
   ocrStatus: 'completed',
@@ -134,6 +137,10 @@ describe('record type filter', () => {
     fireEvent.click(screen.getByRole('button', { name: /放大预览/ }))
     expect(screen.getByRole('dialog', { name: '图片预览' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '关闭图片预览' }))
+
+    fireEvent.click(screen.getByRole('button', { name: '预览 PDF：报告.pdf' }))
+    expect(screen.getByRole('dialog', { name: 'PDF 预览' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '关闭 PDF 预览' }))
 
     fireEvent.click(screen.getByRole('button', { name: '删除记录' }))
     expect(deleteRecordMock).not.toHaveBeenCalled()

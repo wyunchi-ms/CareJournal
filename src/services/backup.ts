@@ -1,7 +1,8 @@
 import { Capacitor } from '@capacitor/core'
 import { Directory, Filesystem } from '@capacitor/filesystem'
-import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, ExamRecord, ReimbursementPlan, TreatmentEvent } from '../types'
-import { makeRecordsPortable, makeReimbursementPlansPortable } from './imageStorage'
+import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, ExamRecord, MediaAsset, ReimbursementPlan, TreatmentEvent } from '../types'
+import { materializeNativeStoredImage } from './imageStorage'
+import { compactRecordMedia, compactReimbursementMedia, reconcileMediaCatalog } from './mediaAssets'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -30,16 +31,30 @@ async function deriveKey(password: string, salt: Uint8Array<ArrayBuffer>) {
 
 export async function exportBackup(events: TreatmentEvent[], chemotherapyTemplates: ChemotherapyTemplate[], records: ExamRecord[], pins: ChartPin[], reimbursementPlans: ReimbursementPlan[], preferences: AppPreferences, password: string) {
   if (password.length < 8) throw new Error('备份密码至少需要 8 位')
-  const portableRecords = await makeRecordsPortable(records)
-  const portableReimbursementPlans = await makeReimbursementPlansPortable(reimbursementPlans)
+  const catalog = reconcileMediaCatalog(records, [], reimbursementPlans)
+  const portableAssets: MediaAsset[] = []
+  for (const asset of catalog.assets) {
+    const materialized = await materializeNativeStoredImage(asset)
+    const portable: MediaAsset = {
+      ...asset,
+      ...materialized,
+      id: asset.id,
+      createdAt: asset.createdAt,
+      updatedAt: asset.updatedAt,
+    }
+    delete portable.storagePath
+    delete portable.localUri
+    portableAssets.push(portable)
+  }
   const payload: BackupPayload = {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
+    assets: portableAssets,
     events,
     chemotherapyTemplates,
-    records: portableRecords,
+    records: catalog.records.map(compactRecordMedia),
     pins,
-    reimbursementPlans: portableReimbursementPlans,
+    reimbursementPlans: catalog.reimbursementPlans.map(compactReimbursementMedia),
     preferences: {
       darkMode: preferences.darkMode,
       chartIndicatorOrder: preferences.chartIndicatorOrder,
@@ -65,7 +80,8 @@ export async function importBackup(file: File, password: string): Promise<Backup
     const key = await deriveKey(password, salt)
     const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, base64ToBytes(envelope.data))
     const payload = JSON.parse(decoder.decode(decrypted)) as BackupPayload
-    if (payload.version !== 1 || !Array.isArray(payload.events) || !Array.isArray(payload.records)) throw new Error('备份内容无效')
+    if (![1, 2].includes(payload.version) || !Array.isArray(payload.events) || !Array.isArray(payload.records)) throw new Error('备份内容无效')
+    if (payload.version === 2 && !Array.isArray(payload.assets)) throw new Error('备份素材索引无效')
     return payload
   } catch {
     throw new Error('无法读取备份，请检查文件和密码')

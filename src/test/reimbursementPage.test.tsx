@@ -48,7 +48,10 @@ const plan: ReimbursementPlan = {
       label: '影像／内镜检查报告',
       required: false,
       completed: true,
-      attachments: [{ ...record.images[0], id: 'attachment-1', source: 'record', sourceRecordId: record.id, createdAt: '2026-07-20T00:00:00.000Z' }],
+      attachments: [
+        { ...record.images[0], id: 'attachment-1', source: 'record', sourceRecordId: record.id, createdAt: '2026-07-20T00:00:00.000Z' },
+        { id: 'attachment-pdf', name: '收费票据.pdf', mimeType: 'application/pdf', dataUrl: 'data:application/pdf;base64,JVBERi0xLjQ=', sha256: 'attachment-pdf', source: 'upload', createdAt: '2026-07-20T00:00:00.000Z' },
+      ],
     },
     {
       id: 'material-2',
@@ -154,6 +157,15 @@ describe('ReimbursementPage', () => {
     expect(screen.getByRole('dialog', { name: '图片预览' })).toBeInTheDocument()
   })
 
+  it('previews reimbursement PDFs inside the app', () => {
+    render(<MemoryRouter><ReimbursementPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: /打开报销计划：放疗第 1 次/ }))
+
+    fireEvent.click(screen.getByRole('button', { name: '预览 PDF：收费票据.pdf' }))
+
+    expect(screen.getByRole('dialog', { name: 'PDF 预览' })).toBeInTheDocument()
+  })
+
   it('enters batch selection on long press and keeps it hidden by default', () => {
     vi.useFakeTimers()
     render(<MemoryRouter><ReimbursementPage /></MemoryRouter>)
@@ -167,16 +179,55 @@ describe('ReimbursementPage', () => {
     expect(screen.getByRole('checkbox', { name: '选择导出：放疗第 1 次' })).toBeChecked()
   })
 
-  it('marks a plan as reimbursed to prevent duplicate claims', () => {
+  it('marks an unmarked plan as pending reimbursement first', () => {
     render(<MemoryRouter><ReimbursementPage /></MemoryRouter>)
     const planButton = screen.getByRole('button', { name: /打开报销计划：放疗第 1 次/ })
     fireEvent.keyDown(planButton, { key: 'ArrowLeft' })
 
-    fireEvent.click(screen.getByRole('button', { name: '标记已报销：放疗第 1 次' }))
+    fireEvent.click(screen.getByRole('button', { name: '标记待报销：放疗第 1 次' }))
 
     expect(saveReimbursementPlan).toHaveBeenCalledOnce()
-    expect(saveReimbursementPlan.mock.calls[0][0]).toMatchObject({ id: 'plan-1' })
-    expect(saveReimbursementPlan.mock.calls[0][0].reimbursedAt).toEqual(expect.any(String))
+    expect(saveReimbursementPlan.mock.calls[0][0]).toMatchObject({
+      id: 'plan-1',
+      reimbursementStatus: 'pending',
+      reimbursedAt: undefined,
+    })
+  })
+
+  it('shows pending reimbursement with a green status treatment and advances it to reimbursed', () => {
+    mockPlans = [{ ...plan, reimbursementStatus: 'pending' }]
+    render(<MemoryRouter><ReimbursementPage /></MemoryRouter>)
+    const planButton = screen.getByRole('button', { name: /打开报销计划：放疗第 1 次/ })
+    const card = planButton.closest('.reimbursement-plan-card')
+
+    expect(card).toHaveClass('status-pending')
+    expect(within(card as HTMLElement).getByText('待报销')).toHaveClass('reimbursement-status-badge', 'pending')
+    expect(card?.querySelector('.reimbursement-plan-icon')).not.toBeInTheDocument()
+
+    fireEvent.keyDown(planButton, { key: 'ArrowLeft' })
+    fireEvent.click(screen.getByRole('button', { name: '标记已报销：放疗第 1 次' }))
+
+    expect(saveReimbursementPlan.mock.calls[0][0]).toMatchObject({
+      reimbursementStatus: 'reimbursed',
+      reimbursedAt: expect.any(String),
+    })
+  })
+
+  it('keeps legacy reimbursedAt data compatible and can move it back to pending', () => {
+    mockPlans = [{ ...plan, reimbursedAt: '2026-07-25T00:00:00.000Z' }]
+    render(<MemoryRouter><ReimbursementPage /></MemoryRouter>)
+    const planButton = screen.getByRole('button', { name: /打开报销计划：放疗第 1 次/ })
+
+    expect(planButton.closest('.reimbursement-plan-card')).toHaveClass('status-reimbursed')
+    expect(screen.getByText('已报销')).toHaveClass('reimbursement-status-badge', 'reimbursed')
+
+    fireEvent.keyDown(planButton, { key: 'ArrowLeft' })
+    fireEvent.click(screen.getByRole('button', { name: '改为待报销：放疗第 1 次' }))
+
+    expect(saveReimbursementPlan.mock.calls[0][0]).toMatchObject({
+      reimbursementStatus: 'pending',
+      reimbursedAt: undefined,
+    })
   })
 
   it('reveals plan actions after swiping the list item left', () => {
@@ -188,7 +239,7 @@ describe('ReimbursementPage', () => {
     fireEvent.pointerUp(planButton, { pointerId: 1, pointerType: 'touch', clientX: 100, clientY: 202 })
 
     expect(planButton.closest('.swipeable-list-item')).toHaveClass('revealed')
-    expect(screen.getByRole('button', { name: '标记已报销：放疗第 1 次' })).toHaveAttribute('tabindex', '0')
+    expect(screen.getByRole('button', { name: '标记待报销：放疗第 1 次' })).toHaveAttribute('tabindex', '0')
     expect(screen.getByRole('button', { name: '删除报销计划：放疗第 1 次' })).toHaveAttribute('tabindex', '0')
   })
 

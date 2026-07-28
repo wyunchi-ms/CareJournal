@@ -5,7 +5,7 @@ export interface SwipeableListAction {
   label: string
   accessibilityLabel?: string
   icon: ReactNode
-  tone?: 'default' | 'primary' | 'danger'
+  tone?: 'default' | 'primary' | 'success' | 'danger'
   disabled?: boolean
   onSelect: () => void
 }

@@ -5,6 +5,7 @@ import { DEFAULT_PREFERENCES, type ChartPin, type TreatmentEvent } from '../type
 
 const savePreferences = vi.fn(async () => undefined)
 const savePin = vi.fn(async () => undefined)
+const reorderPins = vi.fn(async () => undefined)
 const deletePin = vi.fn(async () => undefined)
 const { dispatchChartAction } = vi.hoisted(() => ({ dispatchChartAction: vi.fn() }))
 let pins: ChartPin[] = []
@@ -43,6 +44,7 @@ vi.mock('../store/AppContext', () => ({
     pins,
     preferences: DEFAULT_PREFERENCES,
     savePin,
+    reorderPins,
     deletePin,
     savePreferences,
   }),
@@ -53,6 +55,7 @@ afterEach(() => {
   window.localStorage.clear()
   savePreferences.mockClear()
   savePin.mockClear()
+  reorderPins.mockClear()
   deletePin.mockClear()
   dispatchChartAction.mockClear()
   pins = []
@@ -151,6 +154,55 @@ describe('charts page indicator selection', () => {
     expect(deletePin).not.toHaveBeenCalled()
     fireEvent.click(within(confirmation).getByRole('button', { name: '确认删除' }))
     await waitFor(() => expect(deletePin).toHaveBeenCalledWith('cycle-pin'))
+  })
+
+  it('enters saved-chart ordering on long press and persists keyboard reordering', async () => {
+    pins = [
+      { id: 'trend-pin', title: '白细胞计数趋势', mode: 'trend', indicatorCodes: ['WBC'], cycleEventIds: [], createdAt: '2026-07-20T10:00:00.000Z' },
+      { id: 'cycle-pin', title: '血红蛋白周期对比', mode: 'cycle', indicatorCodes: ['HGB'], cycleEventIds: ['cycle-1'], createdAt: '2026-07-21T10:00:00.000Z' },
+    ]
+    render(<ChartsPage />)
+    fireEvent.click(screen.getByRole('button', { name: '打开已保存图表，共 2 个' }))
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /血红蛋白周期对比.*化疗周期叠加/ }))
+
+    const orderingDialog = screen.getByRole('dialog', { name: '已保存图表（排序）' })
+    expect(within(orderingDialog).getByText('拖动调整图表顺序')).toBeInTheDocument()
+    const cycleHandle = within(orderingDialog).getByRole('button', { name: '拖动排序：血红蛋白周期对比' })
+    fireEvent.keyDown(cycleHandle, { key: 'ArrowDown' })
+
+    await waitFor(() => expect(reorderPins).toHaveBeenCalledWith(['trend-pin', 'cycle-pin']))
+    expect(within(orderingDialog).getAllByRole('button', { name: /拖动排序：/ }).map((button) => button.getAttribute('aria-label'))).toEqual([
+      '拖动排序：白细胞计数趋势',
+      '拖动排序：血红蛋白周期对比',
+    ])
+    fireEvent.click(within(orderingDialog).getByRole('button', { name: '完成' }))
+    expect(screen.getByRole('dialog', { name: '已保存图表（2）' })).toBeInTheDocument()
+  })
+
+  it('reorders saved charts by dragging the edit-mode handle', async () => {
+    pins = [
+      { id: 'trend-pin', title: '白细胞计数趋势', mode: 'trend', indicatorCodes: ['WBC'], cycleEventIds: [], createdAt: '2026-07-20T10:00:00.000Z' },
+      { id: 'cycle-pin', title: '血红蛋白周期对比', mode: 'cycle', indicatorCodes: ['HGB'], cycleEventIds: ['cycle-1'], createdAt: '2026-07-21T10:00:00.000Z' },
+    ]
+    render(<ChartsPage />)
+    fireEvent.click(screen.getByRole('button', { name: '打开已保存图表，共 2 个' }))
+    fireEvent.contextMenu(screen.getByRole('button', { name: /血红蛋白周期对比.*化疗周期叠加/ }))
+
+    const dialog = screen.getByRole('dialog', { name: '已保存图表（排序）' })
+    const cycleHandle = within(dialog).getByRole('button', { name: '拖动排序：血红蛋白周期对比' })
+    const trendRow = within(dialog).getByText('白细胞计数趋势').closest<HTMLElement>('[data-saved-chart-id]')!
+    const originalElementFromPoint = document.elementFromPoint
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => trendRow) })
+    try {
+      fireEvent.pointerDown(cycleHandle, { pointerId: 7, clientX: 10, clientY: 10 })
+      fireEvent.pointerMove(cycleHandle, { pointerId: 7, clientX: 10, clientY: 100 })
+      fireEvent.pointerUp(cycleHandle, { pointerId: 7, clientX: 10, clientY: 100 })
+    } finally {
+      Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: originalElementFromPoint })
+    }
+
+    await waitFor(() => expect(reorderPins).toHaveBeenCalledWith(['trend-pin', 'cycle-pin']))
   })
 
   it('starts chemotherapy cycle series at Day 1 and excludes earlier results', () => {

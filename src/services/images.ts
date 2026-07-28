@@ -46,7 +46,21 @@ export async function prepareImage(file: File): Promise<StoredImage> {
   }
 }
 
+export async function preparePdf(file: File): Promise<StoredImage> {
+  if (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)) throw new Error('所选文件不是 PDF')
+  if (file.size > 30 * 1024 * 1024) throw new Error('单个 PDF 不能超过 30 MB')
+  const dataUrl = await readFile(file)
+  return {
+    id: newId(),
+    name: file.name,
+    mimeType: 'application/pdf',
+    dataUrl,
+    sha256: await sha256(dataUrl),
+  }
+}
+
 export function storedImageIdentity(image: StoredImage) {
+  if (image.assetId) return `asset:${image.assetId}`
   if (image.sha256) return `sha256:${image.sha256}`
   if (image.sourceKey) return `source:${image.sourceKey}`
   if (image.storagePath) return `storage:${image.storagePath}`
@@ -55,6 +69,7 @@ export function storedImageIdentity(image: StoredImage) {
 }
 
 export function sameStoredImage(first: StoredImage, second: StoredImage) {
+  if (first.assetId && second.assetId && first.assetId === second.assetId) return true
   if (first.sha256 && second.sha256 && first.sha256 === second.sha256) return true
   if (first.sourceKey && second.sourceKey && first.sourceKey === second.sourceKey) return true
   if (first.storagePath && second.storagePath && first.storagePath === second.storagePath) return true

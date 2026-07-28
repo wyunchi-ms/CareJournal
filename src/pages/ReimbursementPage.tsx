@@ -1,20 +1,24 @@
-import { Camera, Check, CircleDollarSign, File, FileImage, FileInput, FilePlus2, FolderArchive, ListFilter, Plus, RefreshCw, Search, Trash2, Undo2, X } from 'lucide-react'
+import { Camera, Check, Clock3, File, FileImage, FileInput, FilePlus2, FolderArchive, ListFilter, Plus, RefreshCw, Search, Trash2, Undo2, X } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { ChoicePicker } from '../components/ChoicePicker'
 import { ConfirmSheet } from '../components/ConfirmSheet'
 import { ImagePreview } from '../components/ImagePreview'
 import { Modal } from '../components/Modal'
+import { PdfPreview } from '../components/PdfPreview'
 import { SwipeableListItem } from '../components/SwipeableListItem'
 import { downloadBlob } from '../services/backup'
 import { storedImageSource } from '../services/imageStorage'
 import { sameStoredImage } from '../services/images'
 import {
+  advanceReimbursementStatus,
   buildReimbursementZip,
   changeReimbursementCoverage,
   createReimbursementPlan,
   prepareReimbursementAttachment,
   reimbursableEvents,
   reimbursementCoverageOptions,
+  reimbursementPlanStatus,
+  reimbursementPlanStatusLabel,
   relatedEventsForReimbursement,
 } from '../services/reimbursement'
 import { useApp } from '../store/AppContext'
@@ -87,7 +91,7 @@ export function ReimbursementPage() {
         plan.eventDate,
         plan.hospital,
         REIMBURSEMENT_COVERAGES[plan.coverage].label,
-        plan.reimbursedAt ? '已报销' : '待报销',
+        reimbursementPlanStatusLabel(plan),
       ].filter(Boolean).join(' ').toLocaleLowerCase('zh-CN').includes(normalizedQuery)
     })
   }, [query, selectedCoverages, sortedPlans])
@@ -238,11 +242,12 @@ export function ReimbursementPage() {
       {filteredPlans.map((plan) => {
         const progress = planProgress(plan)
         const coverageInfo = REIMBURSEMENT_COVERAGES[plan.coverage]
+        const reimbursementStatus = reimbursementPlanStatus(plan)
         const selectedForBatch = selectedForExport.includes(plan.id)
         return <SwipeableListItem
           itemId={plan.id}
           label={plan.eventTitle}
-          className={`reimbursement-plan-card card${selectionMode ? ' selection-mode' : ''}${selectedForBatch ? ' selected' : ''}${plan.reimbursedAt ? ' reimbursed' : ''}`}
+          className={`reimbursement-plan-card card status-${reimbursementStatus}${selectionMode ? ' selection-mode' : ''}${selectedForBatch ? ' selected' : ''}`}
           surfaceClassName="reimbursement-plan-content"
           editMode={selectionMode}
           revealed={revealedPlanId === plan.id}
@@ -250,12 +255,12 @@ export function ReimbursementPage() {
           onLongPress={() => enterSelectionMode(plan.id)}
           actions={[
             {
-              id: 'reimbursed',
-              label: plan.reimbursedAt ? '取消标记' : '已报销',
-              accessibilityLabel: `${plan.reimbursedAt ? '取消已报销标记' : '标记已报销'}：${plan.eventTitle}`,
-              icon: plan.reimbursedAt ? <Undo2 /> : <Check />,
-              tone: 'primary',
-              onSelect: () => void updatePlan({ ...plan, reimbursedAt: plan.reimbursedAt ? undefined : new Date().toISOString() }),
+              id: 'reimbursement-status',
+              label: reimbursementStatus === 'pending' ? '已报销' : '待报销',
+              accessibilityLabel: `${reimbursementStatus === 'unmarked' ? '标记待报销' : reimbursementStatus === 'pending' ? '标记已报销' : '改为待报销'}：${plan.eventTitle}`,
+              icon: reimbursementStatus === 'unmarked' ? <Clock3 /> : reimbursementStatus === 'pending' ? <Check /> : <Undo2 />,
+              tone: 'success',
+              onSelect: () => void updatePlan(advanceReimbursementStatus(plan)),
             },
             {
               id: 'delete',
@@ -283,8 +288,17 @@ export function ReimbursementPage() {
                 }
               }}
             >
-              <span className="reimbursement-plan-icon"><CircleDollarSign /></span>
-              <span className="reimbursement-plan-copy"><strong>{plan.eventTitle}</strong><small>{plan.eventDate} · {plan.hospital || '医院未记录'}</small><span className="coverage-badge" data-coverage={plan.coverage}>{coverageInfo.label}</span></span>
+              <span className="reimbursement-plan-copy">
+                <strong>{plan.eventTitle}</strong>
+                <small>{plan.eventDate} · {plan.hospital || '医院未记录'}</small>
+                <span className="reimbursement-plan-badges">
+                  <span className="coverage-badge" data-coverage={plan.coverage}>{coverageInfo.label}</span>
+                  {reimbursementStatus !== 'unmarked' && <span className={`reimbursement-status-badge ${reimbursementStatus}`}>
+                    {reimbursementStatus === 'pending' ? <Clock3 /> : <Check />}
+                    {reimbursementPlanStatusLabel(plan)}
+                  </span>}
+                </span>
+              </span>
               <span className="reimbursement-progress" aria-label={`必需材料完成 ${progress.completed}/${progress.total}`}><strong>{progress.completed}/{progress.total}</strong></span>
               <span className="reimbursement-progress-track"><i style={{ width: `${progress.percent}%` }} /></span>
             </button>
@@ -329,7 +343,9 @@ export function ReimbursementPage() {
               <span><strong>{item.label}</strong><small>{item.required ? '必需材料' : '按需提供'} · {item.attachments.length} 个文件</small></span>
             </label>
             {item.attachments.length > 0 && <div className="material-attachments">{item.attachments.map((attachment) => {
+              const attachmentSource = storedImageSource(attachment)
               const imageSource = attachment.mimeType.startsWith('image/') ? storedImageSource(attachment) : ''
+              const isPdf = attachment.mimeType === 'application/pdf' || /\.pdf$/i.test(attachment.name)
               return <SwipeableListItem
                 itemId={attachment.id}
                 label={attachment.name}
@@ -354,7 +370,9 @@ export function ReimbursementPage() {
               >
                 {imageSource
                   ? <ImagePreview src={imageSource} alt={`报销材料：${attachment.name}`} className="attachment-preview" />
-                  : <span className="attachment-icon">{attachment.mimeType === 'application/pdf' ? <File /> : <FileImage />}</span>}
+                  : isPdf && attachmentSource
+                    ? <PdfPreview src={attachmentSource} name={attachment.name} className="attachment-preview pdf-attachment-preview" />
+                    : <span className="attachment-icon">{isPdf ? <File /> : <FileImage />}</span>}
                 <span><strong title={attachment.name}>{attachment.name}</strong><small>{sourceLabel(attachment.source)}</small></span>
               </SwipeableListItem>
             })}</div>}

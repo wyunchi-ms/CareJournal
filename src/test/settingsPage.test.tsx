@@ -5,8 +5,11 @@ import { SettingsPage } from '../pages/SettingsPage'
 const { deduplicateImagesGlobally, importBackup, restoreBackup } = vi.hoisted(() => ({
   deduplicateImagesGlobally: vi.fn(async () => ({
     recordsScanned: 6,
+    reimbursementPlansScanned: 4,
     recordsUpdated: 2,
+    reimbursementPlansUpdated: 1,
     imagesRemoved: 3,
+    attachmentsRemoved: 2,
     filesDeleted: 2,
   })),
   importBackup: vi.fn(async () => ({
@@ -59,11 +62,11 @@ describe('SettingsPage image maintenance', () => {
   it('provides a global image deduplication entry and reports the cleanup result', async () => {
     render(<SettingsPage />)
 
-    fireEvent.click(screen.getByRole('button', { name: '全局图片去重' }))
+    fireEvent.click(screen.getByRole('button', { name: '全局素材去重' }))
 
     await waitFor(() => expect(deduplicateImagesGlobally).toHaveBeenCalledOnce())
-    expect(screen.getByRole('status')).toHaveTextContent('共检查 6 份记录')
-    expect(screen.getByRole('status')).toHaveTextContent('移除 3 张重复图片')
+    expect(screen.getByRole('status')).toHaveTextContent('检查 6 份记录和 4 个报销计划')
+    expect(screen.getByRole('status')).toHaveTextContent('移除 3 张重复检查图片及 2 个重复报销附件')
     expect(screen.getByRole('status')).toHaveTextContent('回收 2 个本地文件')
   })
 

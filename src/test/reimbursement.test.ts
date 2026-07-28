@@ -1,7 +1,15 @@
 import JSZip from 'jszip'
 import { describe, expect, it } from 'vitest'
-import { buildReimbursementZip, createReimbursementPlan, keepHospitalReimbursementMaterials, reimbursableEvents } from '../services/reimbursement'
-import type { ExamRecord, TreatmentEvent } from '../types'
+import {
+  advanceReimbursementStatus,
+  buildReimbursementZip,
+  createReimbursementPlan,
+  keepHospitalReimbursementMaterials,
+  reimbursableEvents,
+  reimbursementPlanStatus,
+  reimbursementPlanStatusLabel,
+} from '../services/reimbursement'
+import type { ExamRecord, ReimbursementPlan, TreatmentEvent } from '../types'
 
 const event: TreatmentEvent = {
   id: 'event-1',
@@ -40,6 +48,25 @@ const record: ExamRecord = {
 }
 
 describe('reimbursement plans', () => {
+  it('advances reimbursement status without misclassifying legacy data', () => {
+    const basePlan = createReimbursementPlan(event, 'public_medical', [record])
+    const pending = advanceReimbursementStatus(basePlan)
+    const reimbursed = advanceReimbursementStatus(pending, '2026-07-26T00:00:00.000Z')
+    const reopened = advanceReimbursementStatus(reimbursed)
+    const legacy = { ...basePlan, reimbursedAt: '2026-07-25T00:00:00.000Z' } as ReimbursementPlan
+
+    expect(reimbursementPlanStatus(basePlan)).toBe('unmarked')
+    expect(reimbursementPlanStatusLabel(basePlan)).toBe('未标记')
+    expect(pending).toMatchObject({ reimbursementStatus: 'pending', reimbursedAt: undefined })
+    expect(reimbursed).toMatchObject({
+      reimbursementStatus: 'reimbursed',
+      reimbursedAt: '2026-07-26T00:00:00.000Z',
+    })
+    expect(reopened).toMatchObject({ reimbursementStatus: 'pending', reimbursedAt: undefined })
+    expect(reimbursementPlanStatus(legacy)).toBe('reimbursed')
+    expect(reimbursementPlanStatusLabel(legacy)).toBe('已报销')
+  })
+
   it('builds hospitalization requirements and reuses matching record images', () => {
     const plan = createReimbursementPlan(event, 'public_and_commercial', [record])
 

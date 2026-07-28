@@ -125,6 +125,7 @@ export interface LabIndicator {
 
 export interface StoredImage {
   id: string
+  assetId?: string
   name: string
   mimeType: string
   dataUrl: string
@@ -134,6 +135,20 @@ export interface StoredImage {
   sourceUri?: string
   sourceKey?: string
   relativePath?: string
+}
+
+export interface MediaAsset {
+  id: string
+  name: string
+  mimeType: string
+  dataUrl: string
+  sha256: string
+  storagePath?: string
+  localUri?: string
+  sourceUri?: string
+  sourceKey?: string
+  createdAt: string
+  updatedAt: string
 }
 
 export const REIMBURSEMENT_COVERAGES = {
@@ -194,6 +209,7 @@ export interface ReimbursementPlan {
   eventDate: string
   hospital?: string
   coverage: ReimbursementCoverage
+  reimbursementStatus?: 'pending' | 'reimbursed'
   reimbursedAt?: string
   materials: ReimbursementMaterial[]
   notes?: string
@@ -202,7 +218,7 @@ export interface ReimbursementPlan {
 }
 
 export type OcrQueueStatus = 'queued' | 'processing' | 'completed' | 'failed'
-export type OcrQueuePhase = 'waiting' | 'recognizing' | 'saving' | 'done' | 'error'
+export type OcrQueuePhase = 'waiting' | 'extracting' | 'recognizing' | 'saving' | 'done' | 'error'
 
 export interface OcrQueueItem {
   id: string
@@ -241,6 +257,7 @@ export interface ExamRecord {
 
 export interface ChartPin {
   id: string
+  sortOrder?: number
   title: string
   mode: 'trend' | 'cycle'
   indicatorCodes: string[]
@@ -269,8 +286,9 @@ export interface DynamicVocabulary {
 }
 
 export interface BackupPayload {
-  version: 1
+  version: 1 | 2
   exportedAt: string
+  assets?: MediaAsset[]
   events: TreatmentEvent[]
   chemotherapyTemplates?: ChemotherapyTemplate[]
   records: ExamRecord[]

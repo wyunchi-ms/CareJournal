@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mergeRecognizedRecord, recognizeReport } from '../services/ocr'
+import { mergeRecognizedRecord, recognizeReport, recognizeReportText } from '../services/ocr'
 import type { AzureSettings, DynamicVocabulary, ExamRecord, StoredImage } from '../types'
 
 const image: StoredImage = {
@@ -76,6 +76,23 @@ describe('recognizeReport', () => {
     expect(fields.indicators.items.properties.unit.description).toContain('HGB/血红蛋白：g/L')
     expect(fields.indicators.items.properties.unit.description).toContain('不得只改单位不改数值')
     expect(fields.indicators.items.properties.value.description).toContain('换算为中国大陆标准单位后的结果数值')
+  })
+
+  it('sends locally extracted PDF text without an image payload', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ records: [] }) } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    await expect(recognizeReportText('血红蛋白 132 g/L\n参考范围 120-160 g/L', '血常规.pdf', settings)).resolves.toEqual({ records: [] })
+
+    const proxyBody = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)) as {
+      payload: { messages: Array<{ content: string | Array<{ type: string }> }> }
+    }
+    const userContent = proxyBody.payload.messages[1].content
+    expect(userContent).toBeTypeOf('string')
+    expect(userContent).toContain('血红蛋白 132 g/L')
+    expect(userContent).toContain('<report_text>')
+    expect(JSON.stringify(userContent)).not.toContain('image_url')
   })
 })
 

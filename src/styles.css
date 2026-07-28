@@ -268,6 +268,7 @@ label { display: grid; gap: 7px; color: var(--text); font-size: .9rem; font-weig
 .swipeable-list-action + .swipeable-list-action { border-left: 1px solid color-mix(in srgb, var(--surface) 60%, transparent); }
 .swipeable-list-action svg { width: 20px; height: 20px; }
 .swipeable-list-action.primary { color: var(--primary-strong); background: var(--primary-soft); }
+.swipeable-list-action.success { color: var(--surface); background: var(--success); }
 .swipeable-list-action.danger { color: white; background: var(--danger); }
 .swipeable-list-action:focus-visible { position: relative; z-index: 2; outline: 3px solid var(--text); outline-offset: -4px; }
 @media (prefers-reduced-motion: reduce) {
@@ -290,16 +291,22 @@ label { display: grid; gap: 7px; color: var(--text); font-size: .9rem; font-weig
 .reimbursement-plan-card.selected { border-color: var(--primary); }
 .reimbursement-plan-select { position: relative; z-index: 2; display: grid; place-items: center; background: var(--surface); cursor: pointer; }
 .reimbursement-plan-content { position: relative; z-index: 1; min-width: 0; display: grid; background: var(--surface); transition: transform .2s ease-out; will-change: transform; }
-.reimbursement-plan-card.reimbursed .reimbursement-plan-content, .reimbursement-plan-card.reimbursed .reimbursement-plan-select { background: color-mix(in srgb, var(--primary-soft) 38%, var(--surface)); }
+.reimbursement-plan-card.status-pending { border-color: color-mix(in srgb, var(--success) 72%, var(--border)); box-shadow: inset 4px 0 var(--success); }
+.reimbursement-plan-card.status-pending .reimbursement-plan-content, .reimbursement-plan-card.status-pending .reimbursement-plan-select { background: color-mix(in srgb, var(--success) 16%, var(--surface)); }
+.reimbursement-plan-card.status-reimbursed .reimbursement-plan-content, .reimbursement-plan-card.status-reimbursed .reimbursement-plan-select { background: color-mix(in srgb, var(--success) 6%, var(--surface)); }
 .reimbursement-plan-content.dragging { transition: none; }
-.reimbursement-plan-main { min-width: 0; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; grid-template-rows: auto 4px; align-items: center; gap: 8px 10px; padding: 12px; border: 0; color: var(--text); background: transparent; text-align: left; touch-action: pan-y; }
+.reimbursement-plan-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 4px; align-items: center; gap: 8px 10px; padding: 12px; border: 0; color: var(--text); background: transparent; text-align: left; touch-action: pan-y; }
 .reimbursement-plan-main:hover { background: var(--surface-alt); }
-.reimbursement-plan-icon { width: 36px; height: 36px; display: grid; place-items: center; grid-row: 1; border-radius: 10px; color: var(--primary-strong); background: var(--primary-soft); }
-.reimbursement-plan-icon svg { width: 20px; height: 20px; }
+.reimbursement-plan-card.status-pending .reimbursement-plan-main:hover { background: color-mix(in srgb, var(--success) 22%, var(--surface)); }
 .reimbursement-plan-copy { min-width: 0; grid-row: 1; }
 .reimbursement-plan-copy > strong, .reimbursement-plan-copy > small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reimbursement-plan-copy > small { margin: 3px 0 5px; color: var(--muted); font-size: .72rem; }
+.reimbursement-plan-badges { display: flex; flex-wrap: wrap; gap: 5px; }
 .coverage-badge { display: inline-flex; padding: 3px 7px; border: 1px solid color-mix(in srgb, var(--coverage-color, var(--primary)) 54%, var(--border)); border-radius: 999px; color: color-mix(in srgb, var(--coverage-color, var(--primary-strong)) 78%, var(--text)); background: color-mix(in srgb, var(--coverage-color, var(--primary)) 19%, var(--surface)); font-size: .68rem; font-weight: 800; }
+.reimbursement-status-badge { display: inline-flex; align-items: center; gap: 3px; padding: 3px 7px; border: 1px solid var(--success); border-radius: 999px; font-size: .68rem; font-weight: 800; }
+.reimbursement-status-badge svg { width: 12px; height: 12px; }
+.reimbursement-status-badge.pending { color: var(--surface); background: var(--success); }
+.reimbursement-status-badge.reimbursed { color: var(--success); background: color-mix(in srgb, var(--success) 10%, var(--surface)); }
 .coverage-badge[data-coverage="public_medical"], .reimbursement-filter-chip[data-coverage="public_medical"] { --coverage-color: #3568A8; }
 .coverage-badge[data-coverage="commercial"], .reimbursement-filter-chip[data-coverage="commercial"] { --coverage-color: #7651A8; }
 .coverage-badge[data-coverage="public_and_commercial"], .reimbursement-filter-chip[data-coverage="public_and_commercial"] { --coverage-color: #087A70; }
@@ -342,6 +349,10 @@ label { display: grid; gap: 7px; color: var(--text); font-size: .9rem; font-weig
 .attachment-preview img { width: 100%; height: 100%; display: block; border-radius: inherit; object-fit: cover; }
 .attachment-preview .image-thumbnail-hint { right: 2px; bottom: 2px; width: 18px; height: 18px; border-radius: 5px; }
 .attachment-preview .image-thumbnail-hint svg { width: 11px; height: 11px; }
+.pdf-attachment-preview { display: grid; place-items: center; color: #a53f54; cursor: zoom-in; }
+.pdf-attachment-preview > svg { width: 21px; height: 21px; }
+.pdf-attachment-preview .pdf-thumbnail-hint { right: 2px; bottom: 2px; width: 18px; height: 18px; border-radius: 5px; }
+.pdf-attachment-preview .pdf-thumbnail-hint svg { width: 10px; height: 10px; }
 .material-attachment strong, .material-attachment small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .material-attachment strong { font-size: .78rem; }
 .material-attachment small { margin-top: 2px; color: var(--muted); font-size: .68rem; }
@@ -409,12 +420,36 @@ label { display: grid; gap: 7px; color: var(--text); font-size: .9rem; font-weig
 .image-preview-stage.is-zoomed { cursor: grab; }
 .image-preview-stage img { max-width: 100%; max-height: calc(100vh - 130px); object-fit: contain; transform-origin: center; will-change: transform; pointer-events: none; user-select: none; -webkit-user-drag: none; }
 .image-preview-backdrop > p { margin: 8px 0 0; color: #eadbd3; font-size: .75rem; text-align: center; }
+.pdf-preview-trigger { position: relative; margin: 0; font: inherit; cursor: zoom-in; overflow: hidden; }
+.pdf-thumbnail-hint { position: absolute; right: 5px; bottom: 5px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 7px; color: white; background: rgba(48, 32, 26, .76); pointer-events: none; }
+.pdf-thumbnail-hint svg { width: 13px; height: 13px; }
+.pdf-preview-backdrop { position: fixed; inset: 0; z-index: 400; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); color: white; background: rgba(28, 20, 17, .97); overscroll-behavior: none; }
+.pdf-preview-toolbar { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.pdf-preview-toolbar > strong { min-width: 0; overflow: hidden; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
+.pdf-preview-toolbar > div { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.pdf-preview-toolbar > div > span { min-width: 40px; margin-right: 2px; font-size: .75rem; text-align: right; }
+.pdf-preview-toolbar .icon-button, .pdf-preview-pagination .icon-button { color: white; background: rgba(255,255,255,.1); }
+.pdf-preview-toolbar .icon-button:disabled, .pdf-preview-pagination .icon-button:disabled { opacity: .38; }
+.pdf-preview-stage { position: relative; min-width: 0; min-height: 0; display: flex; overflow: auto; padding: 12px; border-radius: 9px; background: #181210; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.pdf-preview-stage canvas { display: block; flex: 0 0 auto; margin: auto; background: white; box-shadow: 0 8px 30px rgba(0,0,0,.38); }
+.pdf-preview-status { position: absolute; z-index: 2; inset: 50% auto auto 50%; display: inline-flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 9px; color: white; background: rgba(48, 32, 26, .86); transform: translate(-50%, -50%); white-space: nowrap; }
+.pdf-preview-status.error { max-width: calc(100% - 32px); color: #ffd8dc; white-space: normal; }
+.pdf-preview-pagination { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.pdf-preview-pagination > span { min-width: 92px; color: #eadbd3; font-size: .78rem; text-align: center; }
 .flag { display: inline-block !important; padding: 4px 7px; border-radius: 5px; font-size: .72rem; font-weight: 800; }
 .flag.high, .flag.critical { color: #9c2230; background: #fde6e8; }
 .flag.low { color: #246149; background: #e2f1e8; }
 .flag.normal { color: #076444; background: #ddf5e9; }
 .image-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
 .image-gallery > .image-thumbnail img { width: 100%; aspect-ratio: 3 / 4; display: block; object-fit: cover; border: 1px solid var(--border); border-radius: 9px; }
+.record-pdf-file { width: 100%; min-height: 128px; display: grid; place-items: center; align-content: center; gap: 9px; padding: 14px; border: 1px solid var(--border); border-radius: 9px; color: #a53f54; background: color-mix(in srgb, #a53f54 7%, var(--surface)); text-align: center; }
+.record-pdf-file:hover { border-color: #a53f54; background: color-mix(in srgb, #a53f54 12%, var(--surface)); }
+.record-pdf-file.unavailable { cursor: default; opacity: .72; }
+.record-pdf-file > svg { width: 32px; height: 32px; }
+.record-pdf-file span { min-width: 0; width: 100%; }
+.record-pdf-file strong, .record-pdf-file small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.record-pdf-file strong { color: var(--text); font-size: .78rem; }
+.record-pdf-file small { margin-top: 3px; color: var(--muted); font-size: .68rem; }
 .empty-state { min-height: 300px; display: grid; place-items: center; align-content: center; padding: 30px; text-align: center; }
 .empty-state > svg { width: 44px; height: 44px; margin-bottom: 14px; color: var(--primary); }
 .empty-state h2, .empty-state h3 { margin-bottom: 5px; }
@@ -425,6 +460,10 @@ label { display: grid; gap: 7px; color: var(--text); font-size: .9rem; font-weig
 .import-layout { width: min(960px, 100%); }
 .upload-card { padding: clamp(18px, 3vw, 28px); }
 .source-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); gap: 9px; }
+.llm-setup-callout { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; }
+.llm-setup-callout span strong, .llm-setup-callout span small { display: block; }
+.llm-setup-callout span small { margin-top: 3px; color: var(--muted); font-size: .75rem; }
+.llm-setup-callout .button { min-height: 42px; white-space: nowrap; }
 .upload-card > .section-heading { margin-top: 22px; }
 .status-message { display: flex; align-items: center; gap: 10px; margin: 16px 0; padding: 12px; border-radius: 9px; color: var(--text); background: var(--surface-alt); }
 .status-message.failed { color: var(--danger); background: color-mix(in srgb, var(--danger), transparent 90%); }
@@ -460,6 +499,9 @@ progress::-moz-progress-bar { border-radius: 999px; background: var(--primary); 
 .ocr-job-image img { width: 100%; height: 100%; display: block; object-fit: cover; cursor: zoom-in; }
 .ocr-job-placeholder { display: grid; place-items: center; color: var(--accent); border: 1px solid var(--line); }
 .ocr-job-placeholder svg { width: 25px; height: 25px; }
+.ocr-job-placeholder.pdf { color: #a53f54; background: color-mix(in srgb, #a53f54 9%, var(--surface)); }
+.ocr-job-placeholder.pdf .pdf-thumbnail-hint { right: 3px; bottom: 3px; width: 19px; height: 19px; border-radius: 5px; }
+.ocr-job-placeholder.pdf .pdf-thumbnail-hint svg { width: 10px; height: 10px; }
 .ocr-job-body { width: 100%; min-width: 0; }
 .ocr-job-heading { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .ocr-job-filename-wrap { position: relative; width: 100%; min-width: 0; flex: 1 1 0; }
@@ -500,12 +542,25 @@ progress::-moz-progress-bar { border-radius: 999px; background: var(--primary); 
 .saved-charts-trigger:hover { border-color: var(--primary); background: var(--surface-alt); }
 .saved-charts-trigger > svg { width: 18px; height: 18px; color: var(--primary-strong); }
 .saved-charts-trigger small { min-width: 23px; height: 23px; display: grid; place-items: center; padding: 0 6px; border-radius: 999px; color: var(--primary-strong); background: var(--primary-soft); font-size: .72rem; }
+.saved-chart-tools { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.saved-chart-tools.editing { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.saved-chart-tools > p { min-width: 0; display: flex; align-items: center; gap: 9px; margin: 0; color: var(--primary-strong); }
+.saved-chart-tools > p > svg { width: 20px; height: 20px; flex: 0 0 auto; }
+.saved-chart-tools > p span, .saved-chart-tools > p strong, .saved-chart-tools > p small { display: block; }
+.saved-chart-tools > p small { margin-top: 2px; color: var(--muted); font-size: .7rem; }
+.saved-chart-order-done { min-width: 74px; }
 .saved-chart-search { display: block; }
 .saved-chart-list { display: grid; gap: 8px; margin-top: 14px; }
 .saved-chart-row { min-width: 0; border: 1px solid var(--border); border-radius: 11px; }
 .saved-chart-surface { display: grid; grid-template-columns: minmax(0, 1fr); }
+.saved-chart-row.editing .saved-chart-surface { grid-template-columns: 44px minmax(0, 1fr); }
+.saved-chart-row.dragging { opacity: .68; border-color: var(--primary); box-shadow: var(--shadow); }
+.saved-chart-drag-handle { width: 44px; min-height: 64px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 10px 0 0 10px; color: var(--primary-strong); background: var(--primary-soft); touch-action: none; cursor: grab; }
+.saved-chart-drag-handle:active { cursor: grabbing; }
+.saved-chart-drag-handle svg { width: 20px; height: 20px; }
 .saved-chart-row:hover { border-color: color-mix(in srgb, var(--primary), var(--border) 45%); }
 .saved-chart-apply { min-width: 0; min-height: 66px; display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 0; color: var(--text); background: transparent; text-align: left; }
+.saved-chart-row.editing .saved-chart-apply { cursor: default; }
 .saved-chart-apply:hover, .saved-chart-delete:hover { background: var(--surface-alt); }
 .saved-chart-icon { width: 34px; height: 34px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 9px; color: var(--primary-strong); background: var(--primary-soft); }
 .saved-chart-icon svg { width: 17px; height: 17px; }
@@ -818,8 +873,7 @@ legend { margin-bottom: 8px; color: var(--muted); font-size: .78rem; font-weight
   .reimbursement-export-bar .text-button { padding-inline: 7px; }
   .reimbursement-plan-card { grid-template-columns: minmax(0, 1fr); }
   .reimbursement-plan-card.selection-mode .reimbursement-plan-content { grid-template-columns: 40px minmax(0, 1fr); }
-  .reimbursement-plan-main { grid-template-columns: 36px minmax(0, 1fr) auto; gap: 8px; padding: 11px 10px; }
-  .reimbursement-plan-icon { width: 34px; height: 34px; }
+  .reimbursement-plan-main { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 11px 10px; }
   .reimbursement-rematch { width: 100%; }
   .custom-material-row { grid-template-columns: 1fr; }
   .custom-material-row .button { width: 100%; }
@@ -861,6 +915,8 @@ legend { margin-bottom: 8px; color: var(--muted); font-size: .78rem; font-weight
   .medication-add-button { width: 100%; }
   .day-notes-field { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center; gap: 7px; margin-top: 8px; }
   .backup-actions { grid-template-columns: 1fr; }
+  .llm-setup-callout { grid-template-columns: auto minmax(0, 1fr); }
+  .llm-setup-callout .button { grid-column: 1 / -1; width: 100%; }
   .ocr-job { grid-template-columns: 46px minmax(0, 1fr); gap: 9px; padding: 9px; }
   .ocr-job.editing { grid-template-columns: 34px 46px minmax(0, 1fr); }
   .ocr-job > .ocr-job-image { width: 46px; height: 58px; }

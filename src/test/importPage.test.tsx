@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 import { ImportPage } from '../pages/ImportPage'
 
 const platform = vi.hoisted(() => ({ native: false }))
@@ -8,6 +9,7 @@ const folderImport = vi.hoisted(() => ({
 }))
 const appState = vi.hoisted(() => ({
   ocrJobs: [] as Array<Record<string, unknown>>,
+  configured: false,
 }))
 
 vi.mock('@capacitor/core', () => ({
@@ -38,7 +40,12 @@ const enqueueOcrImage = vi.fn()
 
 vi.mock('../store/AppContext', () => ({
   useApp: () => ({
-    preferences: { azure: { endpoint: '', apiKey: '', deployment: '', apiVersion: '2024-10-21' } },
+    preferences: { azure: {
+      endpoint: appState.configured ? 'https://example.openai.azure.com' : '',
+      apiKey: appState.configured ? 'key' : '',
+      deployment: appState.configured ? 'model' : '',
+      apiVersion: '2024-10-21',
+    } },
     ocrJobs: appState.ocrJobs,
     ocrQueueStats: { total: appState.ocrJobs.length, queued: appState.ocrJobs.length, processing: 0, completed: 0, failed: 0, progress: 0 },
     enqueueOcrImage,
@@ -49,25 +56,31 @@ vi.mock('../store/AppContext', () => ({
   }),
 }))
 
+function renderImportPage() {
+  return render(<MemoryRouter><ImportPage /></MemoryRouter>)
+}
+
 afterEach(() => {
   cleanup()
   platform.native = false
   folderImport.pick.mockReset()
   enqueueOcrImage.mockReset()
   appState.ocrJobs = []
+  appState.configured = false
 })
 
 describe('import page', () => {
   it('offers individual, camera, and unlimited directory imports', () => {
-    const { container } = render(<ImportPage />)
+    const { container } = renderImportPage()
 
     expect(screen.getByRole('button', { name: '拍照导入' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '选择图片' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '选择图片/PDF' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '导入文件夹' })).toBeInTheDocument()
+    expect(container.querySelector('input[accept="image/*,application/pdf,.pdf"]')).toHaveAttribute('multiple')
     const directoryInput = container.querySelector('input[webkitdirectory]')
     expect(directoryInput).toHaveAttribute('multiple')
     expect(directoryInput).not.toHaveAttribute('max')
-    expect(screen.getAllByRole('button', { name: /拍照导入|选择图片|导入文件夹/ }).every((button) => button.classList.contains('secondary'))).toBe(true)
+    expect(screen.getAllByRole('button', { name: /拍照导入|选择图片\/PDF|导入文件夹/ }).every((button) => button.classList.contains('secondary'))).toBe(true)
     expect(screen.queryByRole('button', { name: '选择报告图片' })).not.toBeInTheDocument()
     expect(screen.queryByText('后台识别说明')).not.toBeInTheDocument()
     expect(screen.queryByText('逐文件请求')).not.toBeInTheDocument()
@@ -77,10 +90,10 @@ describe('import page', () => {
 
   it('uses native recursive folder scanning instead of a web directory input on Android', () => {
     platform.native = true
-    const { container } = render(<ImportPage />)
+    const { container } = renderImportPage()
 
     expect(screen.getByRole('button', { name: '拍照导入' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '选择图片' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '选择图片/PDF' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '扫描文件夹' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '导入文件夹' })).not.toBeInTheDocument()
     expect(container.querySelector('input[webkitdirectory]')).not.toBeInTheDocument()
@@ -97,7 +110,7 @@ describe('import page', () => {
         { uri: 'content://two', name: '2.jpg', mimeType: 'image/jpeg', relativePath: '子目录/2.jpg', size: 20, lastModified: 2, sourceKey: 'two' },
       ],
     })
-    render(<ImportPage />)
+    renderImportPage()
 
     fireEvent.click(screen.getByRole('button', { name: '扫描文件夹' }))
 
@@ -121,12 +134,54 @@ describe('import page', () => {
       updatedAt: '2026-07-23T00:00:00.000Z',
     }]
 
-    render(<ImportPage />)
+    renderImportPage()
 
     const filename = screen.getByRole('button', { name: `查看完整文件名：${longName}` })
     const tooltip = screen.getByRole('tooltip')
     expect(filename).toHaveClass('ocr-job-filename')
     expect(filename).toHaveAttribute('aria-describedby', tooltip.id)
     expect(tooltip).toHaveTextContent(longName)
+  })
+
+  it('immediately guides unconfigured users to LLM settings', () => {
+    renderImportPage()
+
+    expect(screen.getByRole('alert')).toHaveTextContent('识别检查报告前需要配置 LLM')
+    expect(screen.getByRole('link', { name: '去配置 LLM' })).toHaveAttribute('href', '/settings#llm-settings')
+  })
+
+  it('accepts a PDF and adds it to the same background queue', async () => {
+    enqueueOcrImage.mockResolvedValue(true)
+    const { container } = renderImportPage()
+    const input = container.querySelector<HTMLInputElement>('input[accept="image/*,application/pdf,.pdf"]')!
+    const pdf = new File(['%PDF-1.4 test'], '检查报告.pdf', { type: 'application/pdf' })
+
+    fireEvent.change(input, { target: { files: [pdf] } })
+
+    await waitFor(() => expect(enqueueOcrImage).toHaveBeenCalledTimes(1))
+    expect(enqueueOcrImage.mock.calls[0][0]).toMatchObject({
+      name: '检查报告.pdf',
+      mimeType: 'application/pdf',
+    })
+    expect(await screen.findByText(/已加入 1 个文件/)).toBeInTheDocument()
+  })
+
+  it('opens queued PDFs in the same in-app preview', () => {
+    appState.ocrJobs = [{
+      id: 'pdf-job',
+      image: { id: 'pdf-1', name: '检查报告.pdf', mimeType: 'application/pdf', dataUrl: 'data:application/pdf;base64,JVBERi0xLjQ=', sha256: 'pdf-1' },
+      status: 'queued',
+      phase: 'waiting',
+      progress: 0,
+      attempts: 0,
+      resultRecordIds: [],
+      createdAt: '2026-07-23T00:00:00.000Z',
+      updatedAt: '2026-07-23T00:00:00.000Z',
+    }]
+    renderImportPage()
+
+    fireEvent.click(screen.getByRole('button', { name: '预览 PDF：检查报告.pdf' }))
+
+    expect(screen.getByRole('dialog', { name: 'PDF 预览' })).toBeInTheDocument()
   })
 })

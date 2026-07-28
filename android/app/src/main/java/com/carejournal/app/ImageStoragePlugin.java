@@ -146,7 +146,7 @@ public class ImageStoragePlugin extends Plugin {
     private List<String> legacyEntityKeys(SQLiteDatabase database) {
         List<String> keys = new ArrayList<>();
         try (Cursor cursor = database.rawQuery(
-            "SELECT key FROM entities WHERE kind IN ('record', 'ocrJob') AND instr(payload, 'data:image') > 0",
+            "SELECT key FROM entities WHERE kind IN ('record', 'ocrJob', 'reimbursementPlan') AND instr(payload, '\"dataUrl\":\"data:') > 0",
             null
         )) {
             while (cursor.moveToNext()) keys.add(cursor.getString(0));
@@ -177,6 +177,20 @@ public class ImageStoragePlugin extends Plugin {
         } else if (key.startsWith("ocrJob:")) {
             JSONObject image = root.optJSONObject("image");
             if (image != null && migrateImage(image)) imageCount += 1;
+        } else if (key.startsWith("reimbursementPlan:")) {
+            JSONArray materials = root.optJSONArray("materials");
+            if (materials != null) {
+                for (int materialIndex = 0; materialIndex < materials.length(); materialIndex += 1) {
+                    JSONObject material = materials.optJSONObject(materialIndex);
+                    if (material == null) continue;
+                    JSONArray attachments = material.optJSONArray("attachments");
+                    if (attachments == null) continue;
+                    for (int attachmentIndex = 0; attachmentIndex < attachments.length(); attachmentIndex += 1) {
+                        JSONObject attachment = attachments.optJSONObject(attachmentIndex);
+                        if (attachment != null && migrateImage(attachment)) imageCount += 1;
+                    }
+                }
+            }
         }
         if (imageCount == 0) return new MigrationOutcome(false, 0);
 

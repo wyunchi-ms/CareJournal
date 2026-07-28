@@ -1,11 +1,13 @@
-import { AlertCircle, Camera, CheckCircle2, Clock3, FileImage, FolderOpen, RefreshCw, Trash2, XCircle } from 'lucide-react'
+import { AlertCircle, Camera, CheckCircle2, Clock3, FileImage, FileText, FolderOpen, RefreshCw, Settings2, Trash2, XCircle } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
 import { useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ConfirmSheet } from '../components/ConfirmSheet'
 import { ImagePreview } from '../components/ImagePreview'
+import { PdfPreview } from '../components/PdfPreview'
 import { SwipeableListItem } from '../components/SwipeableListItem'
 import { canImportAndroidFolder, folderSourceToStoredImage, pickAndroidImageFolder } from '../services/folderImport'
-import { prepareImage } from '../services/images'
+import { prepareImage, preparePdf } from '../services/images'
 import { storedImageSource } from '../services/imageStorage'
 import { useApp } from '../store/AppContext'
 import type { OcrQueueItem } from '../types'
@@ -20,6 +22,7 @@ interface PreparationProgress {
 
 const phaseLabel: Record<OcrQueueItem['phase'], string> = {
   waiting: '排队等待',
+  extracting: '提取 PDF 文字',
   recognizing: 'AI 识别中',
   saving: '写入本地数据库',
   done: '识别完成',
@@ -30,6 +33,10 @@ const directoryInputAttributes = { webkitdirectory: '', directory: '' }
 
 function isImageFile(file: File) {
   return file.type.startsWith('image/') || /\.(?:jpe?g|png|webp)$/i.test(file.name)
+}
+
+function isPdfFile(file: File) {
+  return file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
 }
 
 function QueueRow({
@@ -49,6 +56,7 @@ function QueueRow({
 }) {
   const { retryOcrJob } = useApp()
   const previewSource = storedImageSource(job.image)
+  const isPdf = job.image.mimeType === 'application/pdf' || /\.pdf$/i.test(job.image.name)
   return (
     <SwipeableListItem
       itemId={job.id}
@@ -79,9 +87,11 @@ function QueueRow({
       {editMode && <label className="ocr-job-select" aria-label={`选择 ${job.image.name}`}>
         <input type="checkbox" checked={selected} disabled={job.status === 'processing'} onChange={onToggle} />
       </label>}
-      {previewSource
+      {previewSource && !isPdf
         ? <ImagePreview src={previewSource} alt={`待识别检查报告：${job.image.name}`} className="ocr-job-image" />
-        : <div className="ocr-job-image ocr-job-placeholder" aria-hidden="true"><FolderOpen /></div>}
+        : previewSource && isPdf
+          ? <PdfPreview src={previewSource} name={job.image.name} className="ocr-job-image ocr-job-placeholder pdf" />
+          : <div className={`ocr-job-image ocr-job-placeholder${isPdf ? ' pdf' : ''}`} aria-hidden="true">{isPdf ? <FileText /> : <FolderOpen />}</div>}
       <div className="ocr-job-body">
         <div className="ocr-job-heading">
           <span className="ocr-job-filename-wrap">
@@ -141,7 +151,12 @@ export function ImportPage() {
   const [deletingJobIds, setDeletingJobIds] = useState<string[]>([])
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState('')
-  const azureConfigured = Boolean(preferences.azure.endpoint && preferences.azure.apiKey && preferences.azure.deployment && preferences.azure.apiVersion)
+  const azureConfigured = Boolean(
+    preferences.azure.endpoint.trim()
+    && preferences.azure.apiKey.trim()
+    && preferences.azure.deployment.trim()
+    && preferences.azure.apiVersion.trim(),
+  )
   const activeCount = ocrQueueStats.queued + ocrQueueStats.processing
   const busy = scanning || Boolean(preparing)
   const removableJobIds = ocrJobs.filter((job) => job.status !== 'processing').map((job) => job.id)
@@ -174,20 +189,20 @@ export function ImportPage() {
   async function selectFiles(files: FileList | null) {
     if (!files?.length) return
     const allFiles = Array.from(files)
-    const selected = allFiles.filter(isImageFile)
+    const selected = allFiles.filter((file) => isImageFile(file) || isPdfFile(file))
     const ignored = allFiles.length - selected.length
     if (!selected.length) {
-      setMessage('所选位置中没有可导入的图片。')
+      setMessage('所选位置中没有可导入的图片或 PDF。')
       return
     }
     const progress: PreparationProgress = { done: 0, total: selected.length, added: 0, skipped: 0, failed: 0 }
     setPreparing({ ...progress })
-    setMessage('正在逐张压缩、校验并加入后台队列…')
+    setMessage('正在读取、校验并加入后台队列…')
 
     for (const file of selected) {
       try {
-        const image = await prepareImage(file)
-        const added = await enqueueOcrImage(image)
+        const report = isPdfFile(file) ? await preparePdf(file) : await prepareImage(file)
+        const added = await enqueueOcrImage(report)
         if (added) progress.added += 1
         else progress.skipped += 1
       } catch {
@@ -198,7 +213,7 @@ export function ImportPage() {
       }
     }
 
-    setMessage(`已加入 ${progress.added} 个文件${progress.skipped ? `，跳过 ${progress.skipped} 个重复文件` : ''}${ignored ? `，忽略 ${ignored} 个非图片文件` : ''}${progress.failed ? `，${progress.failed} 个文件读取失败` : ''}。队列将在后台继续处理。`)
+    setMessage(`已加入 ${progress.added} 个文件${progress.skipped ? `，跳过 ${progress.skipped} 个重复文件` : ''}${ignored ? `，忽略 ${ignored} 个不支持的文件` : ''}${progress.failed ? `，${progress.failed} 个文件读取失败` : ''}。队列将在后台继续处理。`)
     setPreparing(null)
   }
 
@@ -244,15 +259,21 @@ export function ImportPage() {
     <>
       <div className="import-layout">
         <section className="upload-card card">
-          <input ref={inputRef} className="sr-only" type="file" accept="image/*" multiple onChange={(event) => { void selectFiles(event.target.files); event.target.value = '' }} />
+          <input ref={inputRef} className="sr-only" type="file" accept="image/*,application/pdf,.pdf" multiple onChange={(event) => { void selectFiles(event.target.files); event.target.value = '' }} />
           {showWebDirectoryImport && <input ref={directoryRef} className="sr-only" type="file" accept="image/*" multiple {...directoryInputAttributes} onChange={(event) => { void selectFiles(event.target.files); event.target.value = '' }} />}
           <input ref={cameraRef} className="sr-only" type="file" accept="image/*" capture="environment" onChange={(event) => { void selectFiles(event.target.files); event.target.value = '' }} />
           <div className="source-actions" aria-label="导入方式">
             <button className="button secondary" disabled={busy} onClick={() => cameraRef.current?.click()}><Camera />拍照导入</button>
-            <button className="button secondary" disabled={busy} onClick={() => inputRef.current?.click()}><FileImage />选择图片</button>
+            <button className="button secondary" disabled={busy} onClick={() => inputRef.current?.click()}><FileText />选择图片/PDF</button>
             {showWebDirectoryImport && <button className="button secondary" disabled={busy} onClick={() => directoryRef.current?.click()}><FolderOpen />导入文件夹</button>}
             {showAndroidDirectoryImport && <button className="button secondary" disabled={busy} onClick={() => void selectAndroidFolder()}><FolderOpen />扫描文件夹</button>}
           </div>
+
+          {!azureConfigured && <div className="llm-setup-callout callout warning" role="alert">
+            <AlertCircle />
+            <span><strong>识别检查报告前需要配置 LLM</strong><small>你可以先加入图片或 PDF，文件会保存在本地队列，配置完成后自动开始处理。</small></span>
+            <Link className="button secondary" to="/settings#llm-settings"><Settings2 />去配置 LLM</Link>
+          </div>}
 
           {scanning && !preparing && <div className="preparation-progress" role="status"><div><span className="spinner" /><strong>正在扫描文件夹及子文件夹</strong></div></div>}
 
@@ -261,8 +282,6 @@ export function ImportPage() {
             <progress max={preparing.total} value={preparing.done} aria-label="文件准备进度" />
           </div>}
           {message && <div className="status-message" role="status"><FileImage /><span>{message}</span></div>}
-          {!azureConfigured && activeCount > 0 && <div className="callout warning" role="alert"><AlertCircle /><span>文件已安全加入本地队列。请完成 Azure OpenAI 配置，队列会自动开始。</span></div>}
-
           {ocrQueueStats.total > 0 && <section className="queue-summary" aria-label="OCR 总体进度">
             <div className="section-heading">
               <div><p className="eyebrow">后台队列</p><h2>{activeCount > 0 ? `正在处理 ${ocrQueueStats.completed + ocrQueueStats.failed + 1}/${ocrQueueStats.total}` : '队列处理结果'}</h2></div>
@@ -300,7 +319,7 @@ export function ImportPage() {
               onRemove={() => setDeletingJobIds([job.id])}
             />)}
           </div>
-          {ocrJobs.length === 0 && !preparing && <div className="empty-queue"><FileImage /><h2>还没有识别任务</h2><p>从上方拍照、选择图片或扫描文件夹，文件会按顺序加入后台识别队列。</p></div>}
+          {ocrJobs.length === 0 && !preparing && <div className="empty-queue"><FileImage /><h2>还没有识别任务</h2><p>从上方拍照、选择图片或 PDF，文件会按顺序加入后台识别队列。</p></div>}
         </section>
       </div>
       {deletingJobIds.length > 0 && <ConfirmSheet
