@@ -13,6 +13,7 @@ import { RecordsPage } from './pages/RecordsPage'
 import { ReimbursementPage } from './pages/ReimbursementPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { PrivacyPage } from './pages/PrivacyPage'
+import { addHarmonyEventListener, getHarmonyBridge, isHarmonyPlatform } from './platform/harmonyBridge'
 
 const navItems = [
   { path: '/chemotherapy-templates', label: '方案', icon: Pill },
@@ -98,11 +99,11 @@ export default function App() {
   }, [currentRoute, navigationType])
 
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return
+    if (!Capacitor.isNativePlatform() && !isHarmonyPlatform()) return
 
     let disposed = false
     let listener: PluginListenerHandle | undefined
-    void CapacitorApp.addListener('backButton', () => {
+    const handleBack = () => {
       if (closeTopModal()) return
 
       const previousRoute = routeTrailRef.current.pop()
@@ -116,8 +117,15 @@ export default function App() {
         navigate(previousRoute, { replace: true })
         return
       }
-      void CapacitorApp.exitApp()
-    }).then((handle) => {
+      if (isHarmonyPlatform()) void getHarmonyBridge().exitApp()
+      else void CapacitorApp.exitApp()
+    }
+    if (isHarmonyPlatform()) {
+      return addHarmonyEventListener((detail) => {
+        if (detail.type === 'backPress') handleBack()
+      })
+    }
+    void CapacitorApp.addListener('backButton', handleBack).then((handle) => {
       if (disposed) void handle.remove()
       else listener = handle
     })

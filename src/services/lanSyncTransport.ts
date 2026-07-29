@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 import type { LanEncryptedEnvelope } from './lanSync'
+import { addHarmonyEventListener, getHarmonyBridge, isHarmonyPlatform, parseHarmonyResult } from '../platform/harmonyBridge'
 
 export interface LanPeer {
   fingerprint: string
@@ -58,10 +59,26 @@ class LanSyncTransport {
   private nativeHandles: PluginListenerHandle[] = []
   private pollTimer: number | undefined
   private active = false
+  private removeHarmonyListener?: () => void
 
   async start(alias: string, publicKey: string): Promise<LanServiceInfo> {
     if (this.active) await this.stop()
     this.active = true
+    if (isHarmonyPlatform()) {
+      this.removeHarmonyListener = addHarmonyEventListener((detail) => {
+        if (detail.type === 'peersChanged') this.emitPeers(detail.peers as LanPeer[])
+        if (detail.type === 'syncRequest') {
+          this.emitRequest({
+            requestId: detail.requestId,
+            envelope: JSON.parse(detail.envelope) as LanEncryptedEnvelope,
+            peerAddress: detail.peerAddress,
+          })
+        }
+      })
+      const info = parseHarmonyResult<LanServiceInfo>(await getHarmonyBridge().lanStart(alias, publicKey))
+      await this.refresh()
+      return info
+    }
     if (Capacitor.isNativePlatform()) {
       this.nativeHandles = [
         await NativeLanSync.addListener('peersChanged', ({ peers }) => this.emitPeers(peers)),
@@ -93,7 +110,11 @@ class LanSyncTransport {
     this.active = false
     if (this.pollTimer !== undefined) window.clearInterval(this.pollTimer)
     this.pollTimer = undefined
-    if (Capacitor.isNativePlatform()) {
+    if (isHarmonyPlatform()) {
+      await getHarmonyBridge().lanStop().catch(() => undefined)
+      this.removeHarmonyListener?.()
+      this.removeHarmonyListener = undefined
+    } else if (Capacitor.isNativePlatform()) {
       await NativeLanSync.stop().catch(() => undefined)
       await Promise.all(this.nativeHandles.map((handle) => handle.remove().catch(() => undefined)))
       this.nativeHandles = []
@@ -103,7 +124,10 @@ class LanSyncTransport {
   }
 
   async refresh() {
-    if (Capacitor.isNativePlatform()) {
+    if (isHarmonyPlatform()) {
+      await getHarmonyBridge().lanRefresh()
+      this.emitPeers(parseHarmonyResult<{ peers: LanPeer[] }>(await getHarmonyBridge().lanListPeers()).peers)
+    } else if (Capacitor.isNativePlatform()) {
       await NativeLanSync.refresh()
       const { peers } = await NativeLanSync.listPeers()
       this.emitPeers(peers)
@@ -115,7 +139,9 @@ class LanSyncTransport {
 
   async sendSync(peer: Pick<LanPeer, 'host' | 'port'>, envelope: LanEncryptedEnvelope) {
     const payload = { host: peer.host, port: peer.port, envelope: JSON.stringify(envelope) }
-    const result = Capacitor.isNativePlatform()
+    const result = isHarmonyPlatform()
+      ? { envelope: await getHarmonyBridge().lanSendSync(payload.host, payload.port, payload.envelope) }
+      : Capacitor.isNativePlatform()
       ? await NativeLanSync.sendSync(payload)
       : await fetchJson<{ envelope: string }>('/api/lan/send', { method: 'POST', body: JSON.stringify(payload) })
     return JSON.parse(result.envelope) as LanEncryptedEnvelope
@@ -123,13 +149,15 @@ class LanSyncTransport {
 
   async completeSync(requestId: string, envelope: LanEncryptedEnvelope) {
     const payload = { requestId, envelope: JSON.stringify(envelope) }
-    if (Capacitor.isNativePlatform()) await NativeLanSync.completeSync(payload)
+    if (isHarmonyPlatform()) await getHarmonyBridge().lanCompleteSync(payload.requestId, payload.envelope)
+    else if (Capacitor.isNativePlatform()) await NativeLanSync.completeSync(payload)
     else await fetchJson('/api/lan/complete', { method: 'POST', body: JSON.stringify(payload) })
   }
 
   async rejectSync(requestId: string, error: string) {
     const payload = { requestId, error }
-    if (Capacitor.isNativePlatform()) await NativeLanSync.rejectSync(payload)
+    if (isHarmonyPlatform()) await getHarmonyBridge().lanRejectSync(payload.requestId, payload.error)
+    else if (Capacitor.isNativePlatform()) await NativeLanSync.rejectSync(payload)
     else await fetchJson('/api/lan/reject', { method: 'POST', body: JSON.stringify(payload) })
   }
 

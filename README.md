@@ -1,6 +1,6 @@
 # 病程记 CareJournal
 
-面向单一肿瘤患者的本地病程记录、检查报告整理与指标可视化工具。第一版支持 Android 和 Web，共用 React/TypeScript 界面。
+面向单一肿瘤患者的本地病程记录、检查报告整理与指标可视化工具。支持 Android、Web，并已加入 HarmonyOS NEXT 工程；三个端共用 React/TypeScript 界面。
 
 ## 功能
 
@@ -8,7 +8,7 @@
 - 检查记录：原始图片、结构化指标、异常标记、类型筛选和内容去重。
 - 多服务商 LLM OCR：支持 Azure OpenAI、OpenAI、DeepSeek、Kimi、豆包、Qwen、Gemini、MiniMax、GLM、OpenRouter 及自定义 OpenAI 兼容服务；文件数量不限，每张图片一个独立请求，成功后直接入库。
 - 指标图表：多指标日期趋势、治疗事件标记、化疗周期 Day 1 对齐叠加、图表固定。
-- 本地数据：Web 使用 IndexedDB，Android 使用 SQLite。
+- 本地数据：Web 使用 IndexedDB，Android 使用 SQLite，HarmonyOS 使用 ArkData RDB 与应用私有素材目录。
 - 局域网同步：同一网络下的手机与网页端可直接发现并加密同步数据；LLM 配置不会同步。
 
 本应用只做资料记录、整理和可视化，不提供诊断、治疗建议或预测。
@@ -56,6 +56,16 @@ npm run android:sync
 ```
 
 原生工程位于 `android/`。版本号维护在 `android/app/build.gradle`。
+
+## HarmonyOS NEXT
+
+```powershell
+npm run harmony:build
+```
+
+原生工程位于 `harmony/`，使用 ArkWeb + ArkTS JSBridge。命令会调用本机
+DevEco Studio 工具链生成 HAP；详细环境、签名和迁移说明见
+[HarmonyOS README](harmony/README.md)。
 
 ## 验证
 

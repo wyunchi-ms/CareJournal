@@ -18,3 +18,9 @@
 *.jks
 *.keystore
 local.properties
+/harmony/.hvigor/
+/harmony/oh_modules/
+/harmony/entry/oh_modules/
+/harmony/entry/build/
+/harmony/build/
+/harmony/entry/src/main/resources/rawfile/www/

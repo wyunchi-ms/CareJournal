@@ -38,6 +38,7 @@ import java.util.concurrent.TimeUnit;
 @CapacitorPlugin(name = "LanSync")
 public class LanSyncPlugin extends Plugin {
     private static final String MULTICAST_ADDRESS = "224.0.0.167";
+    private static final String BROADCAST_ADDRESS = "255.255.255.255";
     private static final int PORT = 53318;
     private static final long PEER_TTL_MS = 16000;
     private static final int MAX_BODY_BYTES = 300 * 1024 * 1024;
@@ -247,6 +248,7 @@ public class LanSyncPlugin extends Plugin {
 
         multicastSocket = new MulticastSocket(null);
         multicastSocket.setReuseAddress(true);
+        multicastSocket.setBroadcast(true);
         multicastSocket.bind(new InetSocketAddress(PORT));
         multicastSocket.setTimeToLive(1);
         multicastSocket.joinGroup(InetAddress.getByName(MULTICAST_ADDRESS));
@@ -298,6 +300,9 @@ public class LanSyncPlugin extends Plugin {
             java.net.DatagramPacket packet = new java.net.DatagramPacket(
                 data, data.length, InetAddress.getByName(MULTICAST_ADDRESS), PORT);
             multicastSocket.send(packet);
+            java.net.DatagramPacket broadcastPacket = new java.net.DatagramPacket(
+                data, data.length, InetAddress.getByName(BROADCAST_ADDRESS), PORT);
+            multicastSocket.send(broadcastPacket);
         } catch (Exception ignored) {
             // A later scheduled announcement can recover from transient Wi-Fi changes.
         }

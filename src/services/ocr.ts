@@ -7,6 +7,7 @@ import { DEFAULT_VOCABULARY, newId } from '../types'
 import { sha256 } from './images'
 import { chatCompletionsUrl, getActiveLlmSettings, isLlmConfigured } from './llmProviders'
 import { chooseKnownValue } from './vocabulary'
+import { getHarmonyBridge, isHarmonyPlatform, parseHarmonyResult } from '../platform/harmonyBridge'
 
 const nullableNumber = z.number().nullable()
 const aiIndicatorSchema = z.object({
@@ -124,6 +125,18 @@ interface LlmHttpResult {
 }
 
 async function llmPost(provider: LlmProviderId, url: string, apiKey: string, body: unknown): Promise<LlmHttpResult> {
+  if (isHarmonyPlatform()) {
+    const authorization: Record<string, string> = provider === 'azure-openai'
+      ? { 'api-key': apiKey }
+      : { Authorization: `Bearer ${apiKey}` }
+    return parseHarmonyResult<LlmHttpResult>(await getHarmonyBridge().httpPost(
+      url,
+      JSON.stringify({ 'Content-Type': 'application/json', ...authorization }),
+      JSON.stringify(body),
+      30000,
+      120000,
+    ))
+  }
   if (Capacitor.isNativePlatform()) {
     const authorization: Record<string, string> = provider === 'azure-openai'
       ? { 'api-key': apiKey }

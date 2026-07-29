@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core'
 import { CapacitorSQLite, SQLiteConnection, type SQLiteDBConnection } from '@capacitor-community/sqlite'
 import Dexie, { type EntityTable } from 'dexie'
+import { getHarmonyBridge, isHarmonyPlatform, parseHarmonyResult } from '../platform/harmonyBridge'
 
 export type EntityKind = 'event' | 'chemotherapyTemplate' | 'record' | 'pin' | 'preferences' | 'ocrJob' | 'reimbursementPlan' | 'asset' | 'syncTombstone'
 
@@ -48,7 +49,8 @@ export class LocalRepository {
   private nativeDb?: SQLiteDBConnection
   private initialized = false
   private initializing?: Promise<void>
-  readonly native = Capacitor.isNativePlatform()
+  readonly native = Capacitor.isNativePlatform() || isHarmonyPlatform()
+  private readonly harmony = isHarmonyPlatform()
 
   async init() {
     if (this.initialized) return
@@ -63,7 +65,9 @@ export class LocalRepository {
   }
 
   private async initialize() {
-    if (this.native) {
+    if (this.harmony) {
+      await getHarmonyBridge().listEntities('preferences')
+    } else if (this.native) {
       this.sqlite = new SQLiteConnection(CapacitorSQLite)
       const consistency = await this.sqlite.checkConnectionsConsistency()
       const existing = consistency.result && (await this.sqlite.isConnection('carejournal', false)).result
@@ -90,6 +94,10 @@ export class LocalRepository {
 
   async list<T>(kind: EntityKind): Promise<T[]> {
     await this.init()
+    if (this.harmony) {
+      const values = parseHarmonyResult<T[]>(await getHarmonyBridge().listEntities(kind))
+      return values.map((payload) => normalizeEntityPayload(kind, payload))
+    }
     if (!this.native) {
       const rows = await this.webDb.entities.where('kind').equals(kind).toArray()
       return rows.map((row) => normalizeEntityPayload(kind, row.payload as T))
@@ -153,6 +161,10 @@ export class LocalRepository {
 
   async removePersistedCompletedOcrJobs() {
     await this.init()
+    if (this.harmony) {
+      await getHarmonyBridge().removeCompletedOcrJobs()
+      return
+    }
     if (!this.native) {
       await this.webDb.transaction('rw', this.webDb.entities, async () => {
         const completed = await this.webDb.entities
@@ -175,6 +187,10 @@ export class LocalRepository {
     const normalizedPayload = normalizeEntityPayload(kind, payload)
     const updatedAt = (normalizedPayload as { updatedAt?: string }).updatedAt ?? new Date().toISOString()
     const key = `${kind}:${id}`
+    if (this.harmony) {
+      await getHarmonyBridge().putEntity(kind, id, updatedAt, JSON.stringify(normalizedPayload))
+      return
+    }
     if (!this.native) {
       await this.webDb.entities.put({ key, kind, id, updatedAt, payload: normalizedPayload })
       return
@@ -187,6 +203,10 @@ export class LocalRepository {
 
   private async removeStored(kind: EntityKind, id: string) {
     const key = `${kind}:${id}`
+    if (this.harmony) {
+      await getHarmonyBridge().removeEntity(kind, id)
+      return
+    }
     if (!this.native) {
       await this.webDb.entities.delete(key)
       return
@@ -217,6 +237,21 @@ export class LocalRepository {
 
   async replaceKind<T>(kind: EntityKind, entries: Array<{ id: string; payload: T }>) {
     await this.init()
+    if (this.harmony) {
+      const normalized = entries.map(({ id, payload }) => {
+        const normalizedPayload = normalizeEntityPayload(kind, payload)
+        return {
+          id,
+          updatedAt: (normalizedPayload as { updatedAt?: string }).updatedAt ?? new Date().toISOString(),
+          payload: normalizedPayload,
+        }
+      })
+      await getHarmonyBridge().replaceEntities(kind, JSON.stringify(normalized))
+      if (syncableKinds.has(kind)) {
+        for (const { id } of entries) await this.removeStored('syncTombstone', `${kind}:${id}`)
+      }
+      return
+    }
     if (!this.native) {
       await this.webDb.transaction('rw', this.webDb.entities, async () => {
         const keys = await this.webDb.entities.where('kind').equals(kind).primaryKeys()

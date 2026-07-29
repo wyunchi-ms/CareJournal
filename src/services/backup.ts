@@ -3,6 +3,7 @@ import { Directory, Filesystem } from '@capacitor/filesystem'
 import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, ExamRecord, LlmProviderId, LlmProviderSettings, MediaAsset, ReimbursementPlan, TreatmentEvent } from '../types'
 import { materializeNativeStoredImage } from './imageStorage'
 import { compactRecordMedia, compactReimbursementMedia, reconcileMediaCatalog } from './mediaAssets'
+import { getHarmonyBridge, isHarmonyPlatform } from '../platform/harmonyBridge'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -111,6 +112,10 @@ function blobBase64(blob: Blob) {
 }
 
 export async function downloadBlob(blob: Blob, filename: string) {
+  if (isHarmonyPlatform()) {
+    const mimeType = blob.type || 'application/octet-stream'
+    return getHarmonyBridge().saveFile(filename, mimeType, await blobBase64(blob))
+  }
   if (Capacitor.isNativePlatform()) {
     const path = `CareJournal/${filename}`
     await Filesystem.writeFile({

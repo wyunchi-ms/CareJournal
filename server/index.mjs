@@ -13,6 +13,7 @@ const maxBodyBytes = 40 * 1024 * 1024
 const maxLanBodyBytes = 300 * 1024 * 1024
 const lanPort = 53318
 const multicastAddress = '224.0.0.167'
+const broadcastAddress = '255.255.255.255'
 const peerTtlMs = 16000
 
 const lanState = {
@@ -88,6 +89,7 @@ function announceLan(announce = false) {
   if (!lanState.udp) return
   const payload = lanAdvertisement(announce)
   lanState.udp.send(payload, 0, payload.length, lanPort, multicastAddress)
+  lanState.udp.send(payload, 0, payload.length, lanPort, broadcastAddress)
 }
 
 async function startLan(alias, publicKey) {
@@ -130,6 +132,7 @@ async function startLan(alias, publicKey) {
     lanState.udp.bind(lanPort, () => {
       lanState.udp.addMembership(multicastAddress)
       lanState.udp.setMulticastTTL(1)
+      lanState.udp.setBroadcast(true)
       resolvePromise()
     })
   })

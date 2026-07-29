@@ -4,13 +4,16 @@ import { SettingsCollapsibleCard } from './SettingsCollapsibleCard'
 import { useApp } from '../store/AppContext'
 import { createLanCryptoIdentity, decryptLanSnapshot, encryptLanSnapshot, snapshotEntityCount, type LanCryptoIdentity } from '../services/lanSync'
 import { lanSyncTransport, type IncomingLanRequest, type LanPeer, type LanServiceInfo } from '../services/lanSyncTransport'
+import { isHarmonyPlatform } from '../platform/harmonyBridge'
 
 type SyncStatus = { tone: 'neutral' | 'working' | 'success' | 'error'; message: string }
 
 function deviceAlias() {
   const stored = localStorage.getItem('carejournal-lan-alias')
   if (stored) return stored
-  const alias = /Android/i.test(navigator.userAgent) ? 'CareJournal 手机' : 'CareJournal 网页'
+  const alias = isHarmonyPlatform()
+    ? 'CareJournal 鸿蒙设备'
+    : /Android/i.test(navigator.userAgent) ? 'CareJournal 手机' : 'CareJournal 网页'
   localStorage.setItem('carejournal-lan-alias', alias)
   return alias
 }
