@@ -651,6 +651,15 @@ legend { margin-bottom: 8px; color: var(--muted); font-size: .78rem; font-weight
 .chart-line-option strong { font-size: .8rem; }
 .chart-line-option small { margin-top: 3px; color: var(--muted); font-size: .68rem; }
 .chart-line-option:has(input:disabled) { cursor: default; }
+.chart-detail-range { min-width: 0; display: grid; gap: 7px; }
+.chart-detail-range > div { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.chart-detail-range strong { flex: 0 0 auto; font-size: .82rem; }
+.chart-detail-range > small { color: var(--muted); font-size: .7rem; line-height: 1.45; }
+.chart-range-options { min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(48px, 1fr)); gap: 4px; padding: 3px; border-radius: 11px; background: var(--surface-alt); }
+.chart-range-options button { min-width: 0; min-height: 44px; padding: 0 9px; border: 1px solid transparent; border-radius: 8px; color: var(--muted); background: transparent; font-size: .73rem; font-weight: 800; white-space: nowrap; cursor: pointer; transition: color .2s, border-color .2s, background-color .2s, box-shadow .2s; }
+.chart-range-options button:hover { color: var(--text); }
+.chart-range-options button.active { color: var(--primary-strong); border-color: var(--border); background: var(--surface); box-shadow: 0 2px 7px rgba(78, 54, 46, .08); }
+.chart-range-options button:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary), transparent 48%); outline-offset: 2px; }
 .chart-detail-visual { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
 .chart-report-list { overflow: hidden; border: 1px solid var(--border); border-radius: 12px; }
 .chart-report-row { text-decoration: none; border-bottom: 1px solid var(--border); }
@@ -980,6 +989,8 @@ legend { margin-bottom: 8px; color: var(--muted); font-size: .78rem; font-weight
   .saved-charts-trigger small { position: absolute; top: -5px; right: -5px; min-width: 20px; height: 20px; padding: 0 5px; border: 2px solid var(--surface); color: white; background: var(--primary-strong); font-size: .64rem; }
   .chart-add-button { width: 50px; padding: 0; }
   .chart-add-button span { display: none; }
+  .chart-detail-range > div { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .chart-range-options { width: 100%; }
   .chart-detail-visual { margin-inline: -8px; }
   .settings-section { padding: 17px; }
   .privacy-section-grid { grid-template-columns: 1fr; }

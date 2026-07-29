@@ -13,7 +13,14 @@ let pins: ChartPin[] = []
 let events: TreatmentEvent[] = []
 
 vi.mock('echarts-for-react', () => ({
-  default: ({ option, onChartReady }: { option: { color?: string[]; series?: Array<{ data?: unknown[]; name?: string; markLine?: { data?: unknown[] } }>; legend?: { itemWidth?: number; type?: string; formatter?: (name: string) => string }; xAxis?: { min?: number; name?: string; axisLabel?: { formatter?: (value: number) => string } } }; onChartReady?: (instance: { dispatchAction: typeof dispatchChartAction }) => void }) => {
+  default: ({ option, onChartReady }: { option: {
+    color?: string[]
+    tooltip?: { renderMode?: string }
+    dataZoom?: Array<{ filterMode?: string; startValue?: string; endValue?: string; height?: number; handleSize?: number }>
+    series?: Array<{ data?: unknown[]; name?: string; markLine?: { data?: unknown[] } }>
+    legend?: { itemWidth?: number; type?: string; formatter?: (name: string) => string }
+    xAxis?: { min?: number; name?: string; axisLabel?: { formatter?: (value: number) => string } }
+  }; onChartReady?: (instance: { dispatchAction: typeof dispatchChartAction }) => void }) => {
     onChartReady?.({ dispatchAction: dispatchChartAction })
     return <div
       data-testid="chart"
@@ -28,6 +35,12 @@ vi.mock('echarts-for-react', () => ({
       data-x-axis-min={option.xAxis?.min ?? ''}
       data-x-axis-name={option.xAxis?.name ?? ''}
       data-x-axis-labels={JSON.stringify([0, 20, 40].map((value) => option.xAxis?.axisLabel?.formatter?.(value) ?? value))}
+      data-tooltip-render-mode={option.tooltip?.renderMode ?? ''}
+      data-zoom-start={option.dataZoom?.[0]?.startValue ?? ''}
+      data-zoom-end={option.dataZoom?.[0]?.endValue ?? ''}
+      data-slider-height={option.dataZoom?.[1]?.height ?? ''}
+      data-slider-handle-size={option.dataZoom?.[1]?.handleSize ?? ''}
+      data-zoom-filter-modes={JSON.stringify(option.dataZoom?.map((zoom) => zoom.filterMode) ?? [])}
     />
   },
 }))
@@ -35,6 +48,9 @@ vi.mock('echarts-for-react', () => ({
 vi.mock('../store/AppContext', () => ({
   useApp: () => ({
     records: [
+      { id: 'record-old', reportType: '血常规', normalizedReportType: '血常规', sampleDate: '2024-07-01', hospital: '浙江大学儿童医院', indicators: [
+        { normalizedCode: 'WBC', normalizedName: '白细胞计数', unit: '10^9/L', value: 5.2, abnormalFlag: 'normal' },
+      ] },
       { id: 'record-1', reportType: '血常规', normalizedReportType: '血常规', sampleDate: '2026-07-01', hospital: '浙江大学儿童医院', indicators: [
         { normalizedCode: 'WBC', normalizedName: '白细胞计数', unit: '10^9/L', value: 3.2, abnormalFlag: 'normal' },
         { normalizedCode: 'HGB', normalizedName: '血红蛋白', unit: 'g/L', value: 96, abnormalFlag: 'low' },
@@ -89,6 +105,52 @@ describe('charts page indicator selection', () => {
 
     expect(dispatchChartAction).toHaveBeenCalledWith({ type: 'hideTip' })
     expect(screen.getByRole('button', { name: '检查指标：血红蛋白' })).toBeInTheDocument()
+  })
+
+  it('confines tooltips to each canvas and clears them before opening chart detail', () => {
+    pins = [{
+      id: 'trend-pin',
+      title: '白细胞计数趋势',
+      mode: 'trend',
+      indicatorCodes: ['WBC'],
+      cycleEventIds: [],
+      createdAt: '2026-07-21T10:00:00.000Z',
+    }]
+    render(<MemoryRouter><ChartsPage /></MemoryRouter>)
+    expect(screen.getByTestId('chart')).toHaveAttribute('data-tooltip-render-mode', 'richText')
+    dispatchChartAction.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: '查看图表详情：白细胞计数趋势' }))
+
+    expect(dispatchChartAction).toHaveBeenCalledWith({ type: 'hideTip' })
+    expect(within(screen.getByRole('dialog', { name: '白细胞计数趋势' })).getByTestId('chart')).toHaveAttribute('data-tooltip-render-mode', 'richText')
+  })
+
+  it('defaults long trend details to six months and offers larger range controls', () => {
+    pins = [{
+      id: 'trend-pin',
+      title: '白细胞计数趋势',
+      mode: 'trend',
+      indicatorCodes: ['WBC'],
+      cycleEventIds: [],
+      createdAt: '2026-07-21T10:00:00.000Z',
+    }]
+    render(<MemoryRouter><ChartsPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: '查看图表详情：白细胞计数趋势' }))
+
+    const dialog = screen.getByRole('dialog', { name: '白细胞计数趋势' })
+    expect(within(dialog).getByRole('button', { name: '6个月' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(dialog).getByTestId('chart')).toHaveAttribute('data-zoom-start', '2026-01-08')
+    expect(within(dialog).getByTestId('chart')).toHaveAttribute('data-zoom-end', '2026-07-08')
+    expect(within(dialog).getByTestId('chart')).toHaveAttribute('data-slider-height', '28')
+    expect(within(dialog).getByTestId('chart')).toHaveAttribute('data-slider-handle-size', '22')
+    expect(within(dialog).getByTestId('chart')).toHaveAttribute('data-zoom-filter-modes', '["filter","filter"]')
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '1年' }))
+    expect(within(dialog).getByTestId('chart')).toHaveAttribute('data-zoom-start', '2025-07-08')
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '全部' }))
+    expect(within(dialog).getByTestId('chart')).toHaveAttribute('data-zoom-start', '')
   })
 
   it('places the save action in the chart card instead of the mode controls', () => {
@@ -275,6 +337,7 @@ describe('charts page indicator selection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '化疗周期叠加' }))
     expect(screen.getByTestId('chart')).toHaveAttribute('data-x-axis-min', '0')
+    expect(screen.getByTestId('chart')).toHaveAttribute('data-zoom-filter-modes', '["filter"]')
     expect(screen.getByTestId('chart')).toHaveAttribute('data-x-axis-name', '')
     expect(screen.getByTestId('chart')).toHaveAttribute('data-x-axis-labels', '["1","21","41"]')
     expect(JSON.parse(screen.getByTestId('chart').getAttribute('data-series-data') ?? '[]')).toEqual([[4, 4.1]])

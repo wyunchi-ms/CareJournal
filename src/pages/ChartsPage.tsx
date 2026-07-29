@@ -1,8 +1,8 @@
-import { differenceInCalendarDays, format, parseISO } from 'date-fns'
+import { differenceInCalendarDays, format, parseISO, subMonths } from 'date-fns'
 import type { EChartsType } from 'echarts'
 import ReactECharts from 'echarts-for-react'
 import { Bookmark, BookmarkCheck, BookmarkX, CalendarPlus, ChartNoAxesCombined, ChevronRight, Eye, EyeOff, FileUp, GripVertical, Plus, RotateCcw, Search, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { ChoicePicker } from '../components/ChoicePicker'
 import { ConfirmSheet } from '../components/ConfirmSheet'
@@ -26,6 +26,15 @@ interface ChartIndicatorMeta {
   unit: string
 }
 
+type TrendRange = '3m' | '6m' | '1y' | 'all'
+
+const trendRangeOptions: Array<{ value: TrendRange; label: string; months: number | null }> = [
+  { value: '3m', label: '3个月', months: 3 },
+  { value: '6m', label: '6个月', months: 6 },
+  { value: '1y', label: '1年', months: 12 },
+  { value: 'all', label: '全部', months: null },
+]
+
 function cycleSeriesColor(index: number) {
   if (index < cycleSeriesColors.length) return cycleSeriesColors[index]
   const hue = Math.round((index * 137.508 + 25) % 360)
@@ -39,21 +48,76 @@ function buildTrendOption(
   code: string,
   meta: ChartIndicatorMeta | undefined,
   showEventMarkers: boolean,
+  range: TrendRange = 'all',
 ) {
+  const data = code
+    ? records.filter((record) => hasRecordDate(record.sampleDate)).flatMap((record) => (
+        record.indicators
+          .filter((item) => item.normalizedCode === code && item.value !== null)
+          .map((item) => ({ value: [record.sampleDate, item.value], record, item }))
+      )).sort((a, b) => String(a.value[0]).localeCompare(String(b.value[0])))
+    : []
+  const firstDate = data[0]?.value[0] as string | undefined
+  const lastDate = data.at(-1)?.value[0] as string | undefined
+  const rangeMonths = trendRangeOptions.find((option) => option.value === range)?.months ?? null
+  const requestedStart = lastDate && rangeMonths !== null
+    ? format(subMonths(parseISO(lastDate), rangeMonths), 'yyyy-MM-dd')
+    : undefined
+  const startValue = requestedStart && firstDate && requestedStart > firstDate ? requestedStart : undefined
+  const visibleSpanDays = firstDate && lastDate
+    ? differenceInCalendarDays(parseISO(lastDate), parseISO(startValue ?? firstDate))
+    : 0
+  const zoomWindow = startValue && lastDate ? { startValue, endValue: lastDate } : {}
   return {
     color: seriesColors,
-    tooltip: { trigger: 'axis' },
-    grid: { left: 48, right: 28, top: 28, bottom: 62 },
-    xAxis: { type: 'time', axisLabel: { formatter: (value: number) => format(new Date(value), 'MM-dd') } },
+    tooltip: {
+      trigger: 'axis',
+      renderMode: 'richText',
+      confine: true,
+      enterable: false,
+      alwaysShowContent: false,
+      hideDelay: 0,
+      transitionDuration: 0,
+    },
+    grid: { left: 48, right: 28, top: 28, bottom: 76 },
+    xAxis: {
+      type: 'time',
+      splitNumber: 5,
+      axisLabel: {
+        hideOverlap: true,
+        formatter: (value: number) => format(new Date(value), visibleSpanDays > 550 ? 'yy-MM' : 'MM-dd'),
+      },
+    },
     yAxis: { type: 'value', name: meta?.unit ?? '', scale: true, splitLine: { lineStyle: { color: '#dbe6e9' } } },
-    dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 14 }],
+    dataZoom: [
+      {
+        type: 'inside',
+        filterMode: 'filter',
+        zoomOnMouseWheel: 'ctrl',
+        moveOnMouseMove: true,
+        moveOnMouseWheel: 'shift',
+        preventDefaultMouseMove: false,
+        ...zoomWindow,
+      },
+      {
+        type: 'slider',
+        filterMode: 'filter',
+        height: 28,
+        bottom: 10,
+        handleSize: 22,
+        moveHandleSize: 10,
+        brushSelect: false,
+        showDetail: false,
+        ...zoomWindow,
+      },
+    ],
     series: code ? [{
       name: `${meta?.name ?? code}${meta?.unit ? ` (${meta.unit})` : ''}`,
       type: 'line',
       smooth: false,
       connectNulls: false,
       symbolSize: 8,
-      data: records.filter((record) => hasRecordDate(record.sampleDate)).flatMap((record) => record.indicators.filter((item) => item.normalizedCode === code && item.value !== null).map((item) => ({ value: [record.sampleDate, item.value], record, item }))).sort((a, b) => String(a.value[0]).localeCompare(String(b.value[0]))),
+      data,
       markLine: showEventMarkers ? { silent: true, data: events.filter((event) => ['chemotherapy', 'surgery', 'hospitalization'].includes(event.type)).map((event) => ({ xAxis: event.startDate, label: { formatter: event.title, position: 'insideEndTop' }, lineStyle: { color: EVENT_TYPES[event.type].color, opacity: 0.45, type: 'dashed' } })) } : undefined,
     }] : [],
   }
@@ -71,7 +135,7 @@ function buildCycleOption(
   const legendRows = Math.max(1, Math.ceil(displayedCycles.length / 7))
   return {
     color: displayedCycles.map((cycle) => cycleSeriesColor(chemotherapyCycles.findIndex((item) => item.id === cycle.id))),
-    tooltip: { trigger: 'axis' },
+    tooltip: { trigger: 'axis', renderMode: 'richText', confine: true, enterable: false, alwaysShowContent: false, hideDelay: 0, transitionDuration: 0 },
     legend: {
       top: 0,
       left: 0,
@@ -86,7 +150,7 @@ function buildCycleOption(
     grid: { left: 44, right: 18, top: 26 + legendRows * 18, bottom: 34 },
     xAxis: { type: 'value', min: 0, minInterval: 1, axisLabel: { formatter: (value: number) => String(value + 1) } },
     yAxis: { type: 'value', name: meta?.unit ?? '', scale: true, splitLine: { lineStyle: { color: '#dbe6e9' } } },
-    dataZoom: [{ type: 'inside', filterMode: 'none' }],
+    dataZoom: [{ type: 'inside', filterMode: 'filter' }],
     series: displayedCycles.map((cycle) => {
       const dayOne = parseISO(cycle.dayOne)
       const cycleIndex = chemotherapyCycles.findIndex((item) => item.id === cycle.id)
@@ -172,9 +236,10 @@ export function ChartsPage() {
   const [addingChart, setAddingChart] = useState(false)
   const [detailPinId, setDetailPinId] = useState<string | null>(null)
   const [detailCycleIds, setDetailCycleIds] = useState<string[]>([])
+  const [detailTrendRange, setDetailTrendRange] = useState<TrendRange>('6m')
   const [detailSaveError, setDetailSaveError] = useState('')
   const [showEventMarkers, setShowEventMarkers] = useState(false)
-  const chartInstanceRef = useRef<EChartsType | null>(null)
+  const chartInstancesRef = useRef(new Set<EChartsType>())
   const draftPinOrderRef = useRef<string[]>([])
   const dragTargetPinIdRef = useRef<string | null>(null)
 
@@ -186,9 +251,37 @@ export function ChartsPage() {
     ? `${currentIndicatorName}趋势`
     : `${currentIndicatorName}周期对比`
 
+  const hideChartTooltips = useCallback(() => {
+    chartInstancesRef.current.forEach((instance) => {
+      if (typeof instance.isDisposed === 'function' && instance.isDisposed()) {
+        chartInstancesRef.current.delete(instance)
+        return
+      }
+      instance.dispatchAction({ type: 'hideTip' })
+    })
+  }, [])
+
+  const registerChartInstance = useCallback((instance: EChartsType) => {
+    chartInstancesRef.current.add(instance)
+  }, [])
+
   useEffect(() => {
-    chartInstanceRef.current?.dispatchAction({ type: 'hideTip' })
-  }, [currentCode, mode])
+    hideChartTooltips()
+  }, [currentCode, hideChartTooltips, mode])
+
+  useEffect(() => {
+    const chartInstances = chartInstancesRef.current
+    const hide = () => hideChartTooltips()
+    document.addEventListener('pointerdown', hide, true)
+    document.addEventListener('scroll', hide, true)
+    window.addEventListener('blur', hide)
+    return () => {
+      document.removeEventListener('pointerdown', hide, true)
+      document.removeEventListener('scroll', hide, true)
+      window.removeEventListener('blur', hide)
+      chartInstances.clear()
+    }
+  }, [hideChartTooltips])
   const currentPin = pins.find((pin) => (
     pin.mode === mode
     && pin.indicatorCodes[0] === currentCode
@@ -219,7 +312,7 @@ export function ChartsPage() {
     : []
   const detailOption = detailPin
     ? detailPin.mode === 'trend'
-      ? buildTrendOption(records, events, detailCode, detailIndicator, false)
+      ? buildTrendOption(records, events, detailCode, detailIndicator, false, detailTrendRange)
       : buildCycleOption(records, chemotherapyCycles, cyclesNewestFirst, effectiveDetailCycleIds, detailCode, detailIndicator)
     : null
   const detailRecords = detailPin
@@ -286,7 +379,9 @@ export function ChartsPage() {
   function openChartDetail(pin: ChartPin) {
     const availableCycleIds = chemotherapyCycles.map((cycle) => cycle.id)
     const savedCycleIds = pin.cycleEventIds.filter((id) => availableCycleIds.includes(id))
+    hideChartTooltips()
     setDetailPinId(pin.id)
+    setDetailTrendRange('6m')
     setDetailCycleIds(pin.mode === 'cycle'
       ? (savedCycleIds.length ? savedCycleIds : availableCycleIds)
       : [])
@@ -461,8 +556,26 @@ export function ChartsPage() {
           </div>
           {detailSaveError && <p className="form-error" role="alert">{detailSaveError}</p>}
         </section>}
+        {detailPin.mode === 'trend' && <div className="chart-detail-range">
+          <div>
+            <strong>时间范围</strong>
+            <div className="chart-range-options" role="group" aria-label="图表时间范围">
+              {trendRangeOptions.map((option) => <button
+                type="button"
+                className={detailTrendRange === option.value ? 'active' : ''}
+                aria-pressed={detailTrendRange === option.value}
+                onClick={() => {
+                  hideChartTooltips()
+                  setDetailTrendRange(option.value)
+                }}
+                key={option.value}
+              >{option.label}</button>)}
+            </div>
+          </div>
+          <small>左右拖动图表平移，拖动下方手柄或双指精细缩放</small>
+        </div>}
         <section className="chart-detail-visual" aria-label={`${detailPin.title}图表`}>
-          <TimeSeriesChart option={detailOption} height={400} />
+          <TimeSeriesChart option={detailOption} height={400} onReady={registerChartInstance} />
         </section>
         <section className="chart-detail-records" aria-labelledby="chart-detail-records-title">
           <div className="chart-detail-section-heading">
@@ -542,7 +655,7 @@ export function ChartsPage() {
           </div>
           {unavailable
             ? <div className="saved-chart-unavailable"><ChartNoAxesCombined /><strong>暂时无法绘制</strong><small>相关指标或化疗周期当前不可用</small></div>
-            : <TimeSeriesChart option={option} compact />}
+            : <TimeSeriesChart option={option} compact onReady={registerChartInstance} />}
         </article>)}
       </div>
     </section>}
@@ -600,7 +713,7 @@ export function ChartsPage() {
         ? <div className="empty-state"><ChartNoAxesCombined /><h3>还没有可绘制的指标</h3><p>导入含数值指标的检查报告后，趋势图会自动出现。</p><a className="button primary" href="#/import"><FileUp />导入检查报告</a></div>
         : mode === 'cycle' && chemotherapyCycles.length === 0
           ? <div className="empty-state"><RotateCcw /><h3>还没有化疗周期</h3><p>先在病程日历中创建化疗事件并设置 Day 1。</p><a className="button primary" href="#/calendar"><CalendarPlus />创建化疗事件</a></div>
-          : <TimeSeriesChart option={mode === 'trend' ? trendOption : cycleOption} onReady={(instance) => { chartInstanceRef.current = instance }} />}
+          : <TimeSeriesChart option={mode === 'trend' ? trendOption : cycleOption} onReady={registerChartInstance} />}
     </section>}
   </>
 }
