@@ -7,6 +7,7 @@ import { ImagePreview } from '../components/ImagePreview'
 import { PdfPreview } from '../components/PdfPreview'
 import { SwipeableListItem } from '../components/SwipeableListItem'
 import { canImportAndroidFolder, folderSourceToStoredImage, pickAndroidImageFolder } from '../services/folderImport'
+import { isLlmConfigured } from '../services/llmProviders'
 import { prepareImage, preparePdf } from '../services/images'
 import { storedImageSource } from '../services/imageStorage'
 import { useApp } from '../store/AppContext'
@@ -152,12 +153,7 @@ export function ImportPage() {
   const [deletingJobIds, setDeletingJobIds] = useState<string[]>([])
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState('')
-  const azureConfigured = Boolean(
-    preferences.azure.endpoint.trim()
-    && preferences.azure.apiKey.trim()
-    && preferences.azure.deployment.trim()
-    && preferences.azure.apiVersion.trim(),
-  )
+  const llmConfigured = isLlmConfigured(preferences.llm)
   const activeCount = ocrQueueStats.queued + ocrQueueStats.processing
   const busy = scanning || Boolean(preparing)
   const removableJobIds = ocrJobs.filter((job) => job.status !== 'processing').map((job) => job.id)
@@ -270,7 +266,7 @@ export function ImportPage() {
             {showAndroidDirectoryImport && <button className="button secondary" disabled={busy} onClick={() => void selectAndroidFolder()}><FolderOpen />扫描文件夹</button>}
           </div>
 
-          {!azureConfigured && <div className="llm-setup-callout callout warning" role="alert">
+          {!llmConfigured && <div className="llm-setup-callout callout warning" role="alert">
             <AlertCircle />
             <span><strong>识别检查报告前需要配置 LLM</strong><small>你可以先加入图片或 PDF，文件会保存在本地队列，配置完成后自动开始处理。</small></span>
             <Link className="button secondary" to="/settings#llm-settings"><Settings2 />去配置 LLM</Link>

@@ -78,7 +78,12 @@ const plan: ReimbursementPlan = {
 }
 
 const preferences: AppPreferences = {
-  azure: { endpoint: '', apiKey: 'secret', deployment: '', apiVersion: '2024-10-21', maxRetries: 3 },
+  llm: {
+    activeProvider: 'deepseek',
+    providers: {
+      deepseek: { endpoint: 'https://api.deepseek.com/v1', apiKey: 'secret', model: 'deepseek-chat', maxRetries: 3 },
+    },
+  },
   localPrivacyOcrEnabled: false,
   darkMode: false,
   chartIndicatorOrder: [],
@@ -103,7 +108,7 @@ describe('backup media asset format', () => {
     expect(payload.reimbursementPlans?.[0].materials[0].attachments[0])
       .toMatchObject({ assetId: 'sha256:shared-hash', dataUrl: '' })
     expect(JSON.stringify(payload).match(/data:image\/jpeg/g)).toHaveLength(1)
-    expect(payload.preferences.azure).not.toHaveProperty('apiKey')
+    expect(payload.preferences.llm?.providers.deepseek).not.toHaveProperty('apiKey')
   })
 
   it('continues accepting existing v1 backups for migration', async () => {

@@ -163,7 +163,7 @@ export async function createLanSyncSnapshot(deviceName: string): Promise<LanSync
     repository.list<MediaAsset>('asset'),
     repository.list<SyncTombstone>('syncTombstone'),
   ])
-  const catalog = reconcileMediaCatalog(records, [], reimbursementPlans, assets)
+  const catalog = reconcileMediaCatalog(records, [], reimbursementPlans, assets, { pruneUnused: true })
   const transferredAssets: MediaAsset[] = []
   for (const asset of catalog.assets) {
     const materialized = await materializeStoredImage(asset)
@@ -230,7 +230,7 @@ export async function mergeLanSyncSnapshot(incoming: LanSyncSnapshot): Promise<M
   const mergedPins = mergeValues('pin', pins, incoming.pins, tombstones, summary)
   const mergedPlans = mergeValues('reimbursementPlan', reimbursementPlans, incoming.reimbursementPlans, tombstones, summary)
   const mergedAssets = await persistAssets(mergeValues('asset', assets, incoming.assets, tombstones, summary))
-  const catalog = reconcileMediaCatalog(mergedRecords, [], mergedPlans, mergedAssets)
+  const catalog = reconcileMediaCatalog(mergedRecords, [], mergedPlans, mergedAssets, { pruneUnused: true })
 
   const replacements: Array<[EntityKind, Array<{ id: string; payload: unknown }>]> = [
     ['event', mergedEvents.map((payload) => ({ id: payload.id, payload }))],

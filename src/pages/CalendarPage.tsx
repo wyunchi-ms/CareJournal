@@ -8,9 +8,10 @@ import { ConfirmSheet } from '../components/ConfirmSheet'
 import { HistoryCombobox } from '../components/HistoryCombobox'
 import { Modal } from '../components/Modal'
 import { SwipeableListItem } from '../components/SwipeableListItem'
+import { formatBodyMeasurements, selectCalendarEventLabels } from '../services/calendarEvents'
 import { buildChemotherapyCourseEvents, getChemotherapyTemplateDayPlans, rescheduleChemotherapyEvents, type ChemotherapyRescheduleScope } from '../services/chemotherapy'
 import { useApp } from '../store/AppContext'
-import { EVENT_TYPES, TREATMENT_PLAN_TYPES, newId, type EventType, type TreatmentEvent, type TreatmentPlanType } from '../types'
+import { EVENT_TYPES, TREATMENT_PLAN_TYPES, newId, type BodyMeasurements, type EventType, type TreatmentEvent, type TreatmentPlanType } from '../types'
 
 const todayString = () => format(new Date(), 'yyyy-MM-dd')
 const calendarMonth = (value: string | null) => value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value)
@@ -29,6 +30,10 @@ const treatmentPlanTypesByEvent: Partial<Record<EventType, TreatmentPlanType[]>>
   medication: ['maintenance', 'supportive'],
 }
 type MonthTransition = 'next' | 'previous'
+
+function optionalNumber(value: string) {
+  return value.trim() === '' ? undefined : Number(value)
+}
 
 function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onClose }: { initialDate: string; event?: TreatmentEvent; hospitalHistory: string[]; departmentHistory: string[]; onClose: () => void }) {
   const { events, chemotherapyTemplates: treatmentTemplates = [], saveEvent, saveEvents, deleteEvent } = useApp()
@@ -53,6 +58,14 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
     dosage: event?.dosage ?? '',
     cycleNumber: event?.cycleNumber?.toString() ?? '',
     cycleDayOne: event?.cycleDayOne ?? initialDate,
+    heightCm: event?.bodyMeasurements?.heightCm?.toString() ?? '',
+    weightKg: event?.bodyMeasurements?.weightKg?.toString() ?? '',
+    temperatureC: event?.bodyMeasurements?.temperatureC?.toString() ?? '',
+    systolicBp: event?.bodyMeasurements?.systolicBp?.toString() ?? '',
+    diastolicBp: event?.bodyMeasurements?.diastolicBp?.toString() ?? '',
+    heartRateBpm: event?.bodyMeasurements?.heartRateBpm?.toString() ?? '',
+    oxygenSaturationPercent: event?.bodyMeasurements?.oxygenSaturationPercent?.toString() ?? '',
+    treatmentReaction: event?.treatmentReaction ?? '',
     notes: event?.notes ?? '',
   }))
   const [error, setError] = useState('')
@@ -73,6 +86,8 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
     return [value, `${templateName}${templateType.label} · ${template.cycleLengthDays} 天一周期`]
   }))
   const isTreatmentEvent = compatiblePlanTypes.length > 0
+  const isBodyMeasurement = form.type === 'bodyMeasurement'
+  const isTreatmentDiary = form.type === 'treatmentDiary'
 
   function selectTemplate(id: string) {
     setSelectedTemplateId(id)
@@ -102,15 +117,29 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
       onClose()
       return
     }
-    if (!form.title.trim()) return setError('请输入事件标题')
-    if (form.endDate < form.startDate) return setError('结束日期不能早于开始日期')
+    const title = isBodyMeasurement ? form.title.trim() || '身体记录' : form.title.trim()
+    if (!title) return setError(isTreatmentDiary ? '请输入治疗阶段或日记标题' : '请输入事件标题')
+    const endDate = isBodyMeasurement ? form.startDate : form.endDate
+    if (endDate < form.startDate) return setError('结束日期不能早于开始日期')
+    const bodyMeasurements: BodyMeasurements | undefined = isBodyMeasurement ? {
+      heightCm: optionalNumber(form.heightCm),
+      weightKg: optionalNumber(form.weightKg),
+      temperatureC: optionalNumber(form.temperatureC),
+      systolicBp: optionalNumber(form.systolicBp),
+      diastolicBp: optionalNumber(form.diastolicBp),
+      heartRateBpm: optionalNumber(form.heartRateBpm),
+      oxygenSaturationPercent: optionalNumber(form.oxygenSaturationPercent),
+    } : undefined
+    if (isBodyMeasurement && !Object.values(bodyMeasurements ?? {}).some((value) => value !== undefined)) return setError('请至少填写一项身体指标')
+    if (isBodyMeasurement && ((bodyMeasurements?.systolicBp === undefined) !== (bodyMeasurements?.diastolicBp === undefined))) return setError('请同时填写收缩压和舒张压')
+    if (isTreatmentDiary && !form.treatmentReaction.trim()) return setError('请记录这一阶段的治疗反应')
     const now = new Date().toISOString()
     const updatedEvent: TreatmentEvent = {
       id: event?.id ?? newId(),
       type: form.type,
-      title: form.title.trim(),
+      title,
       startDate: form.startDate,
-      endDate: form.endDate,
+      endDate,
       allDay: true,
       hospital: form.hospital.trim() || undefined,
       department: form.department.trim() || undefined,
@@ -124,6 +153,8 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
       chemotherapyCycleId: form.type === 'chemotherapy' ? event?.chemotherapyCycleId : undefined,
       administrationDay: form.type === 'chemotherapy' ? event?.administrationDay : undefined,
       plannedStartDate: form.type === 'chemotherapy' ? event?.plannedStartDate : undefined,
+      bodyMeasurements,
+      treatmentReaction: isTreatmentDiary ? form.treatmentReaction.trim() : undefined,
       notes: form.notes.trim() || undefined,
       tags: event?.tags ?? [],
       linkedRecordIds: event?.linkedRecordIds ?? [],
@@ -164,9 +195,9 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
         <label>起始周期编号<input type="number" min="1" value={templateSchedule.firstCycleNumber} onChange={(e) => setTemplateSchedule((current) => ({ ...current, firstCycleNumber: e.target.value }))} /></label>
         <label>创建周期数<input type="number" min="1" value={templateSchedule.cycleCount} onChange={(e) => setTemplateSchedule((current) => ({ ...current, cycleCount: e.target.value }))} /></label>
       </> : <>
-        <label>标题<input value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="例如：第 3 周期化疗" autoFocus /></label>
-        <label>开始日期<input type="date" value={form.startDate} onChange={(e) => set('startDate', e.target.value)} /></label>
-        <label>结束日期<input type="date" value={form.endDate} min={form.startDate} onChange={(e) => set('endDate', e.target.value)} /></label>
+        {!isBodyMeasurement && <label>{isTreatmentDiary ? '治疗阶段 / 标题' : '标题'}<input value={form.title} onChange={(e) => set('title', e.target.value)} placeholder={isTreatmentDiary ? '例如：化疗后第 1 周' : '例如：第 3 周期化疗'} autoFocus /></label>}
+        <label>{isBodyMeasurement ? '记录日期' : '开始日期'}<input type="date" value={form.startDate} onChange={(e) => set('startDate', e.target.value)} /></label>
+        {!isBodyMeasurement && <label>结束日期<input type="date" value={form.endDate} min={form.startDate} onChange={(e) => set('endDate', e.target.value)} /></label>}
         {event?.chemotherapyCourseId && <div className="schedule-adjustment full-width">
           <div className="schedule-adjustment-copy"><strong>{dateDelta === 0 ? '调整实际给药日期' : dateDelta > 0 ? `较原日期推后 ${dateDelta} 天` : `较原日期提前 ${Math.abs(dateDelta)} 天`}</strong><span>计划日期：{event.plannedStartDate || event.startDate}</span></div>
           <div className="schedule-delay-buttons" aria-label="快速调整日期">{[1, 3, 7].map((days) => <button type="button" className="button secondary" key={days} onClick={() => shiftEvent(days)}>+{days} 天</button>)}</div>
@@ -176,8 +207,8 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
             { value: 'future', label: '本次及后续周期', description: '后续计划整体按相同天数顺延' },
           ]} value={rescheduleScope} onChange={(value) => setRescheduleScope(value as ChemotherapyRescheduleScope)} />
         </div>}
-        <HistoryCombobox label="医院" value={form.hospital} onChange={(value) => set('hospital', value)} options={hospitalHistory} placeholder="输入或选择历史医院" />
-        <HistoryCombobox label="科室" value={form.department} onChange={(value) => set('department', value)} options={departmentHistory} placeholder="输入或选择历史科室" />
+        {!isBodyMeasurement && !isTreatmentDiary && <HistoryCombobox label="医院" value={form.hospital} onChange={(value) => set('hospital', value)} options={hospitalHistory} placeholder="输入或选择历史医院" />}
+        {!isBodyMeasurement && !isTreatmentDiary && <HistoryCombobox label="科室" value={form.department} onChange={(value) => set('department', value)} options={departmentHistory} placeholder="输入或选择历史科室" />}
         {isTreatmentEvent && <>
           <HistoryCombobox
             label="治疗方案"
@@ -198,7 +229,21 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
           <label>周期编号<input type="number" min="1" value={form.cycleNumber} onChange={(e) => set('cycleNumber', e.target.value)} /></label>
           <label>{event?.chemotherapyCourseId ? '周期 Day 1（自动）' : 'Day 1'}<input type="date" value={form.cycleDayOne} readOnly={Boolean(event?.chemotherapyCourseId)} onChange={(e) => set('cycleDayOne', e.target.value)} /></label>
         </>}
-        <label className="full-width">备注<textarea rows={3} value={form.notes} onChange={(e) => set('notes', e.target.value)} /></label>
+        {isBodyMeasurement && <fieldset className="body-measurement-fields full-width">
+          <legend>身体指标</legend>
+          <p>填写当次实际测量值，至少填写一项。</p>
+          <div className="body-measurement-grid">
+            <label>身高（cm）<input type="number" inputMode="decimal" min="30" max="250" step="0.1" value={form.heightCm} onChange={(e) => set('heightCm', e.target.value)} /></label>
+            <label>体重（kg）<input type="number" inputMode="decimal" min="1" max="500" step="0.1" value={form.weightKg} onChange={(e) => set('weightKg', e.target.value)} /></label>
+            <label>体温（℃）<input type="number" inputMode="decimal" min="30" max="45" step="0.1" value={form.temperatureC} onChange={(e) => set('temperatureC', e.target.value)} /></label>
+            <label>心率（次/分）<input type="number" inputMode="numeric" min="20" max="250" step="1" value={form.heartRateBpm} onChange={(e) => set('heartRateBpm', e.target.value)} /></label>
+            <label>收缩压（mmHg）<input type="number" inputMode="numeric" min="40" max="300" step="1" value={form.systolicBp} onChange={(e) => set('systolicBp', e.target.value)} /></label>
+            <label>舒张压（mmHg）<input type="number" inputMode="numeric" min="20" max="200" step="1" value={form.diastolicBp} onChange={(e) => set('diastolicBp', e.target.value)} /></label>
+            <label>血氧（%）<input type="number" inputMode="decimal" min="50" max="100" step="0.1" value={form.oxygenSaturationPercent} onChange={(e) => set('oxygenSaturationPercent', e.target.value)} /></label>
+          </div>
+        </fieldset>}
+        {isTreatmentDiary && <label className="full-width">这一阶段的治疗反应<textarea rows={5} value={form.treatmentReaction} onChange={(e) => set('treatmentReaction', e.target.value)} placeholder="例如：前两天乏力、食欲下降，第 4 天开始缓解；夜间睡眠尚可。" /></label>}
+        <label className="full-width">{isTreatmentDiary ? '补充备注（可选）' : '备注'}<textarea rows={3} value={form.notes} onChange={(e) => set('notes', e.target.value)} /></label>
       </>}
       {error && <p className="form-error full-width" role="alert">{error}</p>}
       <div className="form-actions full-width">
@@ -360,9 +405,16 @@ export function CalendarPage() {
             {days.map((day) => {
               const dayKey = format(day, 'yyyy-MM-dd')
               const dayEvents = eventsForDay(day)
-              return <button key={dayKey} className={`day-cell${!isSameMonth(day, month) ? ' muted' : ''}${isSameDay(day, new Date()) ? ' today' : ''}${dayKey === selectedDate ? ' selected' : ''}`} onClick={() => selectDate(dayKey)}>
+              const labelEvents = selectCalendarEventLabels(dayEvents)
+              return <button
+                key={dayKey}
+                className={`day-cell${!isSameMonth(day, month) ? ' muted' : ''}${isSameDay(day, new Date()) ? ' today' : ''}${dayKey === selectedDate ? ' selected' : ''}`}
+                data-label-count={labelEvents.length}
+                onClick={() => selectDate(dayKey)}
+                aria-label={`${format(day, 'M月d日')}${dayEvents.length ? `，${dayEvents.length} 个事件` : '，无事件'}`}
+              >
                 <span className="day-number">{format(day, 'd')}</span>
-                <span className="day-events">{dayEvents.slice(0, 3).map((event) => <span key={event.id} className="event-chip" style={{ '--event-color': EVENT_TYPES[event.type].color } as React.CSSProperties}><i />{event.title}</span>)}{dayEvents.length > 3 && <small>另有 {dayEvents.length - 3} 项</small>}</span>
+                <span className="day-events" aria-hidden="true">{labelEvents.map((event) => <span key={event.id} className="event-chip" style={{ '--event-color': EVENT_TYPES[event.type].color } as React.CSSProperties}>{EVENT_TYPES[event.type].calendarLabel}</span>)}</span>
               </button>
             })}
           </div>
@@ -395,7 +447,7 @@ export function CalendarPage() {
               key={event.id}
             >
               {agendaEditMode && <label className="agenda-item-select" aria-label={`选择 ${event.title}`}><input type="checkbox" checked={selectedAgendaIds.includes(event.id)} onChange={() => setSelectedAgendaIds((current) => current.includes(event.id) ? current.filter((id) => id !== event.id) : [...current, event.id])} /></label>}
-              <button className="agenda-item" onClick={() => agendaEditMode ? setSelectedAgendaIds((current) => current.includes(event.id) ? current.filter((id) => id !== event.id) : [...current, event.id]) : openEvent(event)} style={{ '--event-color': EVENT_TYPES[event.type].color } as React.CSSProperties}><span className="agenda-marker" /><span><strong>{event.title}</strong><small>{EVENT_TYPES[event.type].label}{event.startDate !== event.endDate ? ` · ${event.startDate} 至 ${event.endDate}` : ''}</small>{event.regimen && <small>{event.regimen}</small>}</span></button>
+              <button className="agenda-item" onClick={() => agendaEditMode ? setSelectedAgendaIds((current) => current.includes(event.id) ? current.filter((id) => id !== event.id) : [...current, event.id]) : openEvent(event)} style={{ '--event-color': EVENT_TYPES[event.type].color } as React.CSSProperties}><span className="agenda-marker" /><span><strong>{event.title}</strong><small>{EVENT_TYPES[event.type].label}{event.startDate !== event.endDate ? ` · ${event.startDate} 至 ${event.endDate}` : ''}</small>{event.regimen && <small>{event.regimen}</small>}{event.type === 'bodyMeasurement' && <small className="agenda-detail">{formatBodyMeasurements(event)}</small>}{event.type === 'treatmentDiary' && event.treatmentReaction && <small className="agenda-detail">{event.treatmentReaction}</small>}</span></button>
             </SwipeableListItem>)}
           </div>
         </section>

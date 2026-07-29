@@ -30,6 +30,9 @@ vi.mock('../store/AppContext', () => ({
       event('1', 'chemotherapy'),
       event('2', 'chemotherapy'),
       event('3', 'surgery'),
+      event('body', 'bodyMeasurement'),
+      event('diary', 'treatmentDiary'),
+      event('medication', 'medication'),
       { ...event('linked-exam', 'examination'), startDate: currentDate, endDate: currentDate, linkedRecordIds: ['record-1'] },
       { ...event('historic-exam', 'examination'), startDate: previousMonthDate, endDate: previousMonthDate, linkedRecordIds: ['record-2'] },
     ],
@@ -88,6 +91,17 @@ describe('calendar event filter', () => {
     expect(surgery).toHaveAttribute('aria-checked', 'true')
     fireEvent.click(screen.getByRole('button', { name: '完成' }))
     expect(screen.getByRole('button', { name: /已选 2 类/ })).toBeInTheDocument()
+  })
+
+  it('shows at most four compact labels and prioritizes distinct event types', () => {
+    render(<MemoryRouter><CalendarPage /></MemoryRouter>)
+    const eventDay = screen.getByRole('button', { name: '7月22日，6 个事件' })
+    const labels = Array.from(eventDay.querySelectorAll('.event-chip')).map((label) => label.textContent)
+
+    expect(labels).toEqual(['化疗', '手术', '身体', '日记'])
+    expect(labels).toHaveLength(4)
+    expect(eventDay).toHaveAttribute('data-label-count', '4')
+    expect(screen.getByRole('button', { name: '7月21日，无事件' })).toHaveAttribute('data-label-count', '0')
   })
 
   it('opens the linked examination record from the agenda', () => {
@@ -226,6 +240,50 @@ describe('calendar event filter', () => {
     expect(screen.queryByRole('option', { name: /21 天测试方案/ })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('option', { name: /放疗模板/ }))
     expect(regimenInput).toHaveValue('放疗模板')
+  })
+
+  it('creates a structured body measurement record', async () => {
+    render(<MemoryRouter><CalendarPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: '新建事件' }))
+    fireEvent.click(screen.getByRole('button', { name: /事件类型：化疗/ }))
+    fireEvent.click(screen.getByRole('radio', { name: '身体记录' }))
+
+    expect(screen.queryByRole('textbox', { name: '标题' })).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole('spinbutton', { name: '身高（cm）' }), { target: { value: '171.5' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: '体重（kg）' }), { target: { value: '63.2' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: '收缩压（mmHg）' }), { target: { value: '118' } })
+    fireEvent.change(screen.getByRole('spinbutton', { name: '舒张压（mmHg）' }), { target: { value: '76' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存事件' }))
+
+    await waitFor(() => expect(saveEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'bodyMeasurement',
+      title: '身体记录',
+      bodyMeasurements: expect.objectContaining({
+        heightCm: 171.5,
+        weightKg: 63.2,
+        systolicBp: 118,
+        diastolicBp: 76,
+      }),
+    })))
+    const saved = (saveEvent.mock.calls[0] as unknown as [TreatmentEvent])[0]
+    expect(saved.endDate).toBe(saved.startDate)
+  })
+
+  it('creates a treatment diary covering a date range', async () => {
+    render(<MemoryRouter><CalendarPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: '新建事件' }))
+    fireEvent.click(screen.getByRole('button', { name: /事件类型：化疗/ }))
+    fireEvent.click(screen.getByRole('radio', { name: '治疗日记' }))
+
+    fireEvent.change(screen.getByRole('textbox', { name: '治疗阶段 / 标题' }), { target: { value: '化疗后第 1 周' } })
+    fireEvent.change(screen.getByRole('textbox', { name: '这一阶段的治疗反应' }), { target: { value: '前两天乏力，第 4 天开始缓解。' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存事件' }))
+
+    await waitFor(() => expect(saveEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'treatmentDiary',
+      title: '化疗后第 1 周',
+      treatmentReaction: '前两天乏力，第 4 天开始缓解。',
+    })))
   })
 
   it('confirms event deletion with the shared bottom sheet', async () => {

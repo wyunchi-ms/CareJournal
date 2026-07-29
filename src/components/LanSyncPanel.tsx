@@ -1,5 +1,6 @@
 import { ArrowRightLeft, CheckCircle2, Laptop, LoaderCircle, RefreshCw, ShieldCheck, Smartphone, Wifi, WifiOff, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { SettingsCollapsibleCard } from './SettingsCollapsibleCard'
 import { useApp } from '../store/AppContext'
 import { createLanCryptoIdentity, decryptLanSnapshot, encryptLanSnapshot, snapshotEntityCount, type LanCryptoIdentity } from '../services/lanSync'
 import { lanSyncTransport, type IncomingLanRequest, type LanPeer, type LanServiceInfo } from '../services/lanSyncTransport'
@@ -21,6 +22,7 @@ function summaryText(summary: Awaited<ReturnType<ReturnType<typeof useApp>['merg
 
 export function LanSyncPanel() {
   const { createLanSnapshot, mergeLanSnapshot } = useApp()
+  const [expanded, setExpanded] = useState(false)
   const [active, setActive] = useState(false)
   const [starting, setStarting] = useState(false)
   const [info, setInfo] = useState<LanServiceInfo | null>(null)
@@ -122,12 +124,15 @@ export function LanSyncPanel() {
   }
 
   return <>
-    <section className="settings-section card lan-sync-section">
-      <div className="settings-heading">
-        <span className="settings-icon"><Wifi /></span>
-        <div><h2>局域网同步</h2><p>手机与手机、手机与网页可在同一 Wi-Fi 下双向合并。</p></div>
-      </div>
-      <div className="lan-security-note"><ShieldCheck /><span>无需配对码，设备间会自动协商临时密钥并加密传输；不会同步 Azure OpenAI 配置和 OCR 队列。</span></div>
+    <SettingsCollapsibleCard
+      className="lan-sync-section"
+      icon={<Wifi />}
+      title="局域网同步"
+      summary={active ? `已开启 · ${peers.length ? `${peers.length} 台设备可用` : '等待发现设备'}` : '未开启 · 同一 Wi-Fi 双向合并'}
+      expanded={expanded}
+      onToggle={() => setExpanded((value) => !value)}
+    >
+      <div className="lan-security-note"><ShieldCheck /><span>无需配对码，设备间会自动协商临时密钥并加密传输；不会同步 LLM 配置和 OCR 队列。</span></div>
 
       {!active ? <button type="button" className="button primary lan-start-button" disabled={starting} onClick={() => void start()}>
         {starting ? <LoaderCircle className="spin" /> : <Wifi />}{starting ? '正在开启…' : '开启局域网同步'}
@@ -153,7 +158,7 @@ export function LanSyncPanel() {
         {status.tone === 'success' && <CheckCircle2 />}
         {status.message}
       </p>
-    </section>
+    </SettingsCollapsibleCard>
 
     {selectedPeer && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedPeer(null) }}>
       <section className="lan-sync-sheet" role="dialog" aria-modal="true" aria-labelledby="lan-sync-title">

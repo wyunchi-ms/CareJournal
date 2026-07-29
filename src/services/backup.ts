@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core'
 import { Directory, Filesystem } from '@capacitor/filesystem'
-import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, ExamRecord, MediaAsset, ReimbursementPlan, TreatmentEvent } from '../types'
+import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, ExamRecord, LlmProviderId, LlmProviderSettings, MediaAsset, ReimbursementPlan, TreatmentEvent } from '../types'
 import { materializeNativeStoredImage } from './imageStorage'
 import { compactRecordMedia, compactReimbursementMedia, reconcileMediaCatalog } from './mediaAssets'
 
@@ -46,6 +46,13 @@ export async function exportBackup(events: TreatmentEvent[], chemotherapyTemplat
     delete portable.localUri
     portableAssets.push(portable)
   }
+  const portableProviders = Object.fromEntries(
+    Object.entries(preferences.llm.providers).map(([id, settings]) => {
+      const portable = { ...(settings as LlmProviderSettings) } as Partial<LlmProviderSettings>
+      delete portable.apiKey
+      return [id, portable]
+    }),
+  ) as Partial<Record<LlmProviderId, Omit<LlmProviderSettings, 'apiKey'>>>
   const payload: BackupPayload = {
     version: 2,
     exportedAt: new Date().toISOString(),
@@ -60,10 +67,12 @@ export async function exportBackup(events: TreatmentEvent[], chemotherapyTemplat
       darkMode: preferences.darkMode,
       chartIndicatorOrder: preferences.chartIndicatorOrder,
       chartPinnedIndicatorCodes: preferences.chartPinnedIndicatorCodes,
-      azure: { ...preferences.azure, apiKey: undefined } as Omit<AppPreferences['azure'], 'apiKey'>,
+      llm: {
+        activeProvider: preferences.llm.activeProvider,
+        providers: portableProviders,
+      },
     },
   }
-  delete (payload.preferences.azure as Partial<AppPreferences['azure']>).apiKey
   const salt = crypto.getRandomValues(new Uint8Array(16))
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const key = await deriveKey(password, salt)

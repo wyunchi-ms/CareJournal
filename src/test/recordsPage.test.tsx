@@ -47,7 +47,7 @@ const records = [
   record('1', '实验室检验'),
   record('2', '实验室检验报告'),
   { ...record('3', 'MRI'), sampleDate: '2026-06-12' },
-  { ...record('4', 'CT'), sampleDate: '2025-12-30' },
+  { ...record('4', 'CT'), sampleDate: '2025-12-30', hospital: '历史医院' },
 ]
 
 vi.mock('../store/AppContext', () => ({
@@ -75,8 +75,8 @@ describe('record type filter', () => {
     expect(importLink).toHaveClass('icon-button')
     expect(document.querySelector('.records-toolbar')).toContainElement(importLink)
     expect(within(importLink).queryByText('导入报告')).not.toBeInTheDocument()
-    const filterButton = screen.getByRole('button', { name: /检查类型：全部类型/ })
-    expect(filterButton.querySelector('.choice-picker-summary')).not.toBeInTheDocument()
+    const filterButton = screen.getByRole('button', { name: '筛选检查记录：全部记录' })
+    expect(filterButton.querySelector('.record-filter-count')).not.toBeInTheDocument()
     expect(screen.queryByRole('checkbox', { name: '只看异常' })).not.toBeInTheDocument()
     expect(document.querySelector('.records-grid')).not.toBeInTheDocument()
     expect(document.querySelector('.page-header .eyebrow')).not.toBeInTheDocument()
@@ -91,9 +91,30 @@ describe('record type filter', () => {
     expect(mri).toHaveAttribute('aria-checked', 'true')
 
     fireEvent.click(screen.getByRole('button', { name: '完成' }))
-    expect(screen.getByRole('button', { name: /已选 2 类/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '筛选检查记录：已选 2 个条件' })).toBeInTheDocument()
     expect(screen.getByText('显示 3 条')).toBeInTheDocument()
     expect(screen.queryByText('CT', { selector: '.record-main strong' })).not.toBeInTheDocument()
+  })
+
+  it('filters by hospital and keeps the fixed action bar outside the scrolling list', () => {
+    render(<MemoryRouter><RecordsPage /></MemoryRouter>)
+
+    fireEvent.click(screen.getByRole('button', { name: '筛选检查记录：全部记录' }))
+    const dialog = screen.getByRole('dialog', { name: '筛选检查记录' })
+    const scroll = dialog.querySelector<HTMLElement>('.record-filter-scroll')
+    const footer = dialog.querySelector<HTMLElement>('.record-filter-footer')
+    expect(scroll).toBeInTheDocument()
+    expect(footer).toBeInTheDocument()
+    expect(scroll).not.toContainElement(footer)
+
+    fireEvent.click(within(dialog).getByRole('tab', { name: '医院' }))
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /历史医院.*1 份记录/ }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '完成' }))
+
+    expect(screen.getByText('医院：历史医院')).toBeInTheDocument()
+    expect(screen.getByText('显示 1 条')).toBeInTheDocument()
+    expect(screen.getByText('CT', { selector: '.record-main strong' })).toBeInTheDocument()
+    expect(screen.queryByText('实验室检查', { selector: '.record-main strong' })).not.toBeInTheDocument()
   })
 
   it('groups records by year, month and day and exposes a date fast scroller', () => {

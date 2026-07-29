@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mergeRecognizedRecord, recognizeReport, recognizeReportText, toDomainRecords } from '../services/ocr'
-import type { AzureSettings, DynamicVocabulary, ExamRecord, StoredImage } from '../types'
+import type { DynamicVocabulary, ExamRecord, LlmSettings, StoredImage } from '../types'
 
 const image: StoredImage = {
   id: 'image-1',
@@ -10,12 +10,16 @@ const image: StoredImage = {
   sha256: 'hash-1',
 }
 
-const settings: AzureSettings = {
-  endpoint: 'https://example-resource.openai.azure.com/openai/v1',
-  apiKey: 'test-key',
-  deployment: 'test-deployment',
-  apiVersion: '2024-12-01-preview',
-  maxRetries: 1,
+const settings: LlmSettings = {
+  activeProvider: 'azure-openai',
+  providers: {
+    'azure-openai': {
+      endpoint: 'https://example-resource.openai.azure.com/openai/v1',
+      apiKey: 'test-key',
+      model: 'test-deployment',
+      maxRetries: 1,
+    },
+  },
 }
 
 afterEach(() => vi.restoreAllMocks())
@@ -32,6 +36,7 @@ describe('recognizeReport', () => {
 
     const request = fetchMock.mock.calls[0]
     const proxyBody = JSON.parse(String((request[1] as RequestInit).body)) as {
+      provider: string
       url: string
       payload: {
         messages: Array<{ content: string | Array<{ type: string; text?: string }> }>
@@ -61,6 +66,7 @@ describe('recognizeReport', () => {
         }
       }
     }
+    expect(proxyBody.provider).toBe('azure-openai')
     expect(proxyBody.url).toBe('https://example-resource.openai.azure.com/openai/v1/chat/completions')
     const userContent = proxyBody.payload.messages[1].content
     expect(Array.isArray(userContent) ? userContent.filter((item) => item.type === 'image_url') : []).toHaveLength(1)
@@ -99,6 +105,40 @@ describe('recognizeReport', () => {
     expect(userContent).toContain('<report_text>')
     expect(userContent).toContain('不得猜测或补全')
     expect(JSON.stringify(userContent)).not.toContain('image_url')
+  })
+
+  it('uses the selected OpenAI-compatible provider and its single model', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: '```json\n{"records":[]}\n```' } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const deepseek: LlmSettings = {
+      activeProvider: 'deepseek',
+      providers: {
+        deepseek: {
+          endpoint: 'https://api.deepseek.com/v1',
+          apiKey: 'deepseek-key',
+          model: 'deepseek-chat',
+          maxRetries: 1,
+        },
+      },
+    }
+
+    await expect(recognizeReportText('血红蛋白 132 g/L', '报告.txt', deepseek)).resolves.toEqual({ records: [] })
+
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)) as {
+      provider: string
+      url: string
+      payload: { model: string; response_format: { type: string }; max_tokens: number }
+    }
+    expect(body).toMatchObject({
+      provider: 'deepseek',
+      url: 'https://api.deepseek.com/v1/chat/completions',
+      payload: {
+        model: 'deepseek-chat',
+        response_format: { type: 'json_object' },
+        max_tokens: 10000,
+      },
+    })
   })
 })
 

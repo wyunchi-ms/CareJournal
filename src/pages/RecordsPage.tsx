@@ -1,6 +1,6 @@
 import { format, parseISO } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
-import { FileImage, FileText, FileUp, ListFilter, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
+import { FileImage, FileText, FileUp, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChoicePicker } from '../components/ChoicePicker'
@@ -10,6 +10,7 @@ import { HistoryCombobox } from '../components/HistoryCombobox'
 import { Modal } from '../components/Modal'
 import { ImagePreview } from '../components/ImagePreview'
 import { PdfPreview } from '../components/PdfPreview'
+import { RecordFilterPicker } from '../components/RecordFilterPicker'
 import { RecordSummaryContent } from '../components/RecordSummaryContent'
 import { SwipeableListItem } from '../components/SwipeableListItem'
 import { INDICATORS, normalizeIndicator } from '../data/indicatorAliases'
@@ -163,7 +164,7 @@ function RecordEditForm({ record, onCancel, onSaved }: { record: ExamRecord; onC
       <div className="form-grid">
         <ChoicePicker label="标准报告类型" options={REPORT_TYPES.map((item) => ({ value: item.label, label: item.label }))} value={form.normalizedReportType} onChange={(value) => set('normalizedReportType', value as string)} />
         <label>医院原报告名称<input value={form.reportType} onChange={(event) => set('reportType', event.target.value)} placeholder="例如：血细胞分析报告" /></label>
-        <label>采样／检查日期（可选）<input type="date" value={form.sampleDate} onChange={(event) => set('sampleDate', event.target.value)} /></label>
+        <label>检查日期<input type="date" value={form.sampleDate} onChange={(event) => set('sampleDate', event.target.value)} /></label>
         <HistoryCombobox label="医院" value={form.hospital} onChange={(value) => set('hospital', value)} options={vocabulary.hospitals} placeholder="输入或选择历史医院" />
         <HistoryCombobox label="科室" value={form.department} onChange={(value) => set('department', value)} options={vocabulary.departments} placeholder="输入或选择历史科室" />
         <label className="full-width">报告结论<textarea rows={4} value={form.summary} onChange={(event) => set('summary', event.target.value)} placeholder="填写报告中的结论或描述" /></label>
@@ -230,7 +231,7 @@ function RecordDetail({ record, onClose, onEdit, onRecognized }: { record: ExamR
   }
 
   return <div className="record-detail">
-    <div className="detail-summary"><div><span>采样／检查日期</span><strong>{record.sampleDate || '日期未识别'}</strong></div><div><span>医院</span><strong title={record.hospital || '未记录'}>{record.hospital || '未记录'}</strong></div></div>
+    <div className="detail-summary"><div><span>检查日期</span><strong>{record.sampleDate || '日期未识别'}</strong></div><div><span>医院</span><strong title={record.hospital || '未记录'}>{record.hospital || '未记录'}</strong></div></div>
     <section><div className="record-section-heading"><h3>指标明细 <small>{record.indicators.length} 项</small></h3><button type="button" className="icon-button edit-report-button" onClick={onEdit} aria-label="编辑报告" title="编辑报告"><Pencil /></button></div>{record.indicators.length ? <div className="indicator-table-wrap"><table className="indicator-table"><thead><tr><th>指标</th><th>结果</th><th>参考范围</th></tr></thead><tbody>{record.indicators.map((item) => <tr key={item.id} className={`indicator-row ${item.abnormalFlag}`} aria-label={`${item.normalizedName}，${flagLabel(item) || '状态未标记'}`}><td title={item.rawName !== item.normalizedName ? `医院原始名称：${item.rawName}` : undefined}><strong>{item.normalizedName}{item.unit && <span className="indicator-unit">（{item.unit}）</span>}</strong></td><td><strong>{resultText(item)}</strong><span className="sr-only">{flagLabel(item)}</span></td><td>{item.referenceText || [item.referenceLow, item.referenceHigh].filter((value) => value !== null).join('–') || '—'}</td></tr>)}</tbody></table></div> : <p className="muted-text">这份报告没有结构化数值指标。</p>}</section>
     {record.images.length > 0 && <section><h3>原始文件</h3><div className="image-gallery">{record.images.map((image) => {
       const source = storedImageSource(image)
@@ -274,6 +275,7 @@ export function RecordsPage() {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query.trim().toLowerCase())
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
+  const [selectedHospitals, setSelectedHospitals] = useState<string[]>([])
   const [selected, setSelected] = useState<ExamRecord | null>(() =>
     requestedRecordId ? records.find((record) => record.id === requestedRecordId) ?? null : null)
   const [editing, setEditing] = useState(false)
@@ -295,12 +297,24 @@ export function RecordsPage() {
     return [...groups.entries()].map(([label, value]) => ({ label, count: value.count, aliases: [...value.aliases].sort() })).sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'))
   }, [records])
 
+  const hospitalGroups = useMemo(() => {
+    const groups = new Map<string, number>()
+    records.forEach((record) => {
+      const hospital = record.hospital?.trim()
+      if (hospital) groups.set(hospital, (groups.get(hospital) ?? 0) + 1)
+    })
+    return [...groups.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'))
+  }, [records])
+
   const filtered = useMemo(() => records.filter((record) => {
     const normalizedType = recordDisplayType(record)
     if (selectedTypes.length && !selectedTypes.includes(normalizedType)) return false
+    if (selectedHospitals.length && !selectedHospitals.includes(record.hospital?.trim() ?? '')) return false
     if (deferredQuery && ![normalizedType, record.reportType, record.hospital, record.department, record.summary, ...record.indicators.map((item) => item.rawName)].filter(Boolean).join(' ').toLowerCase().includes(deferredQuery)) return false
     return true
-  }).sort((a, b) => b.sampleDate.localeCompare(a.sampleDate)), [records, selectedTypes, deferredQuery])
+  }).sort((a, b) => b.sampleDate.localeCompare(a.sampleDate)), [records, selectedTypes, selectedHospitals, deferredQuery])
 
   const dateGroups = useMemo(() => {
     const groups = new Map<string, ExamRecord[]>()
@@ -313,6 +327,7 @@ export function RecordsPage() {
   }, [filtered])
 
   const toggleType = (label: string) => setSelectedTypes((current) => current.includes(label) ? current.filter((item) => item !== label) : [...current, label])
+  const toggleHospital = (label: string) => setSelectedHospitals((current) => current.includes(label) ? current.filter((item) => item !== label) : [...current, label])
 
   function closeRecordDetail() {
     setSelected(null)
@@ -350,10 +365,21 @@ export function RecordsPage() {
   return <>
     {records.length > 0 && <section className="toolbar card compact records-toolbar">
       <label className="search-box"><Search /><span className="sr-only">搜索记录</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索医院、报告或指标" /></label>
-      <ChoicePicker compact iconOnly label="检查类型" icon={<ListFilter />} multiple allLabel="全部类型" selectionNoun="类" options={typeGroups.map((group) => ({ value: group.label, label: group.label, description: `${group.count} 份记录${group.aliases.some((alias) => alias !== group.label) ? ` · 原名称：${group.aliases.join('、')}` : ''}` }))} value={selectedTypes} onChange={(value) => setSelectedTypes(value as string[])} emptyText="暂无检查类型" />
+      <RecordFilterPicker
+        typeOptions={typeGroups.map((group) => ({ value: group.label, label: group.label, description: `${group.count} 份记录${group.aliases.some((alias) => alias !== group.label) ? ` · 原名称：${group.aliases.join('、')}` : ''}` }))}
+        hospitalOptions={hospitalGroups.map((group) => ({ value: group.label, label: group.label, description: `${group.count} 份记录` }))}
+        selectedTypes={selectedTypes}
+        selectedHospitals={selectedHospitals}
+        onTypesChange={setSelectedTypes}
+        onHospitalsChange={setSelectedHospitals}
+      />
       <Link className="icon-button records-import-button" to="/import" aria-label="导入报告" title="导入报告"><FileUp /></Link>
     </section>}
-    {records.length > 0 && selectedTypes.length > 0 && <div className="active-filter-row" aria-label="已选检查类型">{selectedTypes.map((type) => <button key={type} type="button" className="filter-chip" onClick={() => toggleType(type)} aria-label={`移除筛选：${type}`}><span>{type}</span><X /></button>)}<button type="button" className="text-button" onClick={() => setSelectedTypes([])}>清除全部</button></div>}
+    {records.length > 0 && (selectedTypes.length > 0 || selectedHospitals.length > 0) && <div className="active-filter-row" aria-label="已选筛选条件">
+      {selectedTypes.map((type) => <button key={`type:${type}`} type="button" className="filter-chip" onClick={() => toggleType(type)} aria-label={`移除类型筛选：${type}`}><span>类型：{type}</span><X /></button>)}
+      {selectedHospitals.map((hospital) => <button key={`hospital:${hospital}`} type="button" className="filter-chip hospital" onClick={() => toggleHospital(hospital)} aria-label={`移除医院筛选：${hospital}`}><span>医院：{hospital}</span><X /></button>)}
+      <button type="button" className="text-button" onClick={() => { setSelectedTypes([]); setSelectedHospitals([]) }}>清除全部</button>
+    </div>}
     {listEditMode && <div className="list-edit-toolbar records-edit-toolbar" aria-label="批量管理检查记录">
       <label className="selection-control"><input type="checkbox" checked={filtered.length > 0 && filtered.every((record) => selectedRecordIds.includes(record.id))} onChange={(event) => setSelectedRecordIds(event.target.checked ? filtered.map((record) => record.id) : [])} /><span>全选</span></label>
       <span>已选 {selectedRecordIds.length} 项</span>

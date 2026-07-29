@@ -113,4 +113,30 @@ describe('unified media asset catalog', () => {
     expect(result.reimbursementPlans[0].materials[0].attachments).toHaveLength(1)
     expect(result.duplicateReimbursementAttachmentsRemoved).toBe(1)
   })
+
+  it('prunes a re-encoded visual duplicate and its unreferenced asset', () => {
+    const pixels = new Uint8Array(48 * 96).fill(180)
+    const visualFingerprint = `v1:414x2200:${btoa(String.fromCharCode(...pixels))}`
+    const original = image({ sha256: 'legacy-hash', visualFingerprint })
+    const reencoded = image({
+      id: 'reencoded',
+      name: 'renamed-copy.jpg',
+      sha256: 'file-hash',
+      visualFingerprint,
+      storagePath: 'report-images/file-hash.jpg',
+      localUri: 'file:///private/report-images/file-hash.jpg',
+    })
+
+    const result = reconcileMediaCatalog(
+      [record([original, reencoded])],
+      [],
+      [],
+      [],
+      { pruneUnused: true },
+    )
+
+    expect(result.records[0].images).toHaveLength(1)
+    expect(result.assets).toHaveLength(1)
+    expect(result.duplicateRecordImagesRemoved).toBe(1)
+  })
 })

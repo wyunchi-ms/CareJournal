@@ -2,6 +2,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core'
 import type { StoredImage } from '../types'
 import { newId } from '../types'
 import { materializeNativeStoredImage } from './imageStorage'
+import { ensureStoredImageVisualFingerprint } from './images'
 
 export interface FolderImageSource {
   uri: string
@@ -67,5 +68,5 @@ export async function materializeStoredImage(image: StoredImage): Promise<Stored
   }
   if (!image.sourceUri || !canImportAndroidFolder()) throw new Error('图片内容不可用，请重新选择原文件或文件夹')
   const loaded = await FolderImport.loadImage({ uri: image.sourceUri })
-  return { ...image, ...loaded }
+  return ensureStoredImageVisualFingerprint({ ...image, ...loaded })
 }

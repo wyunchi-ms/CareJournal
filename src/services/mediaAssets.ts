@@ -10,6 +10,7 @@ export interface MediaCatalogResult {
   changedJobs: OcrQueueItem[]
   reimbursementPlans: ReimbursementPlan[]
   changedReimbursementPlans: ReimbursementPlan[]
+  removedAssetIds: string[]
   duplicateRecordImagesRemoved: number
   duplicateReimbursementAttachmentsRemoved: number
 }
@@ -19,6 +20,7 @@ const assetFields = (image: StoredImage) => ({
   mimeType: image.mimeType,
   dataUrl: image.dataUrl,
   sha256: image.sha256,
+  visualFingerprint: image.visualFingerprint,
   storagePath: image.storagePath,
   localUri: image.localUri,
   sourceUri: image.sourceUri,
@@ -56,6 +58,7 @@ function hydrateReference<T extends StoredImage>(image: T, asset: MediaAsset): T
   const assetId = asset.id
   const dataUrl = image.dataUrl || asset.dataUrl
   const sha256 = image.sha256 || asset.sha256
+  const visualFingerprint = image.visualFingerprint || asset.visualFingerprint
   const storagePath = image.storagePath || asset.storagePath
   const localUri = image.localUri || asset.localUri
   const sourceUri = image.sourceUri || asset.sourceUri
@@ -64,6 +67,7 @@ function hydrateReference<T extends StoredImage>(image: T, asset: MediaAsset): T
     image.assetId === assetId
     && image.dataUrl === dataUrl
     && image.sha256 === sha256
+    && image.visualFingerprint === visualFingerprint
     && image.storagePath === storagePath
     && image.localUri === localUri
     && image.sourceUri === sourceUri
@@ -74,6 +78,7 @@ function hydrateReference<T extends StoredImage>(image: T, asset: MediaAsset): T
     assetId,
     dataUrl,
     sha256,
+    visualFingerprint,
     storagePath,
     localUri,
     sourceUri,
@@ -112,6 +117,7 @@ export function reconcileMediaCatalog(
   jobs: OcrQueueItem[],
   reimbursementPlans: ReimbursementPlan[],
   existingAssets: MediaAsset[] = [],
+  options: { pruneUnused?: boolean } = {},
 ): MediaCatalogResult {
   const now = new Date().toISOString()
   const originalAssets = new Map(existingAssets.map((asset) => [asset.id, asset]))
@@ -167,8 +173,24 @@ export function reconcileMediaCatalog(
     return next
   })
 
-  const nextAssets = [...assets.values()]
+  const referencedAssetIds = new Set<string>()
+  for (const record of nextRecords) {
+    for (const image of record.images) if (image.assetId) referencedAssetIds.add(image.assetId)
+  }
+  for (const job of nextJobs) if (job.image.assetId) referencedAssetIds.add(job.image.assetId)
+  for (const plan of nextPlans) {
+    for (const material of plan.materials) {
+      for (const attachment of material.attachments) {
+        if (attachment.assetId) referencedAssetIds.add(attachment.assetId)
+      }
+    }
+  }
+  const nextAssets = [...assets.values()].filter((asset) => !options.pruneUnused || referencedAssetIds.has(asset.id))
   const changedAssets = nextAssets.filter((asset) => originalAssets.get(asset.id) !== asset)
+  const nextAssetIds = new Set(nextAssets.map((asset) => asset.id))
+  const removedAssetIds = options.pruneUnused
+    ? existingAssets.filter((asset) => !nextAssetIds.has(asset.id)).map((asset) => asset.id)
+    : []
   return {
     assets: nextAssets,
     changedAssets,
@@ -178,6 +200,7 @@ export function reconcileMediaCatalog(
     changedJobs,
     reimbursementPlans: nextPlans,
     changedReimbursementPlans,
+    removedAssetIds,
     duplicateRecordImagesRemoved,
     duplicateReimbursementAttachmentsRemoved,
   }

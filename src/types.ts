@@ -1,18 +1,30 @@
 export const EVENT_TYPES = {
-  surgery: { label: '手术', color: '#e45756' },
-  hospitalization: { label: '住院', color: '#4c78a8' },
-  chemotherapy: { label: '化疗', color: '#7a5af8' },
-  radiotherapy: { label: '放疗', color: '#f59e0b' },
-  targeted: { label: '靶向治疗', color: '#0f9d8a' },
-  immunotherapy: { label: '免疫治疗', color: '#0891b2' },
-  medication: { label: '用药', color: '#64748b' },
-  appointment: { label: '门诊复诊', color: '#2563eb' },
-  examination: { label: '检验检查', color: '#16a34a' },
-  adverseReaction: { label: '不良反应', color: '#dc2626' },
-  other: { label: '其他', color: '#6b7280' },
+  surgery: { label: '手术', calendarLabel: '手术', color: '#e45756' },
+  hospitalization: { label: '住院', calendarLabel: '住院', color: '#4c78a8' },
+  chemotherapy: { label: '化疗', calendarLabel: '化疗', color: '#7a5af8' },
+  radiotherapy: { label: '放疗', calendarLabel: '放疗', color: '#f59e0b' },
+  targeted: { label: '靶向治疗', calendarLabel: '靶向', color: '#0f9d8a' },
+  immunotherapy: { label: '免疫治疗', calendarLabel: '免疫', color: '#0891b2' },
+  medication: { label: '用药', calendarLabel: '用药', color: '#64748b' },
+  appointment: { label: '门诊复诊', calendarLabel: '复诊', color: '#2563eb' },
+  examination: { label: '检验检查', calendarLabel: '检查', color: '#16a34a' },
+  adverseReaction: { label: '不良反应', calendarLabel: '反应', color: '#dc2626' },
+  bodyMeasurement: { label: '身体记录', calendarLabel: '身体', color: '#0e7490' },
+  treatmentDiary: { label: '治疗日记', calendarLabel: '日记', color: '#a53f75' },
+  other: { label: '其他', calendarLabel: '其他', color: '#6b7280' },
 } as const
 
 export type EventType = keyof typeof EVENT_TYPES
+
+export interface BodyMeasurements {
+  heightCm?: number
+  weightKg?: number
+  temperatureC?: number
+  systolicBp?: number
+  diastolicBp?: number
+  heartRateBpm?: number
+  oxygenSaturationPercent?: number
+}
 
 export interface TreatmentEvent {
   id: string
@@ -34,6 +46,8 @@ export interface TreatmentEvent {
   chemotherapyCycleId?: string
   administrationDay?: number
   plannedStartDate?: string
+  bodyMeasurements?: BodyMeasurements
+  treatmentReaction?: string
   notes?: string
   tags: string[]
   linkedRecordIds: string[]
@@ -130,6 +144,8 @@ export interface StoredImage {
   mimeType: string
   dataUrl: string
   sha256: string
+  /** Decoded-pixel fingerprint used to match lightly re-encoded copies. */
+  visualFingerprint?: string
   storagePath?: string
   localUri?: string
   sourceUri?: string
@@ -143,6 +159,7 @@ export interface MediaAsset {
   mimeType: string
   dataUrl: string
   sha256: string
+  visualFingerprint?: string
   storagePath?: string
   localUri?: string
   sourceUri?: string
@@ -265,16 +282,44 @@ export interface ChartPin {
   createdAt: string
 }
 
-export interface AzureSettings {
+export const LLM_PROVIDER_IDS = [
+  'azure-openai',
+  'openai',
+  'deepseek',
+  'kimi',
+  'doubao',
+  'qwen',
+  'gemini',
+  'minimax',
+  'glm',
+  'openrouter',
+  'openai-compatible',
+] as const
+
+export type LlmProviderId = typeof LLM_PROVIDER_IDS[number]
+
+export interface LlmProviderSettings {
+  endpoint: string
+  apiKey: string
+  model: string
+  maxRetries: number
+}
+
+export interface LlmSettings {
+  activeProvider: LlmProviderId
+  providers: Partial<Record<LlmProviderId, LlmProviderSettings>>
+}
+
+export interface LegacyAzureSettings {
   endpoint: string
   apiKey: string
   deployment: string
-  apiVersion: string
+  apiVersion?: string
   maxRetries: number
 }
 
 export interface AppPreferences {
-  azure: AzureSettings
+  llm: LlmSettings
   localPrivacyOcrEnabled: boolean
   darkMode: boolean
   chartIndicatorOrder: string[]
@@ -327,16 +372,26 @@ export interface BackupPayload {
   records: ExamRecord[]
   pins: ChartPin[]
   reimbursementPlans?: ReimbursementPlan[]
-  preferences: Omit<AppPreferences, 'azure'> & { azure: Omit<AzureSettings, 'apiKey'> }
+  preferences: Omit<AppPreferences, 'llm'> & {
+    llm?: {
+      activeProvider: LlmProviderId
+      providers: Partial<Record<LlmProviderId, Omit<LlmProviderSettings, 'apiKey'>>>
+    }
+    azure?: Omit<LegacyAzureSettings, 'apiKey'>
+  }
 }
 
 export const DEFAULT_PREFERENCES: AppPreferences = {
-  azure: {
-    endpoint: '',
-    apiKey: '',
-    deployment: '',
-    apiVersion: '2024-10-21',
-    maxRetries: 3,
+  llm: {
+    activeProvider: 'azure-openai',
+    providers: {
+      'azure-openai': {
+        endpoint: '',
+        apiKey: '',
+        model: '',
+        maxRetries: 3,
+      },
+    },
   },
   localPrivacyOcrEnabled: false,
   darkMode: false,

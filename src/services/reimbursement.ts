@@ -1,6 +1,6 @@
 import JSZip from 'jszip'
 import { addDays, isWithinInterval, parseISO } from 'date-fns'
-import { prepareImage, sameStoredImage, sha256 } from './images'
+import { dataUrlSha256, prepareImage, sameStoredImage } from './images'
 import { materializeNativeStoredImage, persistStoredImage } from './imageStorage'
 import {
   EVENT_TYPES,
@@ -304,7 +304,7 @@ export async function prepareReimbursementAttachment(file: File, source: 'upload
     name: file.name,
     mimeType: 'application/pdf',
     dataUrl,
-    sha256: await sha256(dataUrl),
+    sha256: await dataUrlSha256(dataUrl),
   })
   return { ...persisted, source, createdAt: new Date().toISOString() }
 }

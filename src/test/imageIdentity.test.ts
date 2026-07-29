@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { deduplicateStoredImages, sameStoredImage, storedImageIdentity } from '../services/images'
+import { deduplicateStoredImages, sameStoredImage, sameVisualFingerprint, storedImageIdentity } from '../services/images'
 import type { StoredImage } from '../types'
 
 function image(overrides: Partial<StoredImage> = {}): StoredImage {
   return { id: '1', name: 'report.jpg', mimeType: 'image/jpeg', dataUrl: '', sha256: 'hash', ...overrides }
+}
+
+function visualFingerprint(value: number, changes: Array<[number, number]> = []) {
+  const bytes = new Uint8Array(48 * 96).fill(value)
+  for (const [index, next] of changes) bytes[index] = next
+  return `v1:414x2200:${btoa(String.fromCharCode(...bytes))}`
 }
 
 describe('stored image identity', () => {
@@ -28,5 +34,18 @@ describe('stored image identity', () => {
     const distinct = image({ id: 'fourth', sourceKey: 'folder-four', sha256: 'different-content' })
 
     expect(deduplicateStoredImages([first, duplicateContent, duplicateSource, distinct])).toEqual([first, distinct])
+  })
+
+  it('matches lightly re-encoded copies by decoded pixels without collapsing visibly different images', () => {
+    const original = visualFingerprint(120)
+    const reencoded = visualFingerprint(120, [[5, 121], [110, 119], [900, 121]])
+    const changedReport = visualFingerprint(120, Array.from({ length: 20 }, (_, index) => [index * 20, 135]))
+
+    expect(sameVisualFingerprint(original, reencoded)).toBe(true)
+    expect(sameVisualFingerprint(original, changedReport)).toBe(false)
+    expect(sameStoredImage(
+      image({ sha256: 'legacy-data-url-hash', visualFingerprint: original }),
+      image({ id: '2', sha256: 'reencoded-file-hash', visualFingerprint: reencoded }),
+    )).toBe(true)
   })
 })

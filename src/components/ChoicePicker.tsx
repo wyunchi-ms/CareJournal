@@ -62,21 +62,25 @@ export function ChoicePicker({ label, options, value, onChange, multiple = false
       {!iconOnly && multiple && selectedOptions.length > 0 && <span className="choice-picker-count">{selectedOptions.length}</span>}
       {!iconOnly && <ChevronDown aria-hidden="true" />}
     </button>
-    {open && <Modal title={multiple ? `${label}（可多选）` : label} onClose={() => setOpen(false)}>
-      {allLabel && <div className="choice-picker-toolbar"><p>{selectedValues.length ? `已选 ${selectedValues.length} ${selectionNoun}` : allLabel}</p><button type="button" className="text-button" onClick={() => onChange(multiple ? [] : '')}><RotateCcw />{allLabel}</button></div>}
-      <div className="choice-option-list" role="group" aria-label={label}>
-        {options.length === 0 && <p className="choice-empty">{emptyText}</p>}
-        {sortedOptions.map((option) => {
-          const checked = selectedValues.includes(option.value)
-          return <button key={option.value} type="button" role={multiple ? 'checkbox' : 'radio'} aria-checked={checked} className={`choice-option${checked ? ' selected' : ''}`} onClick={() => choose(option.value)}>
-            <span className={`choice-check${multiple ? '' : ' radio'}`} aria-hidden="true">{checked && <Check />}</span>
-            {option.color && <i className="choice-color" style={{ background: option.color }} aria-hidden="true" />}
-            <span className="choice-option-copy"><strong>{option.label}</strong>{option.description && <small>{option.description}</small>}</span>
-            {option.count !== undefined && <span className="choice-option-count" aria-label={`${option.count} 个事件`}>{option.count}</span>}
-          </button>
-        })}
+    {open && <Modal title={multiple ? `${label}（可多选）` : label} onClose={() => setOpen(false)} bodyClassName="choice-picker-modal-body">
+      <div className="choice-picker-dialog">
+        {allLabel && <div className="choice-picker-toolbar"><p>{selectedValues.length ? `已选 ${selectedValues.length} ${selectionNoun}` : allLabel}</p><button type="button" className="text-button" onClick={() => onChange(multiple ? [] : '')}><RotateCcw />{allLabel}</button></div>}
+        <div className="choice-option-scroll">
+          <div className="choice-option-list" role="group" aria-label={label}>
+            {options.length === 0 && <p className="choice-empty">{emptyText}</p>}
+            {sortedOptions.map((option) => {
+              const checked = selectedValues.includes(option.value)
+              return <button key={option.value} type="button" role={multiple ? 'checkbox' : 'radio'} aria-checked={checked} className={`choice-option${checked ? ' selected' : ''}`} onClick={() => choose(option.value)}>
+                <span className={`choice-check${multiple ? '' : ' radio'}`} aria-hidden="true">{checked && <Check />}</span>
+                {option.color && <i className="choice-color" style={{ background: option.color }} aria-hidden="true" />}
+                <span className="choice-option-copy"><strong>{option.label}</strong>{option.description && <small>{option.description}</small>}</span>
+                {option.count !== undefined && <span className="choice-option-count" aria-label={`${option.count} 个事件`}>{option.count}</span>}
+              </button>
+            })}
+          </div>
+        </div>
+        {multiple && <div className="choice-picker-footer"><span>{selectedValues.length ? `已选 ${selectedValues.length} ${selectionNoun}` : allLabel ?? '尚未选择'}</span><button className="button primary" type="button" onClick={() => setOpen(false)}>完成</button></div>}
       </div>
-      {multiple && <div className="choice-picker-footer"><span>{selectedValues.length ? `已选 ${selectedValues.length} ${selectionNoun}` : allLabel ?? '尚未选择'}</span><button className="button primary" type="button" onClick={() => setOpen(false)}>完成</button></div>}
     </Modal>}
   </div>
 }

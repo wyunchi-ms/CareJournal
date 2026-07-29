@@ -3,10 +3,11 @@ import { normalizeEntityPayload, repository } from '../db/repository'
 import { eventForRecord, mergeRecognizedRecord, recognizeReport, recognizeReportText, toDomainRecords } from '../services/ocr'
 import { materializeStoredImage } from '../services/folderImport'
 import { deduplicateStoredImages, sameStoredImage } from '../services/images'
-import { garbageCollectNativeImages, migrateLegacyNativeImages, persistRestoredRecords, persistRestoredReimbursementPlans, persistStoredImage } from '../services/imageStorage'
+import { addMissingVisualFingerprints, garbageCollectNativeImages, migrateLegacyNativeImages, persistRestoredRecords, persistRestoredReimbursementPlans, persistStoredImage } from '../services/imageStorage'
 import { compactOcrJobMedia, compactRecordMedia, compactReimbursementMedia, reconcileMediaCatalog } from '../services/mediaAssets'
 import { extractPdfText } from '../services/pdf'
 import { extractPrivacySafeText } from '../services/localPrivacyOcr'
+import { isLlmConfigured, mergePortableLlmSettings, normalizeAppPreferences } from '../services/llmProviders'
 import { sortChartPins } from '../services/chartPins'
 import { buildVocabulary } from '../services/vocabulary'
 import { keepHospitalReimbursementMaterials } from '../services/reimbursement'
@@ -122,7 +123,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         repository.list<ChemotherapyTemplate>('chemotherapyTemplate'),
         repository.list<ExamRecord>('record'),
         repository.list<ChartPin>('pin'),
-        repository.list<AppPreferences>('preferences'),
+        repository.list<unknown>('preferences'),
         repository.list<OcrQueueItem>('ocrJob'),
         repository.list<ReimbursementPlan>('reimbursementPlan'),
         repository.list<MediaAsset>('asset'),
@@ -134,14 +135,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const sortedPins = sortChartPins(loadedPins)
       pinsRef.current = sortedPins
       setPins(sortedPins)
-      if (loadedPreferences[0]) setPreferences({ ...DEFAULT_PREFERENCES, ...loadedPreferences[0], azure: { ...DEFAULT_PREFERENCES.azure, ...loadedPreferences[0].azure } })
+      if (loadedPreferences[0]) {
+        const migratedPreferences = normalizeAppPreferences(loadedPreferences[0])
+        setPreferences(migratedPreferences)
+        if (JSON.stringify(migratedPreferences) !== JSON.stringify(loadedPreferences[0])) {
+          await repository.put('preferences', 'main', migratedPreferences)
+        }
+      }
       const resumedJobs = loadedOcrJobs.map((job) => job.status === 'processing' ? { ...job, status: 'queued' as const, phase: 'waiting' as const, progress: 0, error: undefined, updatedAt: new Date().toISOString() } : job).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       const hospitalReimbursementPlans = loadedReimbursementPlans.map(keepHospitalReimbursementMaterials)
-      const catalog = reconcileMediaCatalog(loadedRecords, resumedJobs, hospitalReimbursementPlans, loadedAssets)
+      const initialCatalog = reconcileMediaCatalog(loadedRecords, resumedJobs, hospitalReimbursementPlans, loadedAssets)
+      setStartupMessage('正在识别并清理重复原始文件…')
+      const fingerprinted = await addMissingVisualFingerprints(initialCatalog.records, initialCatalog.reimbursementPlans)
+      const catalog = reconcileMediaCatalog(
+        fingerprinted.records,
+        initialCatalog.jobs,
+        fingerprinted.reimbursementPlans,
+        initialCatalog.assets,
+        { pruneUnused: true },
+      )
       const loadedRecordsById = new Map(loadedRecords.map((record) => [record.id, record]))
       const loadedJobsById = new Map(loadedOcrJobs.map((job) => [job.id, job]))
       const loadedReimbursementPlansById = new Map(loadedReimbursementPlans.map((plan) => [plan.id, plan]))
-      await Promise.all(catalog.changedAssets.map((asset) => repository.put('asset', asset.id, asset)))
+      const loadedAssetsById = new Map(loadedAssets.map((asset) => [asset.id, asset]))
+      const finalAssetIds = new Set(catalog.assets.map((asset) => asset.id))
+      await Promise.all(catalog.assets
+        .filter((asset) => JSON.stringify(asset) !== JSON.stringify(loadedAssetsById.get(asset.id)))
+        .map((asset) => repository.put('asset', asset.id, asset)))
+      await Promise.all(loadedAssets
+        .filter((asset) => !finalAssetIds.has(asset.id))
+        .map((asset) => repository.remove('asset', asset.id)))
       await Promise.all(catalog.records
         .filter((record) => JSON.stringify(compactRecordMedia(record)) !== JSON.stringify(loadedRecordsById.get(record.id)))
         .map((record) => repository.put('record', record.id, compactRecordMedia(record))))
@@ -177,14 +200,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     document.documentElement.dataset.theme = preferences.darkMode ? 'dark' : 'light'
   }, [preferences.darkMode])
 
-  const storeCatalogAssets = useCallback(async (assets: MediaAsset[], changedAssets: MediaAsset[]) => {
+  const storeCatalogAssets = useCallback(async (assets: MediaAsset[], changedAssets: MediaAsset[], removedAssetIds: string[] = []) => {
     await Promise.all(changedAssets.map((asset) => repository.put('asset', asset.id, asset)))
+    await Promise.all(removedAssetIds.map((id) => repository.remove('asset', id)))
     mediaAssetsRef.current = assets
   }, [])
 
   const registerRecordMedia = useCallback(async (record: ExamRecord) => {
     const durableRecord = { ...record, images: await Promise.all(record.images.map(persistStoredImage)) }
-    const catalog = reconcileMediaCatalog([durableRecord], [], [], mediaAssetsRef.current)
+    const fingerprinted = await addMissingVisualFingerprints([durableRecord], [])
+    const catalog = reconcileMediaCatalog(fingerprinted.records, [], [], mediaAssetsRef.current)
     await storeCatalogAssets(catalog.assets, catalog.changedAssets)
     return catalog.records[0]
   }, [storeCatalogAssets])
@@ -203,7 +228,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       for (const attachment of material.attachments) attachments.push({ ...attachment, ...await persistStoredImage(attachment) })
       materials.push({ ...material, attachments })
     }
-    const catalog = reconcileMediaCatalog([], [], [{ ...plan, materials }], mediaAssetsRef.current)
+    const fingerprinted = await addMissingVisualFingerprints([], [{ ...plan, materials }])
+    const catalog = reconcileMediaCatalog([], [], fingerprinted.reimbursementPlans, mediaAssetsRef.current)
     await storeCatalogAssets(catalog.assets, catalog.changedAssets)
     return catalog.reimbursementPlans[0]
   }, [storeCatalogAssets])
@@ -334,10 +360,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         maximumAttempts = Math.max(maximumAttempts, attempt)
       }
       const result = preferences.localPrivacyOcrEnabled
-        ? await recognizeReportText((await extractPrivacySafeText(image)).text, image.name, preferences.azure, onAttempt, vocabulary)
+        ? await recognizeReportText((await extractPrivacySafeText(image)).text, image.name, preferences.llm, onAttempt, vocabulary)
         : image.mimeType === 'application/pdf'
-          ? await recognizeReportText((await extractPdfText(image)).text, image.name, preferences.azure, onAttempt, vocabulary)
-          : await recognizeReport(image, preferences.azure, onAttempt, vocabulary)
+          ? await recognizeReportText((await extractPdfText(image)).text, image.name, preferences.llm, onAttempt, vocabulary)
+          : await recognizeReport(image, preferences.llm, onAttempt, vocabulary)
       const candidates = await toDomainRecords(result, [], attempts, vocabulary)
       const matching = candidates.find((candidate) =>
         candidate.normalizedReportType === original.normalizedReportType
@@ -349,7 +375,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const updated = mergeRecognizedRecord(original, recognizedRecords, maximumAttempts)
     await saveRecord(updated)
     return updated
-  }, [preferences.azure, preferences.localPrivacyOcrEnabled, saveRecord, vocabulary])
+  }, [preferences.llm, preferences.localPrivacyOcrEnabled, saveRecord, vocabulary])
 
   const deleteRecord = useCallback(async (id: string) => {
     const record = records.find((item) => item.id === id)
@@ -493,7 +519,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       restoredAssets.push({ ...asset, ...persisted, id: asset.id, createdAt: asset.createdAt, updatedAt: asset.updatedAt })
     }
     const assetSeeds = new Map([...mediaAssetsRef.current, ...restoredAssets].map((asset) => [asset.id, asset]))
-    const catalog = reconcileMediaCatalog(restoredRecords, ocrJobsRef.current, restoredReimbursementPlans, [...assetSeeds.values()])
+    const hydratedCatalog = reconcileMediaCatalog(restoredRecords, ocrJobsRef.current, restoredReimbursementPlans, [...assetSeeds.values()])
+    const fingerprinted = await addMissingVisualFingerprints(hydratedCatalog.records, hydratedCatalog.reimbursementPlans)
+    const catalog = reconcileMediaCatalog(
+      fingerprinted.records,
+      hydratedCatalog.jobs,
+      fingerprinted.reimbursementPlans,
+      hydratedCatalog.assets,
+      { pruneUnused: true },
+    )
     await repository.replaceKind('asset', catalog.assets.map((asset) => ({ id: asset.id, payload: asset })))
     await repository.replaceKind('event', payload.events.map((item) => ({ id: item.id, payload: item })))
     await repository.replaceKind('chemotherapyTemplate', (payload.chemotherapyTemplates ?? []).map((item) => ({ id: item.id, payload: item })))
@@ -501,11 +535,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await repository.replaceKind('pin', payload.pins.map((item) => ({ id: item.id, payload: item })))
     await repository.replaceKind('reimbursementPlan', catalog.reimbursementPlans.map((item) => ({ id: item.id, payload: compactReimbursementMedia(item) })))
     await Promise.all(catalog.changedJobs.map((job) => repository.put('ocrJob', job.id, compactOcrJobMedia(job))))
-    const nextPreferences: AppPreferences = {
-      ...DEFAULT_PREFERENCES,
+    const portableLlm = payload.preferences.llm ?? (payload.preferences.azure
+      ? normalizeAppPreferences({ azure: payload.preferences.azure }).llm
+      : preferences.llm)
+    const nextPreferences = normalizeAppPreferences({
       ...payload.preferences,
-      azure: { ...DEFAULT_PREFERENCES.azure, ...payload.preferences.azure, apiKey: preferences.azure.apiKey },
-    }
+      llm: mergePortableLlmSettings(portableLlm, preferences.llm),
+    })
     await repository.put('preferences', 'main', nextPreferences)
     setEvents(byDateDescending(payload.events))
     setChemotherapyTemplates(sortTreatmentTemplates(payload.chemotherapyTemplates ?? []))
@@ -523,11 +559,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setReimbursementPlans(sortedReimbursementPlans)
     setPreferences(nextPreferences)
     void garbageCollectNativeImages(sortedRecords, ocrJobsRef.current, sortedReimbursementPlans).catch(console.warn)
-  }, [preferences.azure.apiKey])
+  }, [preferences.llm])
 
   const deduplicateImagesGlobally = useCallback(async (): Promise<ImageDeduplicationResult> => {
-    const catalog = reconcileMediaCatalog(recordsRef.current, ocrJobsRef.current, reimbursementPlansRef.current, mediaAssetsRef.current)
-    await storeCatalogAssets(catalog.assets, catalog.changedAssets)
+    const fingerprinted = await addMissingVisualFingerprints(recordsRef.current, reimbursementPlansRef.current)
+    const catalog = reconcileMediaCatalog(
+      fingerprinted.records,
+      ocrJobsRef.current,
+      fingerprinted.reimbursementPlans,
+      mediaAssetsRef.current,
+      { pruneUnused: true },
+    )
+    await storeCatalogAssets(catalog.assets, catalog.changedAssets, catalog.removedAssetIds)
     await Promise.all(catalog.changedRecords.map((record) => repository.put('record', record.id, compactRecordMedia(record))))
     await Promise.all(catalog.changedJobs.map((job) => repository.put('ocrJob', job.id, compactOcrJobMedia(job))))
     await Promise.all(catalog.changedReimbursementPlans.map((plan) => repository.put('reimbursementPlan', plan.id, compactReimbursementMedia(plan))))
@@ -568,8 +611,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    const azure = preferences.azure
-    const configured = Boolean(azure.endpoint.trim() && azure.apiKey.trim() && azure.deployment.trim() && azure.apiVersion.trim())
+    const configured = isLlmConfigured(preferences.llm)
     if (!ready || !configured || processingOcrRef.current) return
     const nextJob = ocrJobsRef.current.find((job) => job.status === 'queued')
     if (!nextJob) return
@@ -603,8 +645,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           void updateOcrJob(nextJob.id, { attempts: attempt, phase: 'recognizing', progress: Math.min(55, 18 + attempt * 10) })
         }
         const result = preferences.localPrivacyOcrEnabled || isPdf
-          ? await recognizeReportText(extractedText, readyImage.name, azure, onAttempt, vocabulary)
-          : await recognizeReport(readyImage, azure, onAttempt, vocabulary)
+          ? await recognizeReportText(extractedText, readyImage.name, preferences.llm, onAttempt, vocabulary)
+          : await recognizeReport(readyImage, preferences.llm, onAttempt, vocabulary)
         await updateOcrJob(nextJob.id, { attempts, phase: 'saving', progress: 78 })
         const domainRecords = await toDomainRecords(result, [durableImage], attempts, vocabulary)
         const domainEvents = domainRecords.map(eventForRecord).filter((event): event is TreatmentEvent => event !== null)
@@ -633,7 +675,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setOcrJobs([...ocrJobsRef.current])
       }
     })()
-  }, [ready, ocrJobs, preferences.azure, preferences.localPrivacyOcrEnabled, vocabulary, saveImportedRecords, updateOcrJob])
+  }, [ready, ocrJobs, preferences.llm, preferences.localPrivacyOcrEnabled, vocabulary, saveImportedRecords, updateOcrJob])
 
   const ocrQueueStats = useMemo<OcrQueueStats>(() => {
     const total = ocrJobs.length

@@ -40,12 +40,19 @@ const enqueueOcrImage = vi.fn()
 
 vi.mock('../store/AppContext', () => ({
   useApp: () => ({
-    preferences: { azure: {
-      endpoint: appState.configured ? 'https://example.openai.azure.com' : '',
-      apiKey: appState.configured ? 'key' : '',
-      deployment: appState.configured ? 'model' : '',
-      apiVersion: '2024-10-21',
-    } },
+    preferences: {
+      llm: {
+        activeProvider: 'azure-openai',
+        providers: {
+          'azure-openai': {
+            endpoint: appState.configured ? 'https://example.openai.azure.com/openai/v1' : '',
+            apiKey: appState.configured ? 'key' : '',
+            model: appState.configured ? 'model' : '',
+            maxRetries: 3,
+          },
+        },
+      },
+    },
     ocrJobs: appState.ocrJobs,
     ocrQueueStats: { total: appState.ocrJobs.length, queued: appState.ocrJobs.length, processing: 0, completed: 0, failed: 0, progress: 0 },
     enqueueOcrImage,

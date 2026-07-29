@@ -204,24 +204,60 @@ async function sendLanEnvelope(peer, envelope) {
   throw new Error('等待对方完成同步超时')
 }
 
-function validateAzureUrl(value) {
+const providerHosts = {
+  openai: ['api.openai.com'],
+  deepseek: ['api.deepseek.com'],
+  kimi: ['api.moonshot.cn'],
+  doubao: ['ark.cn-beijing.volces.com'],
+  qwen: ['dashscope.aliyuncs.com', 'dashscope-intl.aliyuncs.com'],
+  gemini: ['generativelanguage.googleapis.com'],
+  minimax: ['api.minimaxi.com'],
+  glm: ['open.bigmodel.cn'],
+  openrouter: ['openrouter.ai'],
+}
+
+function validateLlmUrl(value, provider) {
   const url = new URL(value)
   const hostname = url.hostname.toLowerCase()
-  const allowed = hostname.endsWith('.openai.azure.com') || hostname.endsWith('.cognitiveservices.azure.com') || hostname.endsWith('.services.ai.azure.com')
-  if (url.protocol !== 'https:' || !allowed || (url.port && url.port !== '443')) throw Object.assign(new Error('只允许转发到 Azure OpenAI HTTPS Endpoint'), { status: 400 })
-  if (!url.pathname.includes('/openai/')) throw Object.assign(new Error('Azure OpenAI 请求路径无效'), { status: 400 })
+  if (url.username || url.password) throw Object.assign(new Error('API 地址不能包含账号或密码'), { status: 400 })
+  if (!url.pathname.toLowerCase().endsWith('/chat/completions')) throw Object.assign(new Error('LLM 请求路径无效'), { status: 400 })
+
+  if (provider === 'azure-openai') {
+    const allowed = hostname.endsWith('.openai.azure.com') || hostname.endsWith('.cognitiveservices.azure.com') || hostname.endsWith('.services.ai.azure.com')
+    if (url.protocol !== 'https:' || !allowed || (url.port && url.port !== '443') || !url.pathname.toLowerCase().includes('/openai/v1/')) {
+      throw Object.assign(new Error('Azure OpenAI API 地址无效'), { status: 400 })
+    }
+    return url.toString()
+  }
+
+  if (provider === 'openai-compatible') {
+    const loopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]'
+    if (url.protocol !== 'https:' && !(loopback && url.protocol === 'http:')) {
+      throw Object.assign(new Error('自定义服务必须使用 HTTPS；本机回环地址可以使用 HTTP'), { status: 400 })
+    }
+    return url.toString()
+  }
+
+  const allowedHosts = providerHosts[provider]
+  if (!allowedHosts?.includes(hostname) || url.protocol !== 'https:' || (url.port && url.port !== '443')) {
+    throw Object.assign(new Error('LLM 服务商与 API 地址不匹配'), { status: 400 })
+  }
   return url.toString()
 }
 
-async function proxyAzure(request, response) {
-  const apiKey = request.headers['x-azure-api-key']
-  if (typeof apiKey !== 'string' || !apiKey.trim()) return sendJson(response, 400, { error: { message: '缺少 Azure API Key' } })
+async function proxyLlm(request, response) {
+  const apiKey = request.headers['x-llm-api-key'] || request.headers['x-azure-api-key']
+  if (typeof apiKey !== 'string' || !apiKey.trim()) return sendJson(response, 400, { error: { message: '缺少 LLM API Key' } })
   try {
     const body = await readJson(request)
-    const target = validateAzureUrl(body.url)
+    const provider = String(body.provider || 'azure-openai')
+    const target = validateLlmUrl(body.url, provider)
+    const authorization = provider === 'azure-openai'
+      ? { 'api-key': apiKey }
+      : { Authorization: `Bearer ${apiKey}` }
     const upstream = await fetch(target, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+      headers: { 'Content-Type': 'application/json', ...authorization },
       body: JSON.stringify(body.payload),
       signal: AbortSignal.timeout(125000),
     })
@@ -231,7 +267,7 @@ async function proxyAzure(request, response) {
     response.end(data)
   } catch (error) {
     const status = Number(error?.status) || 502
-    sendJson(response, status, { error: { message: error instanceof Error ? error.message : 'Azure 转发失败' } })
+    sendJson(response, status, { error: { message: error instanceof Error ? error.message : 'LLM 转发失败' } })
   }
 }
 
@@ -258,7 +294,7 @@ async function serveStatic(request, response) {
 }
 
 const server = createServer(async (request, response) => {
-  if (request.method === 'POST' && request.url === '/api/azure-openai') return proxyAzure(request, response)
+  if (request.method === 'POST' && (request.url === '/api/llm' || request.url === '/api/azure-openai')) return proxyLlm(request, response)
   if (request.url?.startsWith('/api/lan/')) {
     try {
       if (request.method === 'POST' && request.url === '/api/lan/start') {

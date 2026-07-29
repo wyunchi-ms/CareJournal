@@ -53,7 +53,7 @@ function unlockPageScroll() {
   if (snapshot.scrollY > 0) window.scrollTo(0, snapshot.scrollY)
 }
 
-export function Modal({ title, onClose, children, wide = false, swipeToClose = false, bottomSheet = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; swipeToClose?: boolean; bottomSheet?: boolean }) {
+export function Modal({ title, onClose, children, wide = false, swipeToClose = false, bottomSheet = false, bodyClassName = '' }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; swipeToClose?: boolean; bottomSheet?: boolean; bodyClassName?: string }) {
   const titleId = useId()
   const stackId = useRef(Symbol(title))
   const onCloseRef = useRef(onClose)
@@ -96,7 +96,7 @@ export function Modal({ title, onClose, children, wide = false, swipeToClose = f
           <h2 id={titleId}>{title}</h2>
           <button className="icon-button" onClick={onClose} aria-label="关闭" title="关闭"><X /></button>
         </header>
-        <div className="modal-body">{children}</div>
+        <div className={`modal-body${bodyClassName ? ` ${bodyClassName}` : ''}`}>{children}</div>
       </section>
     </div>
   )

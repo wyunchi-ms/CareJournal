@@ -31,25 +31,24 @@ export function PrivacyPage() {
 
         <section className="privacy-section card">
           <div className="privacy-section-heading"><CloudUpload aria-hidden="true" /><h2>LLM 与 OCR</h2></div>
-          <p>只有你主动导入并执行识别时，应用才会连接你自行配置的 Azure OpenAI。未开启本地脱敏时，图片识别会发送原图；PDF 会先在本机提取文字，再发送提取结果。</p>
+          <p>只有你主动导入并执行识别时，应用才会连接你自行选择的 LLM 服务商。未开启本地脱敏时，图片识别会发送原图；PDF 会先在本机提取文字，再发送提取结果。</p>
           <p>开启 PaddleOCR 本地脱敏后，图片或 PDF 会先在本机提取文字，并尝试删除姓名、病案号、住院号、身份证号和电话等信息，仅将处理后的文字发送给 LLM。自动识别与脱敏可能存在遗漏。</p>
-          <p>API Key 只保存在当前设备且不进入备份。数据的处理区域、保留期限和安全措施由你所选择的 Azure 资源及其配置决定。</p>
+          <p>API Key 只保存在当前设备且不进入局域网同步。数据的处理区域、保留期限和安全措施由你选择的 LLM 服务商及其配置决定。</p>
         </section>
 
         <section className="privacy-section card">
-          <div className="privacy-section-heading"><Network aria-hidden="true" /><h2>局域网同步与备份</h2></div>
-          <p>局域网同步只在你主动开启、选择设备并确认后发生。两台设备会自动协商临时密钥并加密传输，不需要输入配对码，也不经过项目维护者的服务器。Azure OpenAI 配置和 OCR 队列不会同步。</p>
-          <p>导出的备份由你设置的密码使用 AES-256-GCM 加密，API Key 不包含在备份中。备份文件和密码需要由你自行保管。</p>
+          <div className="privacy-section-heading"><Network aria-hidden="true" /><h2>局域网同步</h2></div>
+          <p>局域网同步只在你主动开启、选择设备并确认后发生。两台设备会自动协商临时密钥并加密传输，不需要输入配对码，也不经过项目维护者的服务器。LLM 配置和 OCR 队列不会同步。</p>
         </section>
 
         <section className="privacy-section card">
           <div className="privacy-section-heading"><LockKeyhole aria-hidden="true" /><h2>设备权限</h2></div>
-          <p>相机仅在你选择拍照时使用；文件访问仅用于你选择的导入、预览和备份操作；本地网络仅用于你主动开启的局域网同步。应用不会在无关场景中使用这些权限。</p>
+          <p>相机仅在你选择拍照时使用；文件访问仅用于你选择的导入和预览操作；本地网络仅用于你主动开启的局域网同步。应用不会在无关场景中使用这些权限。</p>
         </section>
 
         <section className="privacy-section card">
           <div className="privacy-section-heading"><Trash2 aria-hidden="true" /><h2>删除与保留</h2></div>
-          <p>你可以在应用中删除记录和素材。需要彻底清除时，可通过系统设置清除应用数据或卸载应用；Web 版可清除该站点的浏览器数据。执行前请先导出需要保留的加密备份。</p>
+          <p>你可以在应用中删除记录和素材。需要彻底清除时，可通过系统设置清除应用数据或卸载应用；Web 版可清除该站点的浏览器数据。</p>
         </section>
 
         <section className="privacy-section card">

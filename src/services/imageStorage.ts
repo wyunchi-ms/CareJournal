@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import type { ExamRecord, OcrQueueItem, ReimbursementPlan, StoredImage } from '../types'
+import { ensureStoredImageVisualFingerprint, storedImageIdentity } from './images'
 
 interface PersistedImageResult {
   mimeType: string
@@ -60,6 +61,59 @@ export async function materializeNativeStoredImage(image: StoredImage): Promise<
   if (image.dataUrl || !usesNativeImageStorage() || !image.storagePath) return image
   const loaded = await NativeImageStorage.readImage({ storagePath: image.storagePath })
   return { ...image, ...loaded }
+}
+
+export async function addMissingVisualFingerprints(
+  records: ExamRecord[],
+  reimbursementPlans: ReimbursementPlan[],
+) {
+  const fingerprints = new Map<string, Promise<string | undefined>>()
+
+  async function fingerprint(image: StoredImage) {
+    if (image.visualFingerprint || !image.mimeType.startsWith('image/')) return image
+    const identity = storedImageIdentity(image)
+    let pending = fingerprints.get(identity)
+    if (!pending) {
+      pending = materializeNativeStoredImage(image)
+        .then(ensureStoredImageVisualFingerprint)
+        .then((materialized) => materialized.visualFingerprint)
+        .catch((error) => {
+          console.warn(`无法为素材 ${image.name} 生成视觉指纹`, error)
+          return undefined
+        })
+      fingerprints.set(identity, pending)
+    }
+    const visualFingerprint = await pending
+    return visualFingerprint ? { ...image, visualFingerprint } : image
+  }
+
+  async function fingerprintOwner<T extends StoredImage>(images: T[]) {
+    if (images.length < 2 || images.every((image) => image.visualFingerprint || !image.mimeType.startsWith('image/'))) {
+      return images
+    }
+    const next: T[] = []
+    for (const image of images) next.push(await fingerprint(image) as T)
+    return next
+  }
+
+  const nextRecords: ExamRecord[] = []
+  for (const record of records) {
+    const images = await fingerprintOwner(record.images)
+    nextRecords.push(images === record.images ? record : { ...record, images })
+  }
+
+  const nextPlans: ReimbursementPlan[] = []
+  for (const plan of reimbursementPlans) {
+    let changed = false
+    const materials: ReimbursementPlan['materials'] = []
+    for (const material of plan.materials) {
+      const attachments = await fingerprintOwner(material.attachments) as typeof material.attachments
+      if (attachments !== material.attachments) changed = true
+      materials.push(attachments === material.attachments ? material : { ...material, attachments })
+    }
+    nextPlans.push(changed ? { ...plan, materials } : plan)
+  }
+  return { records: nextRecords, reimbursementPlans: nextPlans }
 }
 
 export async function migrateLegacyNativeImages(): Promise<ImageMigrationResult> {
