@@ -1,4 +1,4 @@
-import { Camera, Check, Clock3, File, FileImage, FileInput, FilePlus2, FolderArchive, ListFilter, Plus, RefreshCw, Search, Trash2, Undo2, X } from 'lucide-react'
+import { Camera, Check, File, FileImage, FileInput, FilePlus2, FolderArchive, ListFilter, Plus, RefreshCw, Search, Trash2, Undo2, X } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { ChoicePicker } from '../components/ChoicePicker'
 import { ConfirmSheet } from '../components/ConfirmSheet'
@@ -247,7 +247,7 @@ export function ReimbursementPage() {
         return <SwipeableListItem
           itemId={plan.id}
           label={plan.eventTitle}
-          className={`reimbursement-plan-card card status-${reimbursementStatus}${selectionMode ? ' selection-mode' : ''}${selectedForBatch ? ' selected' : ''}`}
+          className={`reimbursement-plan-card card${reimbursementStatus === 'reimbursed' ? ' status-reimbursed' : ''}${selectionMode ? ' selection-mode' : ''}${selectedForBatch ? ' selected' : ''}`}
           surfaceClassName="reimbursement-plan-content"
           editMode={selectionMode}
           revealed={revealedPlanId === plan.id}
@@ -257,8 +257,8 @@ export function ReimbursementPage() {
             {
               id: 'reimbursement-status',
               label: reimbursementStatus === 'pending' ? '已报销' : '待报销',
-              accessibilityLabel: `${reimbursementStatus === 'unmarked' ? '标记待报销' : reimbursementStatus === 'pending' ? '标记已报销' : '改为待报销'}：${plan.eventTitle}`,
-              icon: reimbursementStatus === 'unmarked' ? <Clock3 /> : reimbursementStatus === 'pending' ? <Check /> : <Undo2 />,
+              accessibilityLabel: `${reimbursementStatus === 'pending' ? '标记已报销' : '改为待报销'}：${plan.eventTitle}`,
+              icon: reimbursementStatus === 'pending' ? <Check /> : <Undo2 />,
               tone: 'success',
               onSelect: () => void updatePlan(advanceReimbursementStatus(plan)),
             },
@@ -293,8 +293,8 @@ export function ReimbursementPage() {
                 <small>{plan.eventDate} · {plan.hospital || '医院未记录'}</small>
                 <span className="reimbursement-plan-badges">
                   <span className="coverage-badge" data-coverage={plan.coverage}>{coverageInfo.label}</span>
-                  {reimbursementStatus !== 'unmarked' && <span className={`reimbursement-status-badge ${reimbursementStatus}`}>
-                    {reimbursementStatus === 'pending' ? <Clock3 /> : <Check />}
+                  {reimbursementStatus === 'reimbursed' && <span className="reimbursement-status-badge reimbursed">
+                    <Check />
                     {reimbursementPlanStatusLabel(plan)}
                   </span>}
                 </span>

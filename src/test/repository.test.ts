@@ -38,8 +38,9 @@ const query = vi.fn(async (statement: string, values: string[]) => {
       .map(([, payload]) => ({ payload })),
   }
 })
-const run = vi.fn(async (_statement: string, values: string[]) => {
-  database.set(values[0], values[4])
+const run = vi.fn(async (statement: string, values: string[]) => {
+  if (statement.startsWith('DELETE')) database.delete(values[0])
+  else database.set(values[0], values[4])
   return { changes: { changes: 1 } }
 })
 const nativeDb = {
@@ -97,6 +98,20 @@ describe('Android SQLite repository', () => {
     await expect(secondProcess.list<{ darkMode: boolean }>('preferences')).resolves.toEqual([{ darkMode: true }])
   })
 
+  it('records deletions for sync and clears the marker when the entity is saved again', async () => {
+    const { LocalRepository } = await import('../db/repository')
+    const repository = new LocalRepository()
+    await repository.put('event', 'event-1', { id: 'event-1', updatedAt: '2026-07-29T01:00:00.000Z' })
+    await repository.remove('event', 'event-1')
+
+    await expect(repository.list<{ entityId: string }>('syncTombstone')).resolves.toEqual([
+      expect.objectContaining({ entityId: 'event-1' }),
+    ])
+
+    await repository.put('event', 'event-1', { id: 'event-1', updatedAt: '2026-07-29T02:00:00.000Z' })
+    await expect(repository.list('syncTombstone')).resolves.toEqual([])
+  })
+
   it('reads image-heavy records one row per native bridge response', async () => {
     const { LocalRepository } = await import('../db/repository')
     database.set('record:first', JSON.stringify({ id: 'first', images: [{ dataUrl: 'data:image/jpeg;base64,large-image-1' }] }))
@@ -128,6 +143,38 @@ describe('Android SQLite repository', () => {
     expect(query).toHaveBeenCalledTimes(2)
     expect(query.mock.calls[0][0]).toContain('COUNT(*)')
     expect(query.mock.calls[1][0]).toContain('SELECT payload')
+  })
+
+  it('migrates legacy record dates to sampleDate without retaining ambiguous fields', async () => {
+    const { LocalRepository } = await import('../db/repository')
+    database.set('record:legacy', JSON.stringify({
+      id: 'legacy',
+      examDate: '2026-07-18',
+      reportDate: '2026-07-20',
+      images: [],
+    }))
+
+    const repository = new LocalRepository()
+    const [record] = await repository.list<Record<string, unknown>>('record')
+
+    expect(record.sampleDate).toBe('2026-07-18')
+    expect(record).not.toHaveProperty('examDate')
+    expect(record).not.toHaveProperty('reportDate')
+  })
+
+  it('does not promote a legacy report date when no sampling date exists', async () => {
+    const { LocalRepository } = await import('../db/repository')
+    database.set('record:legacy', JSON.stringify({
+      id: 'legacy',
+      reportDate: '2026-07-20',
+      images: [],
+    }))
+
+    const repository = new LocalRepository()
+    const [record] = await repository.list<Record<string, unknown>>('record')
+
+    expect(record.sampleDate).toBe('')
+    expect(record).not.toHaveProperty('reportDate')
   })
 
   it('restores lightweight folder jobs in one bridge response and keeps base64 jobs isolated', async () => {

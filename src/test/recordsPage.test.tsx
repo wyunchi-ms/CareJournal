@@ -15,7 +15,7 @@ const rerecognizeRecordMock = vi.fn(async (id: string) => ({
 const record = (id: string, reportType: string): ExamRecord => ({
   id,
   reportType,
-  examDate: '2026-07-21',
+  sampleDate: '2026-07-21',
   hospital: '测试医院',
   summary: id === '1' ? '测试报告结论' : undefined,
   indicators: id === '1' ? [{
@@ -46,8 +46,8 @@ const record = (id: string, reportType: string): ExamRecord => ({
 const records = [
   record('1', '实验室检验'),
   record('2', '实验室检验报告'),
-  { ...record('3', 'MRI'), examDate: '2026-06-12' },
-  { ...record('4', 'CT'), examDate: '2025-12-30' },
+  { ...record('3', 'MRI'), sampleDate: '2026-06-12' },
+  { ...record('4', 'CT'), sampleDate: '2025-12-30' },
 ]
 
 vi.mock('../store/AppContext', () => ({

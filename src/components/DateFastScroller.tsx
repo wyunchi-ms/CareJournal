@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { useEffect, useState, type KeyboardEvent, type PointerEvent } from 'react'
 
 export interface DateFastScrollItem {
   date: string
@@ -8,6 +8,47 @@ export interface DateFastScrollItem {
 export function DateFastScroller({ items }: { items: DateFastScrollItem[] }) {
   const [activeIndex, setActiveIndex] = useState(0)
   const [dragging, setDragging] = useState(false)
+
+  useEffect(() => {
+    if (items.length < 2) return
+
+    let animationFrame = 0
+
+    function syncWithPageScroll() {
+      animationFrame = 0
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight
+      const scrollTop = window.scrollY || document.documentElement.scrollTop
+      const scrollHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)
+      const isAtPageBottom = scrollHeight > viewportHeight && scrollTop >= scrollHeight - viewportHeight - 2
+      const activationLine = Math.min(24, viewportHeight * 0.08)
+      let nextIndex = 0
+
+      for (let index = 0; index < items.length; index += 1) {
+        const target = document.getElementById(items[index].targetId)
+        if (!target) continue
+        if (target.getBoundingClientRect().top <= activationLine) nextIndex = index
+        else break
+      }
+
+      if (isAtPageBottom) nextIndex = items.length - 1
+      setActiveIndex((current) => current === nextIndex ? current : nextIndex)
+    }
+
+    function scheduleSync() {
+      if (animationFrame) return
+      animationFrame = window.requestAnimationFrame(syncWithPageScroll)
+    }
+
+    scheduleSync()
+    window.addEventListener('scroll', scheduleSync, { passive: true })
+    window.addEventListener('resize', scheduleSync)
+
+    return () => {
+      window.removeEventListener('scroll', scheduleSync)
+      window.removeEventListener('resize', scheduleSync)
+      if (animationFrame) window.cancelAnimationFrame(animationFrame)
+    }
+  }, [items])
 
   function jump(index: number, smooth = true) {
     const nextIndex = Math.max(0, Math.min(items.length - 1, index))

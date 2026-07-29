@@ -1,6 +1,6 @@
 import { format, parseISO } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
-import { ChevronRight, FileImage, FileText, FileUp, ListFilter, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
+import { FileImage, FileText, FileUp, ListFilter, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChoicePicker } from '../components/ChoicePicker'
@@ -10,11 +10,13 @@ import { HistoryCombobox } from '../components/HistoryCombobox'
 import { Modal } from '../components/Modal'
 import { ImagePreview } from '../components/ImagePreview'
 import { PdfPreview } from '../components/PdfPreview'
+import { RecordSummaryContent } from '../components/RecordSummaryContent'
 import { SwipeableListItem } from '../components/SwipeableListItem'
 import { INDICATORS, normalizeIndicator } from '../data/indicatorAliases'
-import { normalizeReportType, REPORT_TYPES } from '../data/reportTypeAliases'
+import { REPORT_TYPES } from '../data/reportTypeAliases'
 import { sha256 } from '../services/images'
 import { storedImageSource } from '../services/imageStorage'
+import { recordDisplayType } from '../services/recordDisplay'
 import { useApp } from '../store/AppContext'
 import { newId, type AbnormalFlag, type ExamRecord, type LabIndicator } from '../types'
 
@@ -22,10 +24,6 @@ interface TypeGroup {
   label: string
   count: number
   aliases: string[]
-}
-
-function recordType(record: ExamRecord) {
-  return record.normalizedReportType || normalizeReportType(record.reportType).label
 }
 
 function flagLabel(indicator: LabIndicator) {
@@ -100,9 +98,8 @@ function RecordEditForm({ record, onCancel, onSaved }: { record: ExamRecord; onC
   const { saveRecord, vocabulary } = useApp()
   const [form, setForm] = useState(() => ({
     reportType: record.reportType,
-    normalizedReportType: recordType(record),
-    examDate: record.examDate,
-    reportDate: record.reportDate ?? '',
+    normalizedReportType: recordDisplayType(record),
+    sampleDate: record.sampleDate,
     hospital: record.hospital ?? '',
     department: record.department ?? '',
     summary: record.summary ?? '',
@@ -117,7 +114,6 @@ function RecordEditForm({ record, onCancel, onSaved }: { record: ExamRecord; onC
     event.preventDefault()
     setError('')
     if (!form.reportType.trim()) return setError('请输入医院原报告名称')
-    if (!form.examDate) return setError('请选择检查日期')
     const unnamed = indicators.find((item) => !item.rawName.trim())
     if (unnamed) return setError('请填写每一项指标的原始名称，或移除空白指标')
     setSaving(true)
@@ -139,13 +135,12 @@ function RecordEditForm({ record, onCancel, onSaved }: { record: ExamRecord; onC
         }
       })
       const now = new Date().toISOString()
-      const fingerprintSource = [form.hospital.trim(), form.examDate, form.normalizedReportType, ...normalizedIndicators.map((item) => `${item.normalizedCode}:${item.rawValue}`)].join('|')
+      const fingerprintSource = [form.hospital.trim(), form.sampleDate, form.normalizedReportType, ...normalizedIndicators.map((item) => `${item.normalizedCode}:${item.rawValue}`)].join('|')
       const updated: ExamRecord = {
         ...record,
         reportType: form.reportType.trim(),
         normalizedReportType: form.normalizedReportType,
-        examDate: form.examDate,
-        reportDate: form.reportDate || undefined,
+        sampleDate: form.sampleDate,
         hospital: form.hospital.trim() || undefined,
         department: form.department.trim() || undefined,
         summary: form.summary.trim() || undefined,
@@ -168,8 +163,7 @@ function RecordEditForm({ record, onCancel, onSaved }: { record: ExamRecord; onC
       <div className="form-grid">
         <ChoicePicker label="标准报告类型" options={REPORT_TYPES.map((item) => ({ value: item.label, label: item.label }))} value={form.normalizedReportType} onChange={(value) => set('normalizedReportType', value as string)} />
         <label>医院原报告名称<input value={form.reportType} onChange={(event) => set('reportType', event.target.value)} placeholder="例如：血细胞分析报告" /></label>
-        <label>检查日期<input type="date" value={form.examDate} onChange={(event) => set('examDate', event.target.value)} required /></label>
-        <label>报告日期（可选）<input type="date" value={form.reportDate} onChange={(event) => set('reportDate', event.target.value)} /></label>
+        <label>采样／检查日期（可选）<input type="date" value={form.sampleDate} onChange={(event) => set('sampleDate', event.target.value)} /></label>
         <HistoryCombobox label="医院" value={form.hospital} onChange={(value) => set('hospital', value)} options={vocabulary.hospitals} placeholder="输入或选择历史医院" />
         <HistoryCombobox label="科室" value={form.department} onChange={(value) => set('department', value)} options={vocabulary.departments} placeholder="输入或选择历史科室" />
         <label className="full-width">报告结论<textarea rows={4} value={form.summary} onChange={(event) => set('summary', event.target.value)} placeholder="填写报告中的结论或描述" /></label>
@@ -236,7 +230,7 @@ function RecordDetail({ record, onClose, onEdit, onRecognized }: { record: ExamR
   }
 
   return <div className="record-detail">
-    <div className="detail-summary"><div><span>检查日期</span><strong>{record.examDate}</strong></div><div><span>医院</span><strong title={record.hospital || '未记录'}>{record.hospital || '未记录'}</strong></div></div>
+    <div className="detail-summary"><div><span>采样／检查日期</span><strong>{record.sampleDate || '日期未识别'}</strong></div><div><span>医院</span><strong title={record.hospital || '未记录'}>{record.hospital || '未记录'}</strong></div></div>
     <section><div className="record-section-heading"><h3>指标明细 <small>{record.indicators.length} 项</small></h3><button type="button" className="icon-button edit-report-button" onClick={onEdit} aria-label="编辑报告" title="编辑报告"><Pencil /></button></div>{record.indicators.length ? <div className="indicator-table-wrap"><table className="indicator-table"><thead><tr><th>指标</th><th>结果</th><th>参考范围</th></tr></thead><tbody>{record.indicators.map((item) => <tr key={item.id} className={`indicator-row ${item.abnormalFlag}`} aria-label={`${item.normalizedName}，${flagLabel(item) || '状态未标记'}`}><td title={item.rawName !== item.normalizedName ? `医院原始名称：${item.rawName}` : undefined}><strong>{item.normalizedName}{item.unit && <span className="indicator-unit">（{item.unit}）</span>}</strong></td><td><strong>{resultText(item)}</strong><span className="sr-only">{flagLabel(item)}</span></td><td>{item.referenceText || [item.referenceLow, item.referenceHigh].filter((value) => value !== null).join('–') || '—'}</td></tr>)}</tbody></table></div> : <p className="muted-text">这份报告没有结构化数值指标。</p>}</section>
     {record.images.length > 0 && <section><h3>原始文件</h3><div className="image-gallery">{record.images.map((image) => {
       const source = storedImageSource(image)
@@ -292,7 +286,7 @@ export function RecordsPage() {
   const typeGroups = useMemo<TypeGroup[]>(() => {
     const groups = new Map<string, { count: number; aliases: Set<string> }>()
     records.forEach((record) => {
-      const label = recordType(record)
+      const label = recordDisplayType(record)
       const current = groups.get(label) ?? { count: 0, aliases: new Set<string>() }
       current.count += 1
       current.aliases.add(record.reportType)
@@ -302,18 +296,18 @@ export function RecordsPage() {
   }, [records])
 
   const filtered = useMemo(() => records.filter((record) => {
-    const normalizedType = recordType(record)
+    const normalizedType = recordDisplayType(record)
     if (selectedTypes.length && !selectedTypes.includes(normalizedType)) return false
     if (deferredQuery && ![normalizedType, record.reportType, record.hospital, record.department, record.summary, ...record.indicators.map((item) => item.rawName)].filter(Boolean).join(' ').toLowerCase().includes(deferredQuery)) return false
     return true
-  }).sort((a, b) => b.examDate.localeCompare(a.examDate)), [records, selectedTypes, deferredQuery])
+  }).sort((a, b) => b.sampleDate.localeCompare(a.sampleDate)), [records, selectedTypes, deferredQuery])
 
   const dateGroups = useMemo(() => {
     const groups = new Map<string, ExamRecord[]>()
-    filtered.forEach((record) => groups.set(record.examDate, [...(groups.get(record.examDate) ?? []), record]))
+    filtered.forEach((record) => groups.set(record.sampleDate, [...(groups.get(record.sampleDate) ?? []), record]))
     return [...groups.entries()].map(([date, items]) => ({
       date,
-      targetId: `record-day-${date}`,
+      targetId: `record-day-${date || 'unknown'}`,
       records: items,
     }))
   }, [filtered])
@@ -373,12 +367,12 @@ export function RecordsPage() {
         : <div className="empty-state filtered-empty-state"><Search /><h3>没有符合条件的记录</h3><p>调整搜索词或移除筛选条件后再试。</p></div>)}
       <div className="record-date-groups">
         {dateGroups.map((group) => {
-          const date = parseISO(group.date)
+          const hasDate = /^\d{4}-\d{2}-\d{2}$/.test(group.date)
+          const date = hasDate ? parseISO(group.date) : null
           return <div className="record-day-group" id={group.targetId} key={group.date}>
-            <h3 className="record-day-heading"><strong>{format(date, 'yyyy年M月d日')}</strong><span>{format(date, 'EEEE', { locale: zhCN })}</span><small>{group.records.length} 份</small></h3>
+            <h3 className="record-day-heading"><strong>{date ? format(date, 'yyyy年M月d日') : '日期未识别'}</strong>{date && <span>{format(date, 'EEEE', { locale: zhCN })}</span>}<small>{group.records.length} 份</small></h3>
             {group.records.map((record) => {
-              const abnormalCount = record.indicators.filter((item) => ['high', 'low', 'critical'].includes(item.abnormalFlag)).length
-              const normalizedType = recordType(record)
+              const normalizedType = recordDisplayType(record)
               return <SwipeableListItem
                 itemId={record.id}
                 label={normalizedType}
@@ -400,15 +394,15 @@ export function RecordsPage() {
                 <button className="record-row" onClick={() => {
                   if (listEditMode) setSelectedRecordIds((current) => current.includes(record.id) ? current.filter((id) => id !== record.id) : [...current, record.id])
                   else { setSelected(record); setEditing(false) }
-                }}><span className="record-main"><strong>{normalizedType}</strong><small>{record.hospital || '医院未记录'} · {record.indicators.length} 项指标</small></span>{abnormalCount > 0 && <span className="abnormal-badge">{abnormalCount} 项异常</span>}<ChevronRight /></button>
+                }}><RecordSummaryContent record={record} /></button>
               </SwipeableListItem>
             })}
           </div>
         })}
       </div>
     </section>
-    {dateGroups.length > 0 && <DateFastScroller items={dateGroups.map(({ date, targetId }) => ({ date, targetId }))} />}
-    {selected && <Modal title={editing ? '编辑检查报告' : recordType(selected)} onClose={closeRecordDetail} wide swipeToClose={!editing}>{editing ? <RecordEditForm record={selected} onCancel={() => setEditing(false)} onSaved={(updated) => { setSelected(updated); setEditing(false) }} /> : <RecordDetail record={selected} onClose={closeRecordDetail} onEdit={() => setEditing(true)} onRecognized={setSelected} />}</Modal>}
+    {dateGroups.length > 0 && <DateFastScroller items={dateGroups.map(({ date, targetId }) => ({ date: date || '日期未识别', targetId }))} />}
+    {selected && <Modal title={editing ? '编辑检查报告' : recordDisplayType(selected)} onClose={closeRecordDetail} wide swipeToClose={!editing}>{editing ? <RecordEditForm record={selected} onCancel={() => setEditing(false)} onSaved={(updated) => { setSelected(updated); setEditing(false) }} /> : <RecordDetail record={selected} onClose={closeRecordDetail} onEdit={() => setEditing(true)} onRecognized={setSelected} />}</Modal>}
     {deletingRecordIds.length > 0 && <ConfirmSheet
       title={deletingRecordIds.length > 1 ? '批量删除检查记录' : '删除检查记录'}
       message={`确定删除选中的 ${deletingRecordIds.length} 份检查记录吗？`}

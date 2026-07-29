@@ -19,7 +19,7 @@ function record(images: StoredImage[]): ExamRecord {
   return {
     id: 'record-1',
     reportType: '血常规',
-    examDate: '2026-07-23',
+    sampleDate: '2026-07-23',
     indicators: [],
     images,
     linkedEventIds: [],

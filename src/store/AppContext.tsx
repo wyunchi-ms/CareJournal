@@ -1,15 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { repository } from '../db/repository'
+import { normalizeEntityPayload, repository } from '../db/repository'
 import { eventForRecord, mergeRecognizedRecord, recognizeReport, recognizeReportText, toDomainRecords } from '../services/ocr'
 import { materializeStoredImage } from '../services/folderImport'
 import { deduplicateStoredImages, sameStoredImage } from '../services/images'
 import { garbageCollectNativeImages, migrateLegacyNativeImages, persistRestoredRecords, persistRestoredReimbursementPlans, persistStoredImage } from '../services/imageStorage'
 import { compactOcrJobMedia, compactRecordMedia, compactReimbursementMedia, reconcileMediaCatalog } from '../services/mediaAssets'
 import { extractPdfText } from '../services/pdf'
+import { extractPrivacySafeText } from '../services/localPrivacyOcr'
 import { sortChartPins } from '../services/chartPins'
 import { buildVocabulary } from '../services/vocabulary'
 import { keepHospitalReimbursementMaterials } from '../services/reimbursement'
-import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, DynamicVocabulary, ExamRecord, MediaAsset, OcrQueueItem, ReimbursementPlan, StoredImage, TreatmentEvent } from '../types'
+import { createLanSyncSnapshot, mergeLanSyncSnapshot } from '../services/lanSync'
+import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, DynamicVocabulary, ExamRecord, LanSyncMergeSummary, LanSyncSnapshot, MediaAsset, OcrQueueItem, ReimbursementPlan, StoredImage, TreatmentEvent } from '../types'
 import { DEFAULT_PREFERENCES, newId } from '../types'
 
 interface OcrQueueStats {
@@ -63,6 +65,8 @@ interface AppState {
   savePreferences: (preferences: AppPreferences) => Promise<void>
   restoreBackup: (payload: BackupPayload) => Promise<void>
   deduplicateImagesGlobally: () => Promise<ImageDeduplicationResult>
+  createLanSnapshot: (deviceName: string) => Promise<LanSyncSnapshot>
+  mergeLanSnapshot: (snapshot: LanSyncSnapshot) => Promise<LanSyncMergeSummary>
   enqueueOcrImage: (image: StoredImage) => Promise<boolean>
   retryOcrJob: (id: string) => Promise<void>
   retryAllFailedOcrJobs: () => Promise<void>
@@ -247,24 +251,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const saveRecord = useCallback(async (record: ExamRecord) => {
-    const deduplicatedRecord = await registerRecordMedia({ ...record, images: deduplicateStoredImages(record.images) })
-    await repository.put('record', deduplicatedRecord.id, compactRecordMedia(deduplicatedRecord))
+    let deduplicatedRecord = await registerRecordMedia({ ...record, images: deduplicateStoredImages(record.images) })
     const linkedEvents = events.filter((event) => event.type === 'examination' && event.linkedRecordIds.includes(deduplicatedRecord.id))
+    const hasSampleDate = /^\d{4}-\d{2}-\d{2}$/.test(deduplicatedRecord.sampleDate)
+    if (!hasSampleDate && linkedEvents.length) {
+      const linkedEventIds = new Set(linkedEvents.map((event) => event.id))
+      deduplicatedRecord = {
+        ...deduplicatedRecord,
+        linkedEventIds: deduplicatedRecord.linkedEventIds.filter((id) => !linkedEventIds.has(id)),
+      }
+      await Promise.all(linkedEvents.map((event) => repository.remove('event', event.id)))
+    }
+    await repository.put('record', deduplicatedRecord.id, compactRecordMedia(deduplicatedRecord))
     const updatedEvents = linkedEvents.map((event): TreatmentEvent => ({
       ...event,
       title: deduplicatedRecord.normalizedReportType || deduplicatedRecord.reportType,
-      startDate: deduplicatedRecord.examDate,
-      endDate: deduplicatedRecord.examDate,
+      startDate: deduplicatedRecord.sampleDate,
+      endDate: deduplicatedRecord.sampleDate,
       hospital: deduplicatedRecord.hospital,
       department: deduplicatedRecord.department,
       notes: deduplicatedRecord.summary,
       updatedAt: deduplicatedRecord.updatedAt,
-    }))
+    })).filter(() => hasSampleDate)
     await Promise.all(updatedEvents.map((event) => repository.put('event', event.id, event)))
     setRecords((current) => byDateDescending([...current.filter((item) => item.id !== deduplicatedRecord.id), deduplicatedRecord]))
     if (updatedEvents.length) {
       const updatedById = new Map(updatedEvents.map((event) => [event.id, event]))
       setEvents((current) => byDateDescending(current.map((event) => updatedById.get(event.id) ?? event)))
+    } else if (!hasSampleDate && linkedEvents.length) {
+      const removedIds = new Set(linkedEvents.map((event) => event.id))
+      setEvents((current) => current.filter((event) => !removedIds.has(event.id)))
     }
   }, [events, registerRecordMedia])
 
@@ -317,9 +333,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         attempts = attempt
         maximumAttempts = Math.max(maximumAttempts, attempt)
       }
-      const result = image.mimeType === 'application/pdf'
-        ? await recognizeReportText((await extractPdfText(image)).text, image.name, preferences.azure, onAttempt, vocabulary)
-        : await recognizeReport(image, preferences.azure, onAttempt, vocabulary)
+      const result = preferences.localPrivacyOcrEnabled
+        ? await recognizeReportText((await extractPrivacySafeText(image)).text, image.name, preferences.azure, onAttempt, vocabulary)
+        : image.mimeType === 'application/pdf'
+          ? await recognizeReportText((await extractPdfText(image)).text, image.name, preferences.azure, onAttempt, vocabulary)
+          : await recognizeReport(image, preferences.azure, onAttempt, vocabulary)
       const candidates = await toDomainRecords(result, [], attempts, vocabulary)
       const matching = candidates.find((candidate) =>
         candidate.normalizedReportType === original.normalizedReportType
@@ -331,7 +349,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const updated = mergeRecognizedRecord(original, recognizedRecords, maximumAttempts)
     await saveRecord(updated)
     return updated
-  }, [preferences.azure, saveRecord, vocabulary])
+  }, [preferences.azure, preferences.localPrivacyOcrEnabled, saveRecord, vocabulary])
 
   const deleteRecord = useCallback(async (id: string) => {
     const record = records.find((item) => item.id === id)
@@ -462,7 +480,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const restoreBackup = useCallback(async (payload: BackupPayload) => {
-    const legacyRecords = payload.records.map((record) => ({ ...record, images: deduplicateStoredImages(record.images) }))
+    const legacyRecords = payload.records.map((record) => {
+      const migrated = normalizeEntityPayload('record', record)
+      return { ...migrated, images: deduplicateStoredImages(migrated.images) }
+    })
     const legacyPlans = (payload.reimbursementPlans ?? []).map(keepHospitalReimbursementMaterials)
     const restoredRecords = payload.version === 1 ? await persistRestoredRecords(legacyRecords) : legacyRecords
     const restoredReimbursementPlans = payload.version === 1 ? await persistRestoredReimbursementPlans(legacyPlans) : legacyPlans
@@ -528,6 +549,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [storeCatalogAssets])
 
+  const mergeLanSnapshot = useCallback(async (snapshot: LanSyncSnapshot) => {
+    const merged = await mergeLanSyncSnapshot(snapshot)
+    setEvents(byDateDescending(merged.events))
+    setChemotherapyTemplates(sortTreatmentTemplates(merged.chemotherapyTemplates))
+    const nextRecords = byDateDescending(merged.records)
+    recordsRef.current = nextRecords
+    setRecords(nextRecords)
+    const nextPins = sortChartPins(merged.pins)
+    pinsRef.current = nextPins
+    setPins(nextPins)
+    const nextPlans = byDateDescending(merged.reimbursementPlans)
+    reimbursementPlansRef.current = nextPlans
+    setReimbursementPlans(nextPlans)
+    mediaAssetsRef.current = merged.assets
+    void garbageCollectNativeImages(nextRecords, ocrJobsRef.current, nextPlans).catch(console.warn)
+    return merged.summary
+  }, [])
+
   useEffect(() => {
     const azure = preferences.azure
     const configured = Boolean(azure.endpoint.trim() && azure.apiKey.trim() && azure.deployment.trim() && azure.apiVersion.trim())
@@ -539,13 +578,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void (async () => {
       let attempts = 0
       try {
-        await updateOcrJob(nextJob.id, { status: 'processing', phase: 'recognizing', progress: 5, error: undefined })
+        await updateOcrJob(nextJob.id, {
+          status: 'processing',
+          phase: preferences.localPrivacyOcrEnabled ? 'redacting' : 'recognizing',
+          progress: 5,
+          error: undefined,
+        })
         const readyImage = await materializeStoredImage(nextJob.image)
         const durableImage = await persistStoredImage(readyImage)
         await updateOcrJob(nextJob.id, { image: durableImage, progress: 10 })
         const isPdf = readyImage.mimeType === 'application/pdf'
         let extractedText = ''
-        if (isPdf) {
+        if (preferences.localPrivacyOcrEnabled) {
+          await updateOcrJob(nextJob.id, { phase: 'redacting', progress: 12 })
+          extractedText = (await extractPrivacySafeText(readyImage)).text
+          await updateOcrJob(nextJob.id, { phase: 'recognizing', progress: 35 })
+        } else if (isPdf) {
           await updateOcrJob(nextJob.id, { phase: 'extracting', progress: 16 })
           extractedText = (await extractPdfText(readyImage)).text
           await updateOcrJob(nextJob.id, { phase: 'recognizing', progress: 28 })
@@ -554,12 +602,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           attempts = attempt
           void updateOcrJob(nextJob.id, { attempts: attempt, phase: 'recognizing', progress: Math.min(55, 18 + attempt * 10) })
         }
-        const result = isPdf
+        const result = preferences.localPrivacyOcrEnabled || isPdf
           ? await recognizeReportText(extractedText, readyImage.name, azure, onAttempt, vocabulary)
           : await recognizeReport(readyImage, azure, onAttempt, vocabulary)
         await updateOcrJob(nextJob.id, { attempts, phase: 'saving', progress: 78 })
         const domainRecords = await toDomainRecords(result, [durableImage], attempts, vocabulary)
-        const domainEvents = domainRecords.map(eventForRecord)
+        const domainEvents = domainRecords.map(eventForRecord).filter((event): event is TreatmentEvent => event !== null)
         await saveImportedRecords(domainRecords, domainEvents)
         await updateOcrJob(nextJob.id, {
           status: 'completed',
@@ -585,7 +633,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setOcrJobs([...ocrJobsRef.current])
       }
     })()
-  }, [ready, ocrJobs, preferences.azure, vocabulary, saveImportedRecords, updateOcrJob])
+  }, [ready, ocrJobs, preferences.azure, preferences.localPrivacyOcrEnabled, vocabulary, saveImportedRecords, updateOcrJob])
 
   const ocrQueueStats = useMemo<OcrQueueStats>(() => {
     const total = ocrJobs.length
@@ -629,12 +677,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     savePreferences,
     restoreBackup,
     deduplicateImagesGlobally,
+    createLanSnapshot: createLanSyncSnapshot,
+    mergeLanSnapshot,
     enqueueOcrImage,
     retryOcrJob,
     retryAllFailedOcrJobs,
     removeOcrJob,
     clearCompletedOcrJobs,
-  }), [ready, startupMessage, storageError, events, chemotherapyTemplates, records, reimbursementPlans, pins, ocrJobs, ocrQueueStats, preferences, vocabulary, saveEvent, saveEvents, deleteEvent, saveChemotherapyTemplate, reorderChemotherapyTemplates, deleteChemotherapyTemplate, saveRecord, saveImportedRecords, rerecognizeRecord, deleteRecord, saveReimbursementPlan, deleteReimbursementPlan, savePin, reorderPins, deletePin, savePreferences, restoreBackup, deduplicateImagesGlobally, enqueueOcrImage, retryOcrJob, retryAllFailedOcrJobs, removeOcrJob, clearCompletedOcrJobs])
+  }), [ready, startupMessage, storageError, events, chemotherapyTemplates, records, reimbursementPlans, pins, ocrJobs, ocrQueueStats, preferences, vocabulary, saveEvent, saveEvents, deleteEvent, saveChemotherapyTemplate, reorderChemotherapyTemplates, deleteChemotherapyTemplate, saveRecord, saveImportedRecords, rerecognizeRecord, deleteRecord, saveReimbursementPlan, deleteReimbursementPlan, savePin, reorderPins, deletePin, savePreferences, restoreBackup, deduplicateImagesGlobally, mergeLanSnapshot, enqueueOcrImage, retryOcrJob, retryAllFailedOcrJobs, removeOcrJob, clearCompletedOcrJobs])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

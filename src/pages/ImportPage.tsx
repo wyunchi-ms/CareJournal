@@ -23,6 +23,7 @@ interface PreparationProgress {
 const phaseLabel: Record<OcrQueueItem['phase'], string> = {
   waiting: '排队等待',
   extracting: '提取 PDF 文字',
+  redacting: 'PaddleOCR 本地脱敏',
   recognizing: 'AI 识别中',
   saving: '写入本地数据库',
   done: '识别完成',

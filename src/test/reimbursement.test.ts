@@ -29,7 +29,7 @@ const record: ExamRecord = {
   id: 'record-1',
   reportType: '血常规',
   normalizedReportType: '血常规',
-  examDate: '2026-07-21',
+  sampleDate: '2026-07-21',
   hospital: '测试医院',
   indicators: [],
   images: [{
@@ -50,14 +50,12 @@ const record: ExamRecord = {
 describe('reimbursement plans', () => {
   it('advances reimbursement status without misclassifying legacy data', () => {
     const basePlan = createReimbursementPlan(event, 'public_medical', [record])
-    const pending = advanceReimbursementStatus(basePlan)
-    const reimbursed = advanceReimbursementStatus(pending, '2026-07-26T00:00:00.000Z')
+    const reimbursed = advanceReimbursementStatus(basePlan, '2026-07-26T00:00:00.000Z')
     const reopened = advanceReimbursementStatus(reimbursed)
     const legacy = { ...basePlan, reimbursedAt: '2026-07-25T00:00:00.000Z' } as ReimbursementPlan
 
-    expect(reimbursementPlanStatus(basePlan)).toBe('unmarked')
-    expect(reimbursementPlanStatusLabel(basePlan)).toBe('未标记')
-    expect(pending).toMatchObject({ reimbursementStatus: 'pending', reimbursedAt: undefined })
+    expect(reimbursementPlanStatus(basePlan)).toBe('pending')
+    expect(reimbursementPlanStatusLabel(basePlan)).toBe('待报销')
     expect(reimbursed).toMatchObject({
       reimbursementStatus: 'reimbursed',
       reimbursedAt: '2026-07-26T00:00:00.000Z',

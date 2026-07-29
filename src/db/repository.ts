@@ -2,7 +2,28 @@ import { Capacitor } from '@capacitor/core'
 import { CapacitorSQLite, SQLiteConnection, type SQLiteDBConnection } from '@capacitor-community/sqlite'
 import Dexie, { type EntityTable } from 'dexie'
 
-export type EntityKind = 'event' | 'chemotherapyTemplate' | 'record' | 'pin' | 'preferences' | 'ocrJob' | 'reimbursementPlan' | 'asset'
+export type EntityKind = 'event' | 'chemotherapyTemplate' | 'record' | 'pin' | 'preferences' | 'ocrJob' | 'reimbursementPlan' | 'asset' | 'syncTombstone'
+
+const syncableKinds = new Set<EntityKind>(['event', 'chemotherapyTemplate', 'record', 'pin', 'reimbursementPlan', 'asset'])
+const datePattern = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Record payloads are schema-less JSON in both IndexedDB and SQLite. Normalize
+ * them at the repository boundary so existing installs and restored backups
+ * transparently migrate from the old ambiguous date fields.
+ */
+export function normalizeEntityPayload<T>(kind: EntityKind, payload: T): T {
+  if (kind !== 'record' || !payload || typeof payload !== 'object' || Array.isArray(payload)) return payload
+  const legacy = payload as Record<string, unknown>
+  const currentDate = typeof legacy.sampleDate === 'string' ? legacy.sampleDate : ''
+  const legacyDate = typeof legacy.examDate === 'string' ? legacy.examDate : ''
+  const candidate = datePattern.test(currentDate) ? currentDate : legacyDate
+  const sampleDate = datePattern.test(candidate) ? candidate : ''
+  const record = { ...legacy }
+  delete record.examDate
+  delete record.reportDate
+  return { ...record, sampleDate } as T
+}
 
 interface StoredEntity<T = unknown> {
   key: string
@@ -71,7 +92,7 @@ export class LocalRepository {
     await this.init()
     if (!this.native) {
       const rows = await this.webDb.entities.where('kind').equals(kind).toArray()
-      return rows.map((row) => row.payload as T)
+      return rows.map((row) => normalizeEntityPayload(kind, row.payload as T))
     }
     if (kind === 'record') {
       const heavyCount = await this.nativeDb!.query(
@@ -83,7 +104,7 @@ export class LocalRepository {
           'SELECT payload FROM entities WHERE kind = ? ORDER BY updated_at DESC',
           [kind],
         )
-        return (result.values ?? []).map((row) => JSON.parse(String(row.payload)) as T)
+        return (result.values ?? []).map((row) => normalizeEntityPayload(kind, JSON.parse(String(row.payload)) as T))
       }
       // Legacy records can still contain Base64 if native migration could not
       // process an item. Keep those rows isolated to avoid one enormous bridge
@@ -99,7 +120,7 @@ export class LocalRepository {
           [kind, String(row.entity_id)],
         )
         const payload = result.values?.[0]?.payload
-        if (payload !== undefined) values.push(JSON.parse(String(payload)) as T)
+        if (payload !== undefined) values.push(normalizeEntityPayload(kind, JSON.parse(String(payload)) as T))
       }
       return values
     }
@@ -150,22 +171,21 @@ export class LocalRepository {
     )
   }
 
-  async put<T>(kind: EntityKind, id: string, payload: T) {
-    await this.init()
-    const updatedAt = (payload as { updatedAt?: string }).updatedAt ?? new Date().toISOString()
+  private async putStored<T>(kind: EntityKind, id: string, payload: T) {
+    const normalizedPayload = normalizeEntityPayload(kind, payload)
+    const updatedAt = (normalizedPayload as { updatedAt?: string }).updatedAt ?? new Date().toISOString()
     const key = `${kind}:${id}`
     if (!this.native) {
-      await this.webDb.entities.put({ key, kind, id, updatedAt, payload })
+      await this.webDb.entities.put({ key, kind, id, updatedAt, payload: normalizedPayload })
       return
     }
     await this.nativeDb!.run(
       'INSERT OR REPLACE INTO entities (key, kind, entity_id, updated_at, payload) VALUES (?, ?, ?, ?, ?)',
-      [key, kind, id, updatedAt, JSON.stringify(payload)],
+      [key, kind, id, updatedAt, JSON.stringify(normalizedPayload)],
     )
   }
 
-  async remove(kind: EntityKind, id: string) {
-    await this.init()
+  private async removeStored(kind: EntityKind, id: string) {
     const key = `${kind}:${id}`
     if (!this.native) {
       await this.webDb.entities.delete(key)
@@ -174,19 +194,46 @@ export class LocalRepository {
     await this.nativeDb!.run('DELETE FROM entities WHERE key = ?', [key])
   }
 
+  async put<T>(kind: EntityKind, id: string, payload: T) {
+    await this.init()
+    await this.putStored(kind, id, payload)
+    if (syncableKinds.has(kind)) await this.removeStored('syncTombstone', `${kind}:${id}`)
+  }
+
+  async remove(kind: EntityKind, id: string) {
+    await this.init()
+    await this.removeStored(kind, id)
+    if (syncableKinds.has(kind)) {
+      const now = new Date().toISOString()
+      await this.putStored('syncTombstone', `${kind}:${id}`, {
+        id: `${kind}:${id}`,
+        entityKind: kind,
+        entityId: id,
+        deletedAt: now,
+        updatedAt: now,
+      })
+    }
+  }
+
   async replaceKind<T>(kind: EntityKind, entries: Array<{ id: string; payload: T }>) {
     await this.init()
     if (!this.native) {
       await this.webDb.transaction('rw', this.webDb.entities, async () => {
         const keys = await this.webDb.entities.where('kind').equals(kind).primaryKeys()
         await this.webDb.entities.bulkDelete(keys)
-        await this.webDb.entities.bulkPut(entries.map(({ id, payload }) => ({
-          key: `${kind}:${id}`,
-          kind,
-          id,
-          updatedAt: (payload as { updatedAt?: string }).updatedAt ?? new Date().toISOString(),
-          payload,
-        })))
+        await this.webDb.entities.bulkPut(entries.map(({ id, payload }) => {
+          const normalizedPayload = normalizeEntityPayload(kind, payload)
+          return {
+            key: `${kind}:${id}`,
+            kind,
+            id,
+            updatedAt: (normalizedPayload as { updatedAt?: string }).updatedAt ?? new Date().toISOString(),
+            payload: normalizedPayload,
+          }
+        }))
+        if (syncableKinds.has(kind)) {
+          await this.webDb.entities.bulkDelete(entries.map(({ id }) => `syncTombstone:${kind}:${id}`))
+        }
       })
       return
     }

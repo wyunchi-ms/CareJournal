@@ -218,7 +218,7 @@ export interface ReimbursementPlan {
 }
 
 export type OcrQueueStatus = 'queued' | 'processing' | 'completed' | 'failed'
-export type OcrQueuePhase = 'waiting' | 'extracting' | 'recognizing' | 'saving' | 'done' | 'error'
+export type OcrQueuePhase = 'waiting' | 'extracting' | 'redacting' | 'recognizing' | 'saving' | 'done' | 'error'
 
 export interface OcrQueueItem {
   id: string
@@ -239,8 +239,8 @@ export interface ExamRecord {
   id: string
   reportType: string
   normalizedReportType?: string
-  examDate: string
-  reportDate?: string
+  /** 标本采集日期；无标本检查则为实际检查／执行日期。 */
+  sampleDate: string
   hospital?: string
   department?: string
   summary?: string
@@ -275,9 +275,42 @@ export interface AzureSettings {
 
 export interface AppPreferences {
   azure: AzureSettings
+  localPrivacyOcrEnabled: boolean
   darkMode: boolean
   chartIndicatorOrder: string[]
   chartPinnedIndicatorCodes: string[]
+}
+
+export type LanSyncEntityKind = 'event' | 'chemotherapyTemplate' | 'record' | 'pin' | 'reimbursementPlan' | 'asset'
+
+export interface SyncTombstone {
+  id: string
+  entityKind: LanSyncEntityKind
+  entityId: string
+  deletedAt: string
+  updatedAt: string
+}
+
+export interface LanSyncSnapshot {
+  version: 1
+  deviceName: string
+  createdAt: string
+  events: TreatmentEvent[]
+  chemotherapyTemplates: ChemotherapyTemplate[]
+  records: ExamRecord[]
+  pins: ChartPin[]
+  reimbursementPlans: ReimbursementPlan[]
+  assets: MediaAsset[]
+  tombstones: SyncTombstone[]
+}
+
+export interface LanSyncMergeSummary {
+  added: number
+  updated: number
+  unchanged: number
+  deleted: number
+  conflictsMerged: number
+  assetsReceived: number
 }
 
 export interface DynamicVocabulary {
@@ -305,6 +338,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
     apiVersion: '2024-10-21',
     maxRetries: 3,
   },
+  localPrivacyOcrEnabled: false,
   darkMode: false,
   chartIndicatorOrder: [],
   chartPinnedIndicatorCodes: [],

@@ -56,6 +56,7 @@ export async function exportBackup(events: TreatmentEvent[], chemotherapyTemplat
     pins,
     reimbursementPlans: catalog.reimbursementPlans.map(compactReimbursementMedia),
     preferences: {
+      localPrivacyOcrEnabled: preferences.localPrivacyOcrEnabled,
       darkMode: preferences.darkMode,
       chartIndicatorOrder: preferences.chartIndicatorOrder,
       chartPinnedIndicatorCodes: preferences.chartPinnedIndicatorCodes,

@@ -21,7 +21,7 @@ const event: TreatmentEvent = {
 const record: ExamRecord = {
   id: 'record-1',
   reportType: 'CT',
-  examDate: '2026-07-20',
+  sampleDate: '2026-07-20',
   hospital: '测试医院',
   indicators: [],
   images: [{ id: 'image-1', name: 'CT报告.jpg', mimeType: 'image/jpeg', dataUrl: 'data:image/jpeg;base64,YQ==', sha256: 'image-1' }],
@@ -179,29 +179,31 @@ describe('ReimbursementPage', () => {
     expect(screen.getByRole('checkbox', { name: '选择导出：放疗第 1 次' })).toBeChecked()
   })
 
-  it('marks an unmarked plan as pending reimbursement first', () => {
+  it('treats an unmarked plan as pending and marks it reimbursed on the first swipe action', () => {
     render(<MemoryRouter><ReimbursementPage /></MemoryRouter>)
     const planButton = screen.getByRole('button', { name: /打开报销计划：放疗第 1 次/ })
     fireEvent.keyDown(planButton, { key: 'ArrowLeft' })
 
-    fireEvent.click(screen.getByRole('button', { name: '标记待报销：放疗第 1 次' }))
+    expect(planButton.closest('.reimbursement-plan-card')).not.toHaveClass('status-pending')
+    expect(within(planButton.closest('.reimbursement-plan-card') as HTMLElement).queryByText('待报销')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '标记已报销：放疗第 1 次' }))
 
     expect(saveReimbursementPlan).toHaveBeenCalledOnce()
     expect(saveReimbursementPlan.mock.calls[0][0]).toMatchObject({
       id: 'plan-1',
-      reimbursementStatus: 'pending',
-      reimbursedAt: undefined,
+      reimbursementStatus: 'reimbursed',
+      reimbursedAt: expect.any(String),
     })
   })
 
-  it('shows pending reimbursement with a green status treatment and advances it to reimbursed', () => {
+  it('keeps pending reimbursement visually neutral and advances it to reimbursed', () => {
     mockPlans = [{ ...plan, reimbursementStatus: 'pending' }]
     render(<MemoryRouter><ReimbursementPage /></MemoryRouter>)
     const planButton = screen.getByRole('button', { name: /打开报销计划：放疗第 1 次/ })
     const card = planButton.closest('.reimbursement-plan-card')
 
-    expect(card).toHaveClass('status-pending')
-    expect(within(card as HTMLElement).getByText('待报销')).toHaveClass('reimbursement-status-badge', 'pending')
+    expect(card).not.toHaveClass('status-pending')
+    expect(within(card as HTMLElement).queryByText('待报销')).not.toBeInTheDocument()
     expect(card?.querySelector('.reimbursement-plan-icon')).not.toBeInTheDocument()
 
     fireEvent.keyDown(planButton, { key: 'ArrowLeft' })
@@ -239,7 +241,7 @@ describe('ReimbursementPage', () => {
     fireEvent.pointerUp(planButton, { pointerId: 1, pointerType: 'touch', clientX: 100, clientY: 202 })
 
     expect(planButton.closest('.swipeable-list-item')).toHaveClass('revealed')
-    expect(screen.getByRole('button', { name: '标记待报销：放疗第 1 次' })).toHaveAttribute('tabindex', '0')
+    expect(screen.getByRole('button', { name: '标记已报销：放疗第 1 次' })).toHaveAttribute('tabindex', '0')
     expect(screen.getByRole('button', { name: '删除报销计划：放疗第 1 次' })).toHaveAttribute('tabindex', '0')
   })
 

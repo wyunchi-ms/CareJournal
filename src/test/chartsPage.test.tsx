@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 import { ChartsPage } from '../pages/ChartsPage'
 import { DEFAULT_PREFERENCES, type ChartPin, type TreatmentEvent } from '../types'
 
@@ -34,11 +35,13 @@ vi.mock('echarts-for-react', () => ({
 vi.mock('../store/AppContext', () => ({
   useApp: () => ({
     records: [
-      { examDate: '2026-07-01', indicators: [
-        { normalizedCode: 'WBC', normalizedName: '白细胞计数', unit: '10^9/L', value: 3.2 },
-        { normalizedCode: 'HGB', normalizedName: '血红蛋白', unit: 'g/L', value: 96 },
+      { id: 'record-1', reportType: '血常规', normalizedReportType: '血常规', sampleDate: '2026-07-01', hospital: '浙江大学儿童医院', indicators: [
+        { normalizedCode: 'WBC', normalizedName: '白细胞计数', unit: '10^9/L', value: 3.2, abnormalFlag: 'normal' },
+        { normalizedCode: 'HGB', normalizedName: '血红蛋白', unit: 'g/L', value: 96, abnormalFlag: 'low' },
       ] },
-      { examDate: '2026-07-08', indicators: [{ normalizedCode: 'WBC', normalizedName: '白细胞计数', unit: '10^9/L', value: 4.1 }] },
+      { id: 'record-2', reportType: '血常规', normalizedReportType: '血常规', sampleDate: '2026-07-08', hospital: '浙江大学儿童医院', indicators: [
+        { normalizedCode: 'WBC', normalizedName: '白细胞计数', unit: '10^9/L', value: 4.1, abnormalFlag: 'normal' },
+      ] },
     ],
     events,
     pins,
@@ -66,6 +69,7 @@ describe('charts page indicator selection', () => {
   it('renders one indicator series and persists indicator priority pins', () => {
     render(<ChartsPage />)
     expect(screen.getByTestId('chart')).toHaveAttribute('data-series-count', '1')
+    expect(screen.getByTestId('chart').closest('.chart-canvas-gesture')).not.toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: '检查指标：白细胞计数' }))
     expect(screen.getAllByRole('radio')).toHaveLength(2)
@@ -90,7 +94,7 @@ describe('charts page indicator selection', () => {
   it('places the save action in the chart card instead of the mode controls', () => {
     render(<ChartsPage />)
 
-    const bookmark = screen.getByRole('button', { name: '保存当前图表' })
+    const bookmark = screen.getByRole('button', { name: '添加当前图表到收藏' })
     expect(bookmark.closest('.chart-card')).not.toBeNull()
     expect(bookmark.closest('.chart-controls')).toBeNull()
 
@@ -127,19 +131,26 @@ describe('charts page indicator selection', () => {
     expect(screen.getByRole('button', { name: '隐藏病程标记' })).toHaveAttribute('aria-pressed', 'true')
   })
 
-  it('uses a searchable saved-chart picker, icon-only bookmark state, and bottom-sheet deletion', async () => {
+  it('shows saved charts first, opens the builder on demand, and supports management deletion', async () => {
     pins = [
       { id: 'trend-pin', title: '白细胞计数趋势', mode: 'trend', indicatorCodes: ['WBC'], cycleEventIds: [], createdAt: '2026-07-20T10:00:00.000Z' },
       { id: 'cycle-pin', title: '血红蛋白周期对比', mode: 'cycle', indicatorCodes: ['HGB'], cycleEventIds: ['cycle-1', 'cycle-2'], createdAt: '2026-07-21T10:00:00.000Z' },
     ]
     render(<ChartsPage />)
 
-    const activeBookmark = screen.getByRole('button', { name: '取消保存当前图表' })
-    expect(activeBookmark).toHaveAttribute('aria-pressed', 'true')
-    expect(activeBookmark).not.toHaveClass('active')
+    expect(screen.getAllByTestId('chart')).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: '检查指标：白细胞计数' })).not.toBeInTheDocument()
 
-    const savedChartsTrigger = screen.getByRole('button', { name: '打开已保存图表，共 2 个' })
-    expect(savedChartsTrigger.closest('.chart-controls-toolbar')).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '添加图表' }))
+    const activeBookmark = screen.getByRole('button', { name: '当前图表已收藏' })
+    expect(activeBookmark).toHaveAttribute('aria-pressed', 'true')
+    expect(activeBookmark).toBeDisabled()
+
+    expect(screen.getByRole('region', { name: '收藏图表' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '收藏图表' })).not.toBeInTheDocument()
+    expect(screen.getAllByTestId('chart')).toHaveLength(2)
+    const savedChartsTrigger = screen.getByRole('button', { name: '管理已保存图表，共 2 个' })
+    expect(savedChartsTrigger.closest('.saved-chart-dashboard-header')).not.toBeNull()
     fireEvent.click(savedChartsTrigger)
     const dialog = screen.getByRole('dialog', { name: '已保存图表（2）' })
 
@@ -156,13 +167,54 @@ describe('charts page indicator selection', () => {
     await waitFor(() => expect(deletePin).toHaveBeenCalledWith('cycle-pin'))
   })
 
+  it('opens a saved cycle chart detail, persists visible lines, and lists related reports', async () => {
+    pins = [{
+      id: 'cycle-pin',
+      title: '白细胞计数周期对比',
+      mode: 'cycle',
+      indicatorCodes: ['WBC'],
+      cycleEventIds: ['cycle-1', 'cycle-2'],
+      createdAt: '2026-07-21T10:00:00.000Z',
+    }]
+    const common = {
+      type: 'chemotherapy' as const,
+      allDay: true,
+      tags: [],
+      linkedRecordIds: [],
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    }
+    events = [
+      { ...common, id: 'cycle-1', title: '第 1 周期', startDate: '2026-07-01', endDate: '2026-07-01', cycleNumber: 1, cycleDayOne: '2026-07-01' },
+      { ...common, id: 'cycle-2', title: '第 2 周期', startDate: '2026-07-08', endDate: '2026-07-08', cycleNumber: 2, cycleDayOne: '2026-07-08' },
+    ]
+
+    render(<MemoryRouter><ChartsPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: '查看图表详情：白细胞计数周期对比' }))
+
+    const dialog = screen.getByRole('dialog', { name: '白细胞计数周期对比' })
+    expect(within(dialog).getByText('默认显示周期')).toBeInTheDocument()
+    expect(within(dialog).getByTestId('chart')).toHaveAttribute('data-series-count', '2')
+    expect(within(dialog).getAllByRole('link')).toHaveLength(2)
+
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /第 2 周期/ }))
+
+    await waitFor(() => expect(savePin).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'cycle-pin',
+      cycleEventIds: ['cycle-1'],
+    })))
+    expect(within(dialog).getByTestId('chart')).toHaveAttribute('data-series-count', '1')
+    expect(within(dialog).getAllByRole('link')).toHaveLength(1)
+    expect(within(dialog).getByRole('link', { name: '打开相关检查报告：2026-07-01' })).toHaveAttribute('href', '/records?recordId=record-1')
+  })
+
   it('enters saved-chart ordering on long press and persists keyboard reordering', async () => {
     pins = [
       { id: 'trend-pin', title: '白细胞计数趋势', mode: 'trend', indicatorCodes: ['WBC'], cycleEventIds: [], createdAt: '2026-07-20T10:00:00.000Z' },
       { id: 'cycle-pin', title: '血红蛋白周期对比', mode: 'cycle', indicatorCodes: ['HGB'], cycleEventIds: ['cycle-1'], createdAt: '2026-07-21T10:00:00.000Z' },
     ]
     render(<ChartsPage />)
-    fireEvent.click(screen.getByRole('button', { name: '打开已保存图表，共 2 个' }))
+    fireEvent.click(screen.getByRole('button', { name: '管理已保存图表，共 2 个' }))
 
     fireEvent.contextMenu(screen.getByRole('button', { name: /血红蛋白周期对比.*化疗周期叠加/ }))
 
@@ -186,7 +238,7 @@ describe('charts page indicator selection', () => {
       { id: 'cycle-pin', title: '血红蛋白周期对比', mode: 'cycle', indicatorCodes: ['HGB'], cycleEventIds: ['cycle-1'], createdAt: '2026-07-21T10:00:00.000Z' },
     ]
     render(<ChartsPage />)
-    fireEvent.click(screen.getByRole('button', { name: '打开已保存图表，共 2 个' }))
+    fireEvent.click(screen.getByRole('button', { name: '管理已保存图表，共 2 个' }))
     fireEvent.contextMenu(screen.getByRole('button', { name: /血红蛋白周期对比.*化疗周期叠加/ }))
 
     const dialog = screen.getByRole('dialog', { name: '已保存图表（排序）' })

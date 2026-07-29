@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsPage } from '../pages/SettingsPage'
 
-const { deduplicateImagesGlobally, importBackup, restoreBackup } = vi.hoisted(() => ({
+const { deduplicateImagesGlobally, importBackup, restoreBackup, savePreferences } = vi.hoisted(() => ({
   deduplicateImagesGlobally: vi.fn(async () => ({
     recordsScanned: 6,
     reimbursementPlansScanned: 4,
@@ -22,6 +22,7 @@ const { deduplicateImagesGlobally, importBackup, restoreBackup } = vi.hoisted(()
     preferences: {},
   })),
   restoreBackup: vi.fn(async () => undefined),
+  savePreferences: vi.fn(async () => undefined),
 }))
 
 vi.mock('../services/backup', async (importOriginal) => ({
@@ -37,6 +38,7 @@ vi.mock('../store/AppContext', () => ({
     pins: [],
     preferences: {
       darkMode: false,
+      localPrivacyOcrEnabled: false,
       azure: {
         endpoint: '',
         apiKey: '',
@@ -45,7 +47,7 @@ vi.mock('../store/AppContext', () => ({
         maxRetries: 3,
       },
     },
-    savePreferences: vi.fn(async () => undefined),
+    savePreferences,
     restoreBackup,
     deduplicateImagesGlobally,
     storageLabel: 'SQLite（本机）',
@@ -53,10 +55,30 @@ vi.mock('../store/AppContext', () => ({
 }))
 
 describe('SettingsPage image maintenance', () => {
+  afterEach(cleanup)
   beforeEach(() => {
     deduplicateImagesGlobally.mockClear()
     importBackup.mockClear()
     restoreBackup.mockClear()
+    savePreferences.mockClear()
+  })
+
+  it('saves the local PaddleOCR privacy option with the LLM settings', async () => {
+    render(<SettingsPage />)
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'PaddleOCR 本地脱敏' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }))
+
+    await waitFor(() => expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
+      localPrivacyOcrEnabled: true,
+    })))
+  })
+
+  it('explains that LAN sync no longer needs a pairing code', () => {
+    render(<SettingsPage />)
+
+    expect(screen.getByText(/无需配对码，设备间会自动协商临时密钥/)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/配对码/)).not.toBeInTheDocument()
   })
 
   it('provides a global image deduplication entry and reports the cleanup result', async () => {

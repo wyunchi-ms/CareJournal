@@ -7,6 +7,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api/azure-openai': 'http://127.0.0.1:8787',
+      '/api/lan': 'http://127.0.0.1:8787',
     },
   },
   test: {

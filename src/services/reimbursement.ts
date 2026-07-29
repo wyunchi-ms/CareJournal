@@ -21,26 +21,20 @@ interface MaterialDefinition {
   required?: boolean
 }
 
-export type ReimbursementPlanStatus = 'unmarked' | 'pending' | 'reimbursed'
+export type ReimbursementPlanStatus = 'pending' | 'reimbursed'
 
 export function reimbursementPlanStatus(plan: ReimbursementPlan): ReimbursementPlanStatus {
   if (plan.reimbursedAt || plan.reimbursementStatus === 'reimbursed') return 'reimbursed'
-  if (plan.reimbursementStatus === 'pending') return 'pending'
-  return 'unmarked'
+  return 'pending'
 }
 
 export function reimbursementPlanStatusLabel(plan: ReimbursementPlan) {
   const status = reimbursementPlanStatus(plan)
-  if (status === 'pending') return '待报销'
-  if (status === 'reimbursed') return '已报销'
-  return '未标记'
+  return status === 'reimbursed' ? '已报销' : '待报销'
 }
 
 export function advanceReimbursementStatus(plan: ReimbursementPlan, now = new Date().toISOString()): ReimbursementPlan {
   const status = reimbursementPlanStatus(plan)
-  if (status === 'unmarked') {
-    return { ...plan, reimbursementStatus: 'pending', reimbursedAt: undefined }
-  }
   if (status === 'pending') {
     return { ...plan, reimbursementStatus: 'reimbursed', reimbursedAt: now }
   }
@@ -210,7 +204,8 @@ function recordMaterial(record: ExamRecord): Pick<ReimbursementMaterial, 'kind' 
 
 function recordMatchesEvent(record: ExamRecord, event: TreatmentEvent, relatedEventIds: string[]) {
   if (event.linkedRecordIds.includes(record.id) || record.linkedEventIds.some((id) => relatedEventIds.includes(id))) return true
-  const date = parseISO(record.examDate)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(record.sampleDate)) return false
+  const date = parseISO(record.sampleDate)
   const interval = { start: addDays(parseISO(event.startDate), -1), end: addDays(parseISO(event.endDate), 1) }
   if (!isWithinInterval(date, interval)) return false
   if (event.type !== 'hospitalization' && event.hospital && record.hospital && event.hospital !== record.hospital) return false

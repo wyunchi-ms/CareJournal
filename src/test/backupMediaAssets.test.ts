@@ -41,7 +41,7 @@ const sharedImage: StoredImage = {
 const record: ExamRecord = {
   id: 'record-1',
   reportType: '血常规',
-  examDate: '2026-07-23',
+  sampleDate: '2026-07-23',
   indicators: [],
   images: [sharedImage],
   linkedEventIds: [],
@@ -79,6 +79,7 @@ const plan: ReimbursementPlan = {
 
 const preferences: AppPreferences = {
   azure: { endpoint: '', apiKey: 'secret', deployment: '', apiVersion: '2024-10-21', maxRetries: 3 },
+  localPrivacyOcrEnabled: false,
   darkMode: false,
   chartIndicatorOrder: [],
   chartPinnedIndicatorCodes: [],

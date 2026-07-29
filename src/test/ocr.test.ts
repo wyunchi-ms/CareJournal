@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mergeRecognizedRecord, recognizeReport, recognizeReportText } from '../services/ocr'
+import { mergeRecognizedRecord, recognizeReport, recognizeReportText, toDomainRecords } from '../services/ocr'
 import type { AzureSettings, DynamicVocabulary, ExamRecord, StoredImage } from '../types'
 
 const image: StoredImage = {
@@ -43,6 +43,7 @@ describe('recognizeReport', () => {
                   items: {
                     properties: {
                       normalizedReportType: { enum: string[] }
+                      sampleDate: { description: string }
                       hospital: { description: string }
                       department: { description: string }
                       indicators: { items: { properties: {
@@ -66,9 +67,13 @@ describe('recognizeReport', () => {
     expect(proxyBody.payload.messages[0].content).toContain('所有指标必须统一为中国大陆临床检验常用单位')
     expect(proxyBody.payload.messages[0].content).toContain('HGB/血红蛋白：g/L')
     expect(proxyBody.payload.messages[0].content).toContain('13.2 g/dL 返回 value=132')
+    expect(proxyBody.payload.messages[0].content).toContain('即使申请日期更醒目，也不得使用申请日期')
+    expect(proxyBody.payload.messages[0].content).toContain('禁止使用其他日期或当天日期补全')
     expect(Array.isArray(userContent) ? userContent.find((item) => item.type === 'text')?.text : '').toContain('换算为给定的中国大陆标准单位')
     const fields = proxyBody.payload.response_format.json_schema.schema.properties.records.items.properties
     expect(fields.normalizedReportType.enum).toContain('血常规')
+    expect(fields.sampleDate.description).toContain('只提取采样日期')
+    expect(fields.sampleDate.description).toContain('必须忽略申请日期')
     expect(fields.indicators.items.properties.normalizedCode.enum).toContain('WBC')
     expect(fields.indicators.items.properties.normalizedName.enum).toContain('白细胞计数')
     expect(fields.hospital.description).toContain('协和医院')
@@ -92,7 +97,28 @@ describe('recognizeReport', () => {
     expect(userContent).toBeTypeOf('string')
     expect(userContent).toContain('血红蛋白 132 g/L')
     expect(userContent).toContain('<report_text>')
+    expect(userContent).toContain('不得猜测或补全')
     expect(JSON.stringify(userContent)).not.toContain('image_url')
+  })
+})
+
+describe('toDomainRecords', () => {
+  it('keeps an unrecognized sample date empty instead of substituting today', async () => {
+    const [record] = await toDomainRecords({
+      records: [{
+        reportType: '血常规',
+        normalizedReportType: '血常规',
+        sampleDate: '',
+        hospital: '',
+        department: '',
+        summary: '',
+        indicators: [],
+      }],
+    }, [image], 1)
+
+    expect(record.sampleDate).toBe('')
+    expect(record).not.toHaveProperty('examDate')
+    expect(record).not.toHaveProperty('reportDate')
   })
 })
 
@@ -101,7 +127,7 @@ describe('mergeRecognizedRecord', () => {
     const original: ExamRecord = {
       id: 'record-1',
       reportType: '旧报告',
-      examDate: '2026-07-01',
+      sampleDate: '2026-07-01',
       indicators: [],
       images: [image],
       linkedEventIds: ['event-1'],

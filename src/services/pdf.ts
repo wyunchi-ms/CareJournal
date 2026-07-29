@@ -2,6 +2,7 @@ import type { StoredImage } from '../types'
 
 const MAX_PDF_BYTES = 30 * 1024 * 1024
 const MAX_EXTRACTED_CHARACTERS = 80_000
+const MAX_LOCAL_OCR_PAGES = 30
 const PDF_WORKER_URL = new URL('../../node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs', import.meta.url).href
 
 export interface ExtractedPdfText {
@@ -76,6 +77,44 @@ export async function extractPdfText(pdf: StoredImage): Promise<ExtractedPdfText
       throw new Error('这个 PDF 没有可提取的文字，可能是扫描版。请将页面导出为图片后再导入。')
     }
     return { text, pageCount: document.numPages, truncated }
+  } finally {
+    await loadingTask.destroy()
+  }
+}
+
+function canvasToJpeg(canvas: HTMLCanvasElement) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('无法转换 PDF 页面图像')), 'image/jpeg', 0.9)
+  })
+}
+
+export async function renderPdfPagesForLocalOcr(pdf: StoredImage): Promise<Blob[]> {
+  if (pdf.mimeType !== 'application/pdf' && !/\.pdf$/i.test(pdf.name)) throw new Error('所选文件不是 PDF')
+  if (!pdf.dataUrl) throw new Error('PDF 内容不可用，请重新选择原文件')
+  const loadingTask = await createPdfLoadingTask(pdf.dataUrl)
+  let pdfDocument: Awaited<typeof loadingTask.promise> | undefined
+  try {
+    pdfDocument = await loadingTask.promise
+    if (pdfDocument.numPages > MAX_LOCAL_OCR_PAGES) {
+      throw new Error(`扫描版 PDF 最多支持 ${MAX_LOCAL_OCR_PAGES} 页本地脱敏，请拆分后重新导入`)
+    }
+    const images: Blob[] = []
+    for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+      const page = await pdfDocument.getPage(pageNumber)
+      const original = page.getViewport({ scale: 1 })
+      const scale = Math.min(2, 1800 / Math.max(1, original.width))
+      const viewport = page.getViewport({ scale })
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.floor(viewport.width))
+      canvas.height = Math.max(1, Math.floor(viewport.height))
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('当前设备无法渲染 PDF 页面')
+      await page.render({ canvas, canvasContext: context, viewport }).promise
+      images.push(await canvasToJpeg(canvas))
+      canvas.width = 1
+      canvas.height = 1
+    }
+    return images
   } finally {
     await loadingTask.destroy()
   }

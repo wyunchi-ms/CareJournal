@@ -1,7 +1,8 @@
-import { AlertTriangle, CheckCircle2, Database, Download, Eye, EyeOff, Images, KeyRound, LockKeyhole, Moon, RefreshCw, Sun, Upload } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronRight, Database, Download, Eye, EyeOff, Images, KeyRound, LockKeyhole, Moon, RefreshCw, ScanText, ShieldCheck, Sun, Upload } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { ChoicePicker } from '../components/ChoicePicker'
 import { ConfirmSheet } from '../components/ConfirmSheet'
+import { LanSyncPanel } from '../components/LanSyncPanel'
 import { downloadBlob, exportBackup, importBackup } from '../services/backup'
 import { testAzureConnection } from '../services/ocr'
 import { useApp } from '../store/AppContext'
@@ -67,8 +68,34 @@ export function SettingsPage() {
 
   return <>
     <div className="settings-layout">
-      <section id="llm-settings" className="settings-section card"><div className="settings-heading"><span className="settings-icon"><KeyRound /></span><div><h2>Azure OpenAI</h2></div></div><div className="callout warning"><AlertTriangle /><span>API Key 仅保存在当前设备且不会进入备份，但对当前应用运行环境可见。</span></div><div className="form-grid"><label className="full-width">Endpoint<input type="url" value={form.azure.endpoint} onChange={(e) => updateAzure('endpoint', e.target.value)} placeholder="https://your-resource.openai.azure.com" /></label><label>Deployment Name<input value={form.azure.deployment} onChange={(e) => updateAzure('deployment', e.target.value)} /></label><label>API Version<input value={form.azure.apiVersion} onChange={(e) => updateAzure('apiVersion', e.target.value)} /></label><label className="full-width">API Key<span className="password-input"><input type={showKey ? 'text' : 'password'} value={form.azure.apiKey} onChange={(e) => updateAzure('apiKey', e.target.value)} autoComplete="off" /><button type="button" className="icon-button" onClick={() => setShowKey((value) => !value)} aria-label={showKey ? '隐藏密钥' : '显示密钥'} title={showKey ? '隐藏密钥' : '显示密钥'}>{showKey ? <EyeOff /> : <Eye />}</button></span></label><ChoicePicker label="失败重试次数" options={[1, 2, 3, 4, 5].map((count) => ({ value: String(count), label: `${count} 次` }))} value={String(form.azure.maxRetries)} onChange={(value) => updateAzure('maxRetries', Number(value))} /></div>{connectionMessage && <p className={`connection-status ${connectionStatus}`} role="status">{connectionStatus === 'success' && <CheckCircle2 />}{connectionMessage}</p>}<div className="form-actions"><button className="button secondary" onClick={() => void test()} disabled={connectionStatus === 'testing'}>测试连接</button><button className="button primary" onClick={() => void save()}>保存配置</button></div></section>
+      <section id="llm-settings" className="settings-section card">
+        <div className="settings-heading"><span className="settings-icon"><KeyRound /></span><div><h2>Azure OpenAI</h2></div></div>
+        <div className={`callout llm-data-notice${form.localPrivacyOcrEnabled ? '' : ' warning'}`}>
+          {form.localPrivacyOcrEnabled ? <ShieldCheck /> : <AlertTriangle />}
+          <span>
+            <strong>{form.localPrivacyOcrEnabled ? '当前会先在本机脱敏' : '当前图片识别会发送原图'}</strong>
+            <small>{form.localPrivacyOcrEnabled
+              ? '图片和 PDF 会先在本机提取并尝试删除身份信息，仅将处理后的文字发送给你配置的 LLM。'
+              : '只有主动识别时才会发送；PDF 会在本机提取文字后发送。需要降低暴露范围时，请开启下方本地脱敏。'}</small>
+          </span>
+        </div>
+        <div className="callout warning"><AlertTriangle /><span>API Key 仅保存在当前设备且不会进入备份，但对当前应用运行环境可见。</span></div>
+        <div className="form-grid"><label className="full-width">Endpoint<input type="url" value={form.azure.endpoint} onChange={(e) => updateAzure('endpoint', e.target.value)} placeholder="https://your-resource.openai.azure.com" /></label><label>Deployment Name<input value={form.azure.deployment} onChange={(e) => updateAzure('deployment', e.target.value)} /></label><label>API Version<input value={form.azure.apiVersion} onChange={(e) => updateAzure('apiVersion', e.target.value)} /></label><label className="full-width">API Key<span className="password-input"><input type={showKey ? 'text' : 'password'} value={form.azure.apiKey} onChange={(e) => updateAzure('apiKey', e.target.value)} autoComplete="off" /><button type="button" className="icon-button" onClick={() => setShowKey((value) => !value)} aria-label={showKey ? '隐藏密钥' : '显示密钥'} title={showKey ? '隐藏密钥' : '显示密钥'}>{showKey ? <EyeOff /> : <Eye />}</button></span></label><ChoicePicker label="失败重试次数" options={[1, 2, 3, 4, 5].map((count) => ({ value: String(count), label: `${count} 次` }))} value={String(form.azure.maxRetries)} onChange={(value) => updateAzure('maxRetries', Number(value))} /></div>
+        <label className="privacy-ocr-setting"><span className="settings-icon"><ScanText /></span><span><strong>PaddleOCR 本地脱敏</strong><small>先在设备上提取文字并删除患者姓名、病案号、住院号、身份证号和电话等信息；医院与科室会保留。开启后，原始图片不会发送给 LLM。</small></span><input type="checkbox" aria-label="PaddleOCR 本地脱敏" checked={form.localPrivacyOcrEnabled} onChange={(e) => setForm((current) => ({ ...current, localPrivacyOcrEnabled: e.target.checked }))} /></label>
+        {connectionMessage && <p className={`connection-status ${connectionStatus}`} role="status">{connectionStatus === 'success' && <CheckCircle2 />}{connectionMessage}</p>}
+        <div className="form-actions"><button className="button secondary" onClick={() => void test()} disabled={connectionStatus === 'testing'}>测试连接</button><button className="button primary" onClick={() => void save()}>保存配置</button></div>
+      </section>
       <section className="settings-section card"><div className="settings-heading"><span className="settings-icon"><Database /></span><div><h2>本地数据与家属共享</h2><p>{storageLabel} · {events.length} 个事件 · {records.length} 份检查 · {chemotherapyTemplates.length} 个模板 · {reimbursementPlans.length} 个报销计划</p></div></div><div className="callout"><LockKeyhole /><span>备份使用 AES-256-GCM 加密；密码无法找回，请通过安全方式告知接收者。</span></div><label>备份密码<input type="password" value={backupPassword} onChange={(e) => setBackupPassword(e.target.value)} placeholder="至少 8 位" autoComplete="new-password" /></label><input ref={fileRef} className="sr-only" type="file" accept=".carejournal,application/json" onChange={(e) => { void prepareRestore(e.target.files?.[0]); e.target.value = '' }} />{backupMessage && <p className="backup-message" role="status">{backupMessage}</p>}<div className="backup-actions"><button className="button secondary" onClick={() => fileRef.current?.click()}><Upload />导入备份</button><button className="button primary" onClick={() => void exportData()}><Download />导出加密备份</button></div><div className="data-maintenance"><div className="data-maintenance-description"><span className="settings-icon"><Images /></span><div><strong>全局素材去重</strong><p>统一扫描检查图片、报销图片和 PDF，清理重复引用并回收无引用文件，不会删除仍在使用的素材。</p></div></div><button type="button" className="button secondary" disabled={deduplicating} onClick={() => void deduplicateImages()}>{deduplicating ? <span className="spinner" /> : <RefreshCw />}{deduplicating ? '去重中…' : '全局素材去重'}</button></div>{deduplicationMessage && <p className="maintenance-message" role="status">{deduplicationMessage}</p>}</section>
+      <LanSyncPanel />
+      <section className="settings-section card privacy-entry-card">
+        <div className="settings-heading"><span className="settings-icon"><ShieldCheck /></span><div><h2>隐私与数据</h2><p>无账号、无广告、无开发者后台；数据默认留在本机。</p></div></div>
+        <ul className="privacy-entry-points">
+          <li>项目维护者无法查看你的病程、素材或密钥。</li>
+          <li>只有主动识别、同步或导出时，数据才按你的操作流转。</li>
+          <li>本应用仅整理资料，不提供诊断或治疗建议。</li>
+        </ul>
+        <a className="settings-link-row" href="#/privacy"><span>查看完整隐私说明</span><ChevronRight aria-hidden="true" /></a>
+      </section>
       <section className="settings-section card"><div className="settings-heading"><span className="settings-icon">{form.darkMode ? <Moon /> : <Sun />}</span><div><h2>显示</h2><p>高对比界面支持系统字体放大。</p></div></div><label className="toggle-row"><span>深色模式</span><input type="checkbox" checked={form.darkMode} onChange={async (e) => { const next = { ...form, darkMode: e.target.checked }; setForm(next); await savePreferences(next) }} /></label></section>
     </div>
     {pendingRestore && <ConfirmSheet

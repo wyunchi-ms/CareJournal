@@ -1,7 +1,7 @@
 {
   "name": "carejournal",
   "private": true,
-  "version": "0.14.0",
+  "version": "0.16.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -20,6 +20,7 @@
     "@capacitor/app": "^7.1.2",
     "@capacitor/core": "^7.4.3",
     "@capacitor/filesystem": "^7.1.4",
+    "@paddleocr/paddleocr-js": "^0.4.2",
     "date-fns": "^4.1.0",
     "dexie": "^4.2.1",
     "echarts": "^6.0.0",

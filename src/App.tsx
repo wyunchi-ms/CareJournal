@@ -12,6 +12,7 @@ import { ImportPage } from './pages/ImportPage'
 import { RecordsPage } from './pages/RecordsPage'
 import { ReimbursementPage } from './pages/ReimbursementPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { PrivacyPage } from './pages/PrivacyPage'
 
 const navItems = [
   { path: '/chemotherapy-templates', label: '方案', icon: Pill },
@@ -26,6 +27,7 @@ type PageTransitionDirection = 'forward' | 'backward'
 
 function navIndex(pathname: string) {
   if (pathname === '/import') return navItems.findIndex((item) => item.path === '/records')
+  if (pathname === '/privacy') return navItems.findIndex((item) => item.path === '/settings')
   return navItems.findIndex((item) => item.path === pathname)
 }
 
@@ -52,7 +54,7 @@ function Navigation({ onNavigate }: { onNavigate: (path: string) => void }) {
           </NavLink>
         ))}
       </div>
-      <p className="local-note">所有病程数据仅保存在本设备</p>
+      <p className="local-note">病程数据默认保存在本设备</p>
     </nav>
   )
 }
@@ -164,6 +166,7 @@ export default function App() {
             <Route path="/reimbursement" element={<ReimbursementPage />} />
             <Route path="/charts" element={<ChartsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="*" element={<Navigate to="/calendar" replace />} />
           </Routes>
         </div>
