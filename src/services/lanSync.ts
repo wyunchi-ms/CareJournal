@@ -43,9 +43,14 @@ export interface LanCryptoIdentity {
 }
 
 const syncedKinds = ['event', 'chemotherapyTemplate', 'record', 'pin', 'reimbursementPlan', 'asset'] as const
-// Plain LAN envelopes no longer incur a second Base64 expansion, so a larger
-// chunk remains comfortably within the Android WebView bridge limit.
-const LAN_ASSET_CHUNK_CHARACTERS = 256 * 1024
+// 1 MiB per chunk — the previous 256 KiB value dates back to when envelopes
+// were encrypted and Base64-inflated 4/3× before crossing the WebView bridge.
+// Now that LAN payloads are plaintext, 1 MiB stays comfortably below the
+// Capacitor plugin-message ceiling on modern Android while cutting the number
+// of HTTP round-trips per asset (and therefore total wall-clock time) by ~4×.
+// If a future device rejects transactions this size, the safe dial-back is
+// 512 * 1024.
+const LAN_ASSET_CHUNK_CHARACTERS = 1024 * 1024
 const MAX_LAN_ASSET_CHARACTERS = 48 * 1024 * 1024
 
 const kindFields = {

@@ -92,7 +92,10 @@ describe('LAN sync transport', () => {
   })
 
   it('exchanges metadata first and reconstructs large assets from bounded encrypted chunks', async () => {
-    const dataUrl = `data:image/jpeg;base64,${'A'.repeat(700_000)}`
+    // Bigger than one chunk of the current LAN_ASSET_CHUNK_CHARACTERS bound
+    // so the source produces at least a couple of chunks and the receiver has
+    // to reassemble them.
+    const dataUrl = `data:image/jpeg;base64,${'A'.repeat(3 * 1024 * 1024)}`
     const asset: MediaAsset = {
       id: 'sha256:asset-1',
       name: 'report.jpg',

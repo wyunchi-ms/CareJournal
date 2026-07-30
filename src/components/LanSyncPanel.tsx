@@ -143,6 +143,16 @@ function hasPreviewChange(preview: LanSyncPreview) {
   })
 }
 
+/** Renders "42 秒" / "1 分" / "2 分 15 秒" — the units the user actually thinks in. */
+function formatDuration(ms: number) {
+  const seconds = Math.max(0, Math.round(ms / 1000))
+  if (seconds < 1) return '不到 1 秒'
+  if (seconds < 60) return `${seconds} 秒`
+  const minutes = Math.floor(seconds / 60)
+  const remainder = seconds - minutes * 60
+  return remainder === 0 ? `${minutes} 分` : `${minutes} 分 ${remainder} 秒`
+}
+
 export function LanSyncPanel() {
   const { createLanSnapshot, mergeLanSnapshot, previewLanSnapshot, storeLanAsset, finalizeLanAssets } = useApp()
   const [expanded, setExpanded] = useState(false)
@@ -169,6 +179,18 @@ export function LanSyncPanel() {
   // to not scare the user with a red "failure" status for bytes that are
   // already safely on disk.
   const sessionMergedRef = useRef(false)
+  // Wall-clock start of the current receive session so the final status can
+  // tell the user how long the whole exchange actually took. Set on the first
+  // meaningful phase (metadata merge or legacy compat), cleared once the sync
+  // completes or errors out.
+  const receiveStartedAtRef = useRef<number | null>(null)
+  // Merge summary produced during the receive metadata phase — reused when
+  // asset chunks finish so the final status can report record and asset
+  // deltas alongside the elapsed time.
+  const receiveSummaryRef = useRef<Awaited<ReturnType<typeof mergeLanSnapshot>> | null>(null)
+  // Number of asset chunks fully assembled (and persisted) on this device
+  // during the current receive session — used only for the final summary.
+  const receiveChunkCountRef = useRef(0)
 
   useEffect(() => { infoRef.current = info }, [info])
 
@@ -194,9 +216,11 @@ export function LanSyncPanel() {
       }
       if (incoming.transfer?.phase === 'metadata') {
         await lanSyncTransport.setTransferActive(true)
-        setStatus({ tone: 'working', message: '正在同步记录并准备传输素材…', progress: 6 })
+        if (receiveStartedAtRef.current === null) receiveStartedAtRef.current = Date.now()
+        setStatus({ tone: 'working', message: '正在合并双方数据…', progress: 15 })
         const summary = await mergeLanSnapshot(incoming)
         sessionMergedRef.current = true
+        receiveSummaryRef.current = summary
         // The initiator declares which kinds it is willing to accept. We honour
         // that so no bytes are wasted for kinds the user unchecked over there.
         const responderInclude = kindFilterFromWantedKinds(incoming.transfer.wantedKinds)
@@ -206,17 +230,28 @@ export function LanSyncPanel() {
           { include: responderInclude },
         )
         inboundAssetsRef.current = new LanAssetChunkReceiver()
+        receiveChunkCountRef.current = 0
         const metadata = await createLanMetadataSnapshot(currentInfo.alias, { include: responderInclude })
         const response = await encryptLanSnapshot(metadata, identity, request.envelope.senderPublicKey)
         await lanSyncTransport.completeSync(request.requestId, response)
         const willTransferAssets = summary.assetsReceived > 0 || (outboundAssetsRef.current?.assetCount ?? 0) > 0
-        setStatus({
-          tone: 'working',
-          message: willTransferAssets
-            ? `已合并${changesText(summary) === '双方数据已经一致' ? '' : `（${changesText(summary)}）`}，开始交换图片和 PDF…`
-            : `同步完成：${changesText(summary)}`,
-          progress: willTransferAssets ? 10 : 100,
-        })
+        if (willTransferAssets) {
+          setStatus({
+            tone: 'working',
+            message: `已合并（${changesText(summary)}），开始交换图片和 PDF…`,
+            progress: 25,
+          })
+        } else {
+          const elapsedMs = Date.now() - (receiveStartedAtRef.current ?? Date.now())
+          receiveStartedAtRef.current = null
+          receiveSummaryRef.current = null
+          sessionMergedRef.current = false
+          setStatus({
+            tone: 'success',
+            message: `同步完成：${changesText(summary)}，用时 ${formatDuration(elapsedMs)}`,
+            progress: 100,
+          })
+        }
         return
       }
       if (incoming.transfer?.phase === 'assets') {
@@ -226,10 +261,13 @@ export function LanSyncPanel() {
           message: incomingTransfer.done
             ? '对方素材已发送完成，正在完成本机素材发送…'
             : `正在接收素材 ${Math.min((incomingTransfer.assetIndex ?? 0) + 1, incomingTransfer.assetCount ?? 0)}/${incomingTransfer.assetCount ?? 0}…`,
-          progress: 10 + transferProgress(incomingTransfer) * .9,
+          progress: 25 + transferProgress(incomingTransfer) * 0.67,
         })
         const completedAsset = await inboundAssetsRef.current.accept(incoming)
-        if (completedAsset?.assets[0]) await storeLanAsset(completedAsset.assets[0])
+        if (completedAsset?.assets[0]) {
+          await storeLanAsset(completedAsset.assets[0])
+          receiveChunkCountRef.current += 1
+        }
         if (!outboundAssetsRef.current) outboundAssetsRef.current = await createLanAssetChunkSource(currentInfo.alias)
         const outgoing = await outboundAssetsRef.current.next()
         const response = await encryptLanSnapshot(outgoing, identity, request.envelope.senderPublicKey)
@@ -237,6 +275,7 @@ export function LanSyncPanel() {
         const transfer = incoming.transfer
         const bothDone = Boolean(transfer.done && outgoing.transfer?.done)
         if (bothDone) {
+          setStatus({ tone: 'working', message: '正在整理素材目录…', progress: 95 })
           // Data has already been merged and every chunk we could accept is on
           // disk. Swallow errors from these cleanup steps so the UI never shows
           // a red "failure" for a sync whose bytes are safely persisted.
@@ -244,26 +283,47 @@ export function LanSyncPanel() {
           await lanSyncTransport.setTransferActive(false).catch((error) => console.warn('setTransferActive failed after successful sync:', error))
           sessionMergedRef.current = false
         }
-        setStatus({
-          tone: bothDone ? 'success' : 'working',
-          message: bothDone
-            ? `双向同步完成${(transfer.skippedAssets ?? 0) > 0 ? `；对方有 ${transfer.skippedAssets} 个原始文件已不可读取` : ''}。`
-            : transfer.done
-            ? '对方素材已接收完成，正在完成本机素材发送…'
-            : `正在接收素材 ${Math.min((transfer.assetIndex ?? 0) + 1, transfer.assetCount ?? 0)}/${transfer.assetCount ?? 0}…`,
-          progress: bothDone ? 100 : 10 + transferProgress(transfer) * .9,
-        })
+        if (bothDone) {
+          const elapsedMs = Date.now() - (receiveStartedAtRef.current ?? Date.now())
+          const parts: string[] = []
+          const summary = receiveSummaryRef.current
+          if (summary) parts.push(changesText(summary))
+          if (receiveChunkCountRef.current > 0) parts.push(`接收 ${receiveChunkCountRef.current} 个素材`)
+          if ((outboundAssetsRef.current?.assetCount ?? 0) > 0) parts.push(`发送 ${outboundAssetsRef.current!.assetCount} 个素材`)
+          if ((transfer.skippedAssets ?? 0) > 0) parts.push(`对方跳过 ${transfer.skippedAssets} 个已无法读取的素材`)
+          parts.push(`用时 ${formatDuration(elapsedMs)}`)
+          receiveStartedAtRef.current = null
+          receiveSummaryRef.current = null
+          receiveChunkCountRef.current = 0
+          setStatus({
+            tone: 'success',
+            message: `同步完成：${parts.join('，')}`,
+            progress: 100,
+          })
+        } else {
+          setStatus({
+            tone: 'working',
+            message: transfer.done
+              ? '对方素材已接收完成，正在完成本机素材发送…'
+              : `正在接收素材 ${Math.min((transfer.assetIndex ?? 0) + 1, transfer.assetCount ?? 0)}/${transfer.assetCount ?? 0}…`,
+            progress: 25 + transferProgress(transfer) * 0.67,
+          })
+        }
         return
       }
 
       // Compatibility with version 0.19.0 and earlier single-envelope peers.
+      if (receiveStartedAtRef.current === null) receiveStartedAtRef.current = Date.now()
       const summary = await mergeLanSnapshot(incoming)
       sessionMergedRef.current = true
       const mergedSnapshot = await createLanSnapshot(currentInfo.alias)
       const response = await encryptLanSnapshot(mergedSnapshot, identity, request.envelope.senderPublicKey)
       await lanSyncTransport.completeSync(request.requestId, response)
       sessionMergedRef.current = false
-      setStatus({ tone: 'success', message: `同步完成：${changesText(summary)}` })
+      const elapsedMs = Date.now() - (receiveStartedAtRef.current ?? Date.now())
+      receiveStartedAtRef.current = null
+      receiveSummaryRef.current = null
+      setStatus({ tone: 'success', message: `同步完成：${changesText(summary)}，用时 ${formatDuration(elapsedMs)}` })
     } catch (error) {
       await lanSyncTransport.setTransferActive(false).catch(() => undefined)
       const message = error instanceof Error ? error.message : '接收同步失败'
@@ -277,6 +337,9 @@ export function LanSyncPanel() {
         await lanSyncTransport.rejectSync(request.requestId, message).catch(() => undefined)
         setStatus({ tone: 'error', message })
       }
+      receiveStartedAtRef.current = null
+      receiveSummaryRef.current = null
+      receiveChunkCountRef.current = 0
     } finally {
       busyRef.current = false
     }
@@ -321,6 +384,10 @@ export function LanSyncPanel() {
     identityRef.current = null
     outboundAssetsRef.current = null
     inboundAssetsRef.current = new LanAssetChunkReceiver()
+    sessionMergedRef.current = false
+    receiveStartedAtRef.current = null
+    receiveSummaryRef.current = null
+    receiveChunkCountRef.current = 0
     setPeers([])
     setStatus({ tone: 'neutral', message: '局域网同步已关闭。' })
   }
@@ -380,8 +447,10 @@ export function LanSyncPanel() {
     const sendFilter: LanSyncKindFilter = selection.send
     const acceptFilter: LanSyncKindFilter = selection.accept
     setPendingPreview(null)
-    setStatus({ tone: 'working', message: `正在整理与 ${peer.alias} 同步的记录…`, progress: 3 })
+    const startedAt = Date.now()
+    setStatus({ tone: 'working', message: `正在整理本机数据…`, progress: 3 })
     let mergedSummary: Awaited<ReturnType<typeof mergeLanSnapshot>> | null = null
+    let receivedChunks = 0
     try {
       const localAlias = info?.alias || deviceAlias()
       const outboundAssets = await createLanAssetChunkSource(
@@ -393,20 +462,25 @@ export function LanSyncPanel() {
       inboundAssetsRef.current = new LanAssetChunkReceiver()
       const snapshot = await createLanMetadataSnapshot(localAlias, { include: sendFilter })
       if (snapshot.transfer) snapshot.transfer.wantedKinds = selectedKinds(selection.accept)
-      setStatus({ tone: 'working', message: '正在交换病程、检查、图表和报销记录…', progress: 4 })
+      // The peer runs its own mergeLanSyncSnapshot inside the HTTP round-trip
+      // below, so the user actually stares at this message while both devices
+      // read and rewrite their catalogs. That is why we surface "交换数据" and
+      // not "发送 X 项" — the truth is a synchronous exchange, not a one-way push.
+      setStatus({ tone: 'working', message: `正在与 ${peer.alias} 交换数据…`, progress: 10 })
       const encrypted = await encryptLanSnapshot(snapshot, identity, peer.publicKey)
       const response = await lanSyncTransport.sendSync(peer, encrypted)
       const mergedRemote = await decryptLanSnapshot(response, identity)
+      setStatus({ tone: 'working', message: '正在合并双方数据…', progress: 18 })
       const summary = await mergeLanSnapshot(mergedRemote, { include: acceptFilter })
       mergedSummary = summary
       const willTransferAssets = summary.assetsReceived > 0 || outboundAssets.assetCount > 0
-      setStatus({
-        tone: 'working',
-        message: willTransferAssets
-          ? `已合并${changesText(summary) === '双方数据已经一致' ? '' : `（${changesText(summary)}）`}，正在交换图片和 PDF…`
-          : `同步完成：${changesText(summary)}`,
-        progress: willTransferAssets ? 10 : 100,
-      })
+      if (willTransferAssets) {
+        setStatus({
+          tone: 'working',
+          message: `已合并（${changesText(summary)}），开始交换图片和 PDF…`,
+          progress: 25,
+        })
+      }
 
       let localDone = false
       let remoteDone = false
@@ -414,13 +488,15 @@ export function LanSyncPanel() {
         const outgoing = await outboundAssets.next()
         localDone = Boolean(outgoing.transfer?.done)
         const transfer = outgoing.transfer
-        setStatus({
-          tone: 'working',
-          message: localDone
-            ? '本机素材已发送完成，正在接收对方剩余素材…'
-            : `正在传输素材 ${Math.min((transfer?.assetIndex ?? 0) + 1, transfer?.assetCount ?? 0)}/${transfer?.assetCount ?? 0}…`,
-          progress: transfer ? 10 + transferProgress(transfer) * .9 : 10,
-        })
+        if (willTransferAssets) {
+          setStatus({
+            tone: 'working',
+            message: localDone
+              ? '本机素材已发送完成，正在接收对方剩余素材…'
+              : `正在传输素材 ${Math.min((transfer?.assetIndex ?? 0) + 1, transfer?.assetCount ?? 0)}/${transfer?.assetCount ?? 0}…`,
+            progress: transfer ? 25 + transferProgress(transfer) * 0.67 : 25,
+          })
+        }
         const encryptedChunk = await encryptLanSnapshot(outgoing, identity, peer.publicKey)
         const encryptedResponse = await lanSyncTransport.sendSync(peer, encryptedChunk)
         const remoteChunk = await decryptLanSnapshot(encryptedResponse, identity)
@@ -430,17 +506,26 @@ export function LanSyncPanel() {
         // them here rather than leaking them into the DB.
         if (selection.accept.asset) {
           const completedAsset = await inboundAssetsRef.current.accept(remoteChunk)
-          if (completedAsset?.assets[0]) await storeLanAsset(completedAsset.assets[0])
+          if (completedAsset?.assets[0]) {
+            await storeLanAsset(completedAsset.assets[0])
+            receivedChunks += 1
+          }
         }
       }
 
+      if (willTransferAssets) {
+        setStatus({ tone: 'working', message: '正在整理素材目录…', progress: 95 })
+      }
       // Cleanup on the happy path — reconcile catalog and release the native
       // foreground service. Both are best-effort; failure here does not
       // invalidate the sync that already happened.
       await finalizeLanAssets().catch((error) => console.warn('finalizeLanAssets failed after successful sync:', error))
+      const elapsedMs = Date.now() - startedAt
       const finalParts = [changesText(summary)]
+      if (receivedChunks > 0) finalParts.push(`接收 ${receivedChunks} 个素材`)
       if (outboundAssets.assetCount > 0) finalParts.push(`发送 ${outboundAssets.assetCount} 个素材`)
       if (outboundAssets.skippedCount > 0) finalParts.push(`跳过 ${outboundAssets.skippedCount} 个已无法读取的旧素材`)
+      finalParts.push(`用时 ${formatDuration(elapsedMs)}`)
       setStatus({
         tone: 'success',
         message: `同步完成：${finalParts.join('，')}`,
@@ -455,9 +540,14 @@ export function LanSyncPanel() {
         // via the pendingSync mechanism.
         console.warn('LAN sync post-merge step failed:', error)
         await finalizeLanAssets().catch(() => undefined)
+        const elapsedMs = Date.now() - startedAt
+        const interruptedParts = [changesText(mergedSummary)]
+        if (receivedChunks > 0) interruptedParts.push(`已接收 ${receivedChunks} 个素材`)
+        interruptedParts.push(`用时 ${formatDuration(elapsedMs)}`)
+        interruptedParts.push('素材传输被中断，下次同步会自动补齐')
         setStatus({
           tone: 'success',
-          message: `同步完成：${changesText(mergedSummary)}${(outboundAssetsRef.current?.assetCount ?? 0) > 0 || mergedSummary.assetsReceived > 0 ? '；素材传输被中断，下次同步会自动补齐' : ''}`,
+          message: `同步完成：${interruptedParts.join('，')}`,
           progress: 100,
         })
       } else {
