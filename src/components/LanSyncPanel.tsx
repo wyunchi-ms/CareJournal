@@ -1,4 +1,4 @@
-import { ArrowRightLeft, CheckCircle2, Laptop, LoaderCircle, Power, RefreshCw, ShieldCheck, Smartphone, Wifi, X } from 'lucide-react'
+import { ArrowRightLeft, CheckCircle2, Laptop, LoaderCircle, Power, RefreshCw, Smartphone, Wifi, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { SettingsCollapsibleCard } from './SettingsCollapsibleCard'
 import { useApp } from '../store/AppContext'
@@ -468,11 +468,6 @@ export function LanSyncPanel() {
       expanded={expanded}
       onToggle={() => setExpanded((value) => !value)}
     >
-      <div className="callout lan-security-note">
-        <ShieldCheck />
-        <span>无需配对码，数据仅在当前局域网内直接传输；不会同步 LLM 配置和 API Key。请只在可信 Wi-Fi 下开启。</span>
-      </div>
-
       {!active ? <button type="button" className="button primary lan-start-button" disabled={starting} onClick={() => void start()}>
         {starting ? <LoaderCircle className="spin" /> : <Wifi />}{starting ? '正在开启…' : '开启局域网同步'}
       </button> : <>

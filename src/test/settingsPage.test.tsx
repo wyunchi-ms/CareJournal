@@ -92,11 +92,11 @@ describe('SettingsPage', () => {
     expect(screen.queryByText('API Version')).not.toBeInTheDocument()
   })
 
-  it('explains that LAN sync no longer needs a pairing code', () => {
+  it('exposes the LAN sync entry without a pairing-code UI', () => {
     render(<SettingsPage />)
 
     fireEvent.click(screen.getByRole('button', { name: /局域网同步/ }))
-    expect(screen.getByText(/无需配对码，数据仅在当前局域网内直接传输/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /开启局域网同步/ })).toBeInTheDocument()
     expect(screen.queryByLabelText(/配对码/)).not.toBeInTheDocument()
   })
 
