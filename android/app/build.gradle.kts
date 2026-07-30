@@ -2,5 +2,5 @@
 // Capacitor owns and executes the adjacent Groovy build.gradle file.
 // APP_VERSION is read from ../gradle.properties by the packaging script.
 val applicationId = "com.carejournal.app"
-val versionCode = 93
-val versionName = "0.19.14"
+val versionCode = 94
+val versionName = "0.19.15"

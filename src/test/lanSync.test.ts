@@ -68,7 +68,14 @@ describe('LAN sync transport', () => {
     await expect(decryptLanSnapshot(envelope, otherDevice)).resolves.toEqual(snapshot)
   })
 
-  it('keeps the union of arrays while newer scalar fields win', async () => {
+  it('lets the newer side authoritatively rewrite both scalars and array shape', async () => {
+    // Historical behaviour before v0.19.15 was to keep the union of the two
+    // sides' arrays so concurrent additions on disconnected devices survived.
+    // In practice that meant a user who *removed* a tag / linked id / day on
+    // the newer device would keep seeing the removed item resurrected by the
+    // older peer during sync. The revised contract is symmetric with objects:
+    // newer wins for both scalar fields and array contents; items that only
+    // exist on the older side are treated as user-initiated removals.
     await repository.put('event', 'event-1', {
       ...snapshot.events[0],
       title: '本机标题',
@@ -87,7 +94,7 @@ describe('LAN sync transport', () => {
 
     const merged = await mergeLanSyncSnapshot(incoming)
     expect(merged.events[0].title).toBe('对方较新标题')
-    expect(merged.events[0].tags).toEqual(['本机', '对方'])
+    expect(merged.events[0].tags).toEqual(['对方'])
     expect(merged.summary.conflictsMerged).toBe(1)
   })
 
@@ -760,12 +767,101 @@ describe('LAN sync transport', () => {
 
     const preview = await previewLanSyncSnapshot(peerSnapshot)
     expect(preview.chemotherapyTemplates).toEqual({ added: 0, updated: 0, deleted: 0 })
+  })
+
+  it('does not resurrect array items the user removed on the newer side', async () => {
+    // The user removes a chemotherapy day (or an item inside dayPlans/tags)
+    // on the newer device. Under the old array-union semantic, the merge on
+    // the newer side would silently re-add the removed item from the peer's
+    // older snapshot, and the preview would surface as "本机将发生 更新 1".
+    // Arrays must follow the same "newer wins" contract as objects, otherwise
+    // deletions can never propagate.
+    const localNewer = {
+      id: 'template-removed-day',
+      templateType: 'chemotherapy' as const,
+      name: 'PACLI',
+      cycleLengthDays: 21,
+      administrationDays: [1, 8],
+      dayPlans: [
+        { id: 'd1', day: 1 },
+        { id: 'd2', day: 8 },
+      ],
+      defaultCycleCount: 6,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-07-30T15:00:00.000Z',
+    }
+    await repository.put('chemotherapyTemplate', localNewer.id, localNewer)
+
+    const olderRemote = {
+      ...localNewer,
+      administrationDays: [1, 8, 15],
+      dayPlans: [
+        { id: 'd1', day: 1 },
+        { id: 'd2', day: 8 },
+        { id: 'd3', day: 15 },
+      ],
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    }
+    const peerSnapshot: LanSyncSnapshot = {
+      ...snapshot,
+      chemotherapyTemplates: [olderRemote],
+    }
+
+    const preview = await previewLanSyncSnapshot(peerSnapshot)
+    expect(preview.chemotherapyTemplates).toEqual({ added: 0, updated: 0, deleted: 0 })
 
     const merged = await mergeLanSyncSnapshot(peerSnapshot)
-    const kept = merged.chemotherapyTemplates.find((template) => template.id === newerLocal.id)
-    expect(kept).toBeDefined()
-    expect(kept?.hospital).toBeUndefined()
-    expect(kept?.name).toBe('本机改过后的方案')
-    expect(kept?.updatedAt).toBe('2026-07-30T12:00:00.000Z')
+    const kept = merged.chemotherapyTemplates.find((template) => template.id === localNewer.id)
+    expect(kept?.administrationDays).toEqual([1, 8])
+    expect(kept?.dayPlans).toEqual([
+      { id: 'd1', day: 1 },
+      { id: 'd2', day: 8 },
+    ])
+  })
+
+  it('does not report the newer side as updated when the template carries realistic optional fields', async () => {
+    // Reproduces the user-facing scenario in the LAN sync preview: on device A
+    // (newer) the user edited only the template's name. Older device B still
+    // holds the previous state. Preview on A must not claim that A itself will
+    // be updated, because the merge would land the same values it already
+    // contains — anything else means we are silently rewriting the row on the
+    // source-of-truth device.
+    const localNewer = {
+      id: 'template-realistic',
+      templateType: 'chemotherapy' as const,
+      name: 'FEC-Modified',
+      cycleLengthDays: 21,
+      administrationDays: [1, 8],
+      dayPlans: [
+        {
+          id: 'd1',
+          day: 1,
+          medicationItems: [
+            { id: 'm1', name: '氟尿嘧啶', dose: '500', unit: 'mg/m²' },
+            { id: 'm2', name: '表柔比星', dose: '75', unit: 'mg/m²' },
+          ],
+          medications: '氟尿嘧啶、表柔比星',
+          dosage: '500 mg/m²、75 mg/m²',
+        },
+        { id: 'd2', day: 8, medicationItems: [], medications: '', dosage: '' },
+      ],
+      defaultCycleCount: 6,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-07-30T15:00:00.000Z',
+    }
+    await repository.put('chemotherapyTemplate', localNewer.id, localNewer)
+
+    const olderRemote = {
+      ...localNewer,
+      name: 'FEC-Original',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    }
+    const peerSnapshot: LanSyncSnapshot = {
+      ...snapshot,
+      chemotherapyTemplates: [olderRemote],
+    }
+
+    const preview = await previewLanSyncSnapshot(peerSnapshot)
+    expect(preview.chemotherapyTemplates).toEqual({ added: 0, updated: 0, deleted: 0 })
   })
 })

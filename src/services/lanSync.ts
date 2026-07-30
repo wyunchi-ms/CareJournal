@@ -127,16 +127,19 @@ function valueKey(value: unknown) {
 
 function deepUnion(older: unknown, newer: unknown): unknown {
   if (Array.isArray(older) && Array.isArray(newer)) {
-    // Arrays keep union semantics: independent additions on either side (new
-    // tags, new linked ids, etc.) survive the merge.
-    const values = new Map<string, unknown>()
-    for (const item of older) values.set(valueKey(item), item)
-    for (const item of newer) {
+    // Newer's contents are authoritative, so items only present in older are
+    // treated as "removed by the user on the newer side" and dropped. Items
+    // that appear on both sides (matched by their id or JSON identity) still
+    // recurse into deepUnion so unchanged nested content merges cleanly and
+    // any newer-only fields on nested objects survive. Preserving newer's
+    // order also stops the merge from unexpectedly reshuffling lists.
+    const olderByKey = new Map<string, unknown>()
+    for (const item of older) olderByKey.set(valueKey(item), item)
+    return newer.map((item) => {
       const key = valueKey(item)
-      const existing = values.get(key)
-      values.set(key, existing === undefined ? item : deepUnion(existing, item))
-    }
-    return [...values.values()]
+      const olderMatch = olderByKey.get(key)
+      return olderMatch === undefined ? item : deepUnion(olderMatch, item)
+    })
   }
   if (isPlainObject(older) && isPlainObject(newer)) {
     // Objects are treated with "newer's shape is authoritative": keys the
