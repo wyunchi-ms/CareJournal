@@ -13,7 +13,7 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "android:sync": "npm run build && cap sync android",
-    "harmony:sync": "npm run build && node scripts/sync-harmony-assets.mjs",
+    "harmony:sync": "node scripts/build-harmony-web.mjs && node scripts/sync-harmony-assets.mjs",
     "harmony:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-harmony.ps1"
   },
   "dependencies": {
