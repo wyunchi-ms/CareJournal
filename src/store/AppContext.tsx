@@ -147,7 +147,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       const resumedJobs = loadedOcrJobs.map((job) => job.status === 'processing' ? { ...job, status: 'queued' as const, phase: 'waiting' as const, progress: 0, error: undefined, updatedAt: new Date().toISOString() } : job).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       const hospitalReimbursementPlans = loadedReimbursementPlans.map(keepHospitalReimbursementMaterials)
-      const initialCatalog = reconcileMediaCatalog(loadedRecords, resumedJobs, hospitalReimbursementPlans, loadedAssets)
+      // Assets are content-immutable (the id encodes their sha256), so any
+      // drift between updatedAt and createdAt can only have come from earlier
+      // versions bumping updatedAt inside reconcile when derived metadata such
+      // as visualFingerprint got filled in. Normalize the two on load — the
+      // existing write-back logic below diffs against `loadedAssetsById` and
+      // will persist the change automatically. Idempotent: assets whose
+      // timestamps are already aligned pass through untouched.
+      const normalizedAssets = loadedAssets.map((asset) => (
+        asset.updatedAt === asset.createdAt ? asset : { ...asset, updatedAt: asset.createdAt }
+      ))
+      const initialCatalog = reconcileMediaCatalog(loadedRecords, resumedJobs, hospitalReimbursementPlans, normalizedAssets)
       setStartupMessage('正在识别并清理重复原始文件…')
       const fingerprinted = await addMissingVisualFingerprints(initialCatalog.records, initialCatalog.reimbursementPlans)
       const catalog = reconcileMediaCatalog(

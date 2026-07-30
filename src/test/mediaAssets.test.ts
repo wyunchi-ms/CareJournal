@@ -139,4 +139,44 @@ describe('unified media asset catalog', () => {
     expect(result.assets).toHaveLength(1)
     expect(result.duplicateRecordImagesRemoved).toBe(1)
   })
+
+  it('does not bump asset updatedAt when reconcile fills in derived fields', async () => {
+    // Simulate the classic drift trigger: startup reconciliation runs and the
+    // record image brings a locally-computed visualFingerprint the asset did
+    // not carry. That is not a real content change — assets are immutable —
+    // so the row's updatedAt must stay put.
+    const originalAsset = {
+      id: 'sha256:stable-hash',
+      name: '检查报告.jpg',
+      mimeType: 'image/jpeg',
+      dataUrl: '',
+      sha256: 'stable-hash',
+      storagePath: 'report-images/stable-hash.jpg',
+      localUri: 'file:///private/report-images/stable-hash.jpg',
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    }
+    const enrichedImage = image({
+      id: 'record-image',
+      sha256: 'stable-hash',
+      storagePath: 'report-images/stable-hash.jpg',
+      localUri: 'file:///private/report-images/stable-hash.jpg',
+      // Newly computed on this device — the asset row had never seen it.
+      visualFingerprint: `v1:48x96:${btoa('L'.repeat(48 * 96))}`,
+    })
+
+    const result = reconcileMediaCatalog(
+      [record([enrichedImage])],
+      [],
+      [],
+      [originalAsset],
+      { pruneUnused: true },
+    )
+
+    expect(result.assets).toHaveLength(1)
+    expect(result.assets[0].visualFingerprint).toBe(enrichedImage.visualFingerprint)
+    // The asset row got a new derived field, but updatedAt is untouched.
+    expect(result.assets[0].updatedAt).toBe('2026-07-01T00:00:00.000Z')
+    expect(result.assets[0].createdAt).toBe('2026-06-01T00:00:00.000Z')
+  })
 })

@@ -61,7 +61,14 @@ function mergeAsset(existing: MediaAsset, image: StoredImage, now: string): Medi
     delete next.pendingSync
     changed = true
   }
-  return changed ? { ...next, updatedAt: now } : existing
+  // Assets are content-immutable (their id is `sha256:${sha256}`). Filling in
+  // derived metadata like visualFingerprint or a native storagePath is not a
+  // semantic change to the asset itself, so we intentionally do not bump
+  // updatedAt here — otherwise every reconcile pass would create a new
+  // "last modified" timestamp that only drifts across devices. `now` is kept
+  // in the signature for API stability with other reconcile helpers.
+  void now
+  return changed ? next : existing
 }
 
 function hydrateReference<T extends StoredImage>(image: T, asset: MediaAsset): T {
