@@ -242,6 +242,12 @@ export function LanSyncPanel() {
             progress: 25,
           })
         } else {
+          // Neither side has any bytes to move. Wrap up the whole session
+          // here so the initiator can skip its empty drain loop and the
+          // asset-phase handler below never gets to re-render "同步完成，用时
+          // 不到 1 秒" on top of the real completion timestamp.
+          await finalizeLanAssets().catch((error) => console.warn('finalizeLanAssets failed after successful sync:', error))
+          await lanSyncTransport.setTransferActive(false).catch((error) => console.warn('setTransferActive failed after successful sync:', error))
           const elapsedMs = Date.now() - (receiveStartedAtRef.current ?? Date.now())
           receiveStartedAtRef.current = null
           receiveSummaryRef.current = null
@@ -255,6 +261,17 @@ export function LanSyncPanel() {
         return
       }
       if (incoming.transfer?.phase === 'assets') {
+        // Defensive guard for peers that still drain a chunk loop even when
+        // both sides agreed nothing was going to flow. If the metadata phase
+        // has already reported "同步完成" we quietly acknowledge the drain
+        // without stomping on the UI with a bogus "用时不到 1 秒".
+        if (receiveStartedAtRef.current === null && sessionMergedRef.current === false) {
+          if (!outboundAssetsRef.current) outboundAssetsRef.current = await createLanAssetChunkSource(currentInfo.alias)
+          const outgoing = await outboundAssetsRef.current.next()
+          const response = await encryptLanSnapshot(outgoing, identity, request.envelope.senderPublicKey)
+          await lanSyncTransport.completeSync(request.requestId, response)
+          return
+        }
         const incomingTransfer = incoming.transfer
         setStatus({
           tone: 'working',
@@ -480,15 +497,13 @@ export function LanSyncPanel() {
           message: `已合并（${changesText(summary)}），开始交换图片和 PDF…`,
           progress: 25,
         })
-      }
 
-      let localDone = false
-      let remoteDone = false
-      while (!localDone || !remoteDone) {
-        const outgoing = await outboundAssets.next()
-        localDone = Boolean(outgoing.transfer?.done)
-        const transfer = outgoing.transfer
-        if (willTransferAssets) {
+        let localDone = false
+        let remoteDone = false
+        while (!localDone || !remoteDone) {
+          const outgoing = await outboundAssets.next()
+          localDone = Boolean(outgoing.transfer?.done)
+          const transfer = outgoing.transfer
           setStatus({
             tone: 'working',
             message: localDone
@@ -496,29 +511,31 @@ export function LanSyncPanel() {
               : `正在传输素材 ${Math.min((transfer?.assetIndex ?? 0) + 1, transfer?.assetCount ?? 0)}/${transfer?.assetCount ?? 0}…`,
             progress: transfer ? 25 + transferProgress(transfer) * 0.67 : 25,
           })
-        }
-        const encryptedChunk = await encryptLanSnapshot(outgoing, identity, peer.publicKey)
-        const encryptedResponse = await lanSyncTransport.sendSync(peer, encryptedChunk)
-        const remoteChunk = await decryptLanSnapshot(encryptedResponse, identity)
-        remoteDone = Boolean(remoteChunk.transfer?.done)
-        // The user may have unchecked incoming assets for this sync. Older
-        // peers still emit chunks regardless of wantedKinds, so we discard
-        // them here rather than leaking them into the DB.
-        if (selection.accept.asset) {
-          const completedAsset = await inboundAssetsRef.current.accept(remoteChunk)
-          if (completedAsset?.assets[0]) {
-            await storeLanAsset(completedAsset.assets[0])
-            receivedChunks += 1
+          const encryptedChunk = await encryptLanSnapshot(outgoing, identity, peer.publicKey)
+          const encryptedResponse = await lanSyncTransport.sendSync(peer, encryptedChunk)
+          const remoteChunk = await decryptLanSnapshot(encryptedResponse, identity)
+          remoteDone = Boolean(remoteChunk.transfer?.done)
+          // The user may have unchecked incoming assets for this sync. Older
+          // peers still emit chunks regardless of wantedKinds, so we discard
+          // them here rather than leaking them into the DB.
+          if (selection.accept.asset) {
+            const completedAsset = await inboundAssetsRef.current.accept(remoteChunk)
+            if (completedAsset?.assets[0]) {
+              await storeLanAsset(completedAsset.assets[0])
+              receivedChunks += 1
+            }
           }
         }
-      }
 
-      if (willTransferAssets) {
         setStatus({ tone: 'working', message: '正在整理素材目录…', progress: 95 })
       }
       // Cleanup on the happy path — reconcile catalog and release the native
       // foreground service. Both are best-effort; failure here does not
-      // invalidate the sync that already happened.
+      // invalidate the sync that already happened. We deliberately do NOT
+      // run an empty chunk loop when both sides agree there is nothing to
+      // move: doing so would poke the receiver's asset-phase handler which
+      // in turn would render a duplicate "同步完成，用时不到 1 秒" on top of
+      // the receiver's real completion timestamp.
       await finalizeLanAssets().catch((error) => console.warn('finalizeLanAssets failed after successful sync:', error))
       const elapsedMs = Date.now() - startedAt
       const finalParts = [changesText(summary)]
