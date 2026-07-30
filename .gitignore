@@ -23,6 +23,8 @@
 *.tsbuildinfo
 local.properties
 /harmony/.hvigor/
+/harmony/.appanalyzer/
+/harmony/.idea/
 /harmony/oh_modules/
 /harmony/entry/oh_modules/
 /harmony/entry/build/
