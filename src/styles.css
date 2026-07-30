@@ -964,6 +964,9 @@ legend { margin-bottom: 8px; color: var(--muted); font-size: .78rem; font-weight
 .lan-preview-skipped .lan-preview-kind strong { text-decoration: line-through; }
 .lan-preview-skip { flex: none; font-size: .68rem; font-style: normal; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
 .lan-preview-actions { display: grid; grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr); gap: 10px; }
+.lan-preview-loading { width: min(320px, calc(100vw - 28px)); display: grid; justify-items: center; gap: 10px; padding: 24px; text-align: center; }
+.lan-preview-loading svg { width: 32px; height: 32px; color: var(--primary, currentColor); }
+.lan-preview-loading p { margin: 0; color: var(--muted); font-size: .85rem; }
 @media (max-width: 560px) { .lan-preview-grid { grid-template-columns: 1fr; } }
 .lan-sync-sheet { position: relative; width: min(440px, calc(100vw - 28px)); display: grid; gap: 12px; padding: 22px; border-radius: 19px; background: var(--surface); box-shadow: 0 24px 60px rgba(42, 30, 26, .24); }
 .lan-sync-sheet h2, .lan-sync-sheet p { margin: 0; }

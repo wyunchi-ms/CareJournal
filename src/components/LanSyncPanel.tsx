@@ -130,6 +130,19 @@ function changesText(summary: Awaited<ReturnType<ReturnType<typeof useApp>['merg
   return parts.join('，')
 }
 
+/**
+ * Any row of any kind that would actually add / update / delete something on
+ * the target device. When both sides return false the sync is a no-op and the
+ * confirm button is disabled so the user is not led to trigger a pointless
+ * round trip.
+ */
+function hasPreviewChange(preview: LanSyncPreview) {
+  return previewKinds.some(([kind]) => {
+    const item = preview[kind]
+    return item.added > 0 || item.updated > 0 || item.deleted > 0
+  })
+}
+
 export function LanSyncPanel() {
   const { createLanSnapshot, mergeLanSnapshot, previewLanSnapshot, storeLanAsset, finalizeLanAssets } = useApp()
   const [expanded, setExpanded] = useState(false)
@@ -137,7 +150,6 @@ export function LanSyncPanel() {
   const [starting, setStarting] = useState(false)
   const [info, setInfo] = useState<LanServiceInfo | null>(null)
   const [peers, setPeers] = useState<LanPeer[]>([])
-  const [selectedPeer, setSelectedPeer] = useState<LanPeer | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [pendingPreview, setPendingPreview] = useState<{
     peer: LanPeer
@@ -313,16 +325,15 @@ export function LanSyncPanel() {
     setStatus({ tone: 'neutral', message: '局域网同步已关闭。' })
   }
 
-  async function prepareSyncPreview() {
-    if (!selectedPeer || busyRef.current) return
+  async function prepareSyncPreview(peer: LanPeer) {
+    if (busyRef.current) return
     const identity = identityRef.current
-    if (!identity || !selectedPeer.publicKey) {
+    if (!identity || !peer.publicKey) {
       setStatus({ tone: 'error', message: '设备密钥尚未就绪，请刷新设备后重试' })
       return
     }
     busyRef.current = true
     setPreviewLoading(true)
-    const peer = selectedPeer
     setStatus({ tone: 'working', message: `正在比较与 ${peer.alias} 同步后的变化…`, progress: 2 })
     try {
       const localAlias = info?.alias || deviceAlias()
@@ -331,7 +342,6 @@ export function LanSyncPanel() {
       const response = await lanSyncTransport.sendSync(peer, envelope)
       const remoteSnapshot = await decryptLanSnapshot(response, identity)
       const localPreview = await previewLanSnapshot(remoteSnapshot)
-      setSelectedPeer(null)
       setSyncSelection(defaultSyncSelection())
       setPendingPreview({
         peer,
@@ -480,7 +490,7 @@ export function LanSyncPanel() {
         </div>
         <div className="lan-peer-list" aria-label="同一局域网设备">
           {peers.length === 0 ? <div className="lan-empty"><Wifi /><strong>还没发现其他设备</strong><span>请在另一台设备的设置页也开启局域网同步。</span></div> : peers.map((peer) =>
-            <button type="button" className="lan-peer" key={peer.fingerprint} onClick={() => setSelectedPeer(peer)}>
+            <button type="button" className="lan-peer" key={peer.fingerprint} disabled={previewLoading || pendingPreview !== null} onClick={() => void prepareSyncPreview(peer)}>
               <span className="lan-peer-icon">{peer.deviceType === 'web' ? <Laptop /> : <Smartphone />}</span>
               <span><strong>{peer.alias}</strong><small>{peer.deviceType === 'web' ? '网页' : 'Android'} · {peer.host}</small></span>
               <ArrowRightLeft />
@@ -498,16 +508,10 @@ export function LanSyncPanel() {
       </div>}
     </SettingsCollapsibleCard>
 
-    {selectedPeer && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (!previewLoading && event.target === event.currentTarget) setSelectedPeer(null) }}>
-      <section className="lan-sync-sheet" role="dialog" aria-modal="true" aria-labelledby="lan-sync-title">
-        <button type="button" className="icon-button lan-sync-close" aria-label="关闭" disabled={previewLoading} onClick={() => setSelectedPeer(null)}><X /></button>
-        <span className="lan-peer-icon large">{selectedPeer.deviceType === 'web' ? <Laptop /> : <Smartphone />}</span>
-        <h2 id="lan-sync-title">与 {selectedPeer.alias} 同步</h2>
-        <p>{previewLoading ? '正在比较两台设备的数据，请稍候…' : '先查看同步后双方会增加或更新哪些内容；再次确认后才会真正写入数据。'}</p>
-        <button type="button" className="button primary" disabled={previewLoading} autoFocus onClick={() => void prepareSyncPreview()}>
-          {previewLoading ? <LoaderCircle className="spin" /> : <ArrowRightLeft />}
-          {previewLoading ? '正在准备同步内容…' : '查看同步内容'}
-        </button>
+    {previewLoading && !pendingPreview && <div className="modal-backdrop" role="presentation">
+      <section className="lan-sync-sheet lan-preview-loading" role="status" aria-live="polite">
+        <LoaderCircle className="spin" aria-hidden />
+        <p>正在准备同步内容…</p>
       </section>
     </div>}
 
@@ -532,7 +536,21 @@ export function LanSyncPanel() {
         </div>
         <div className="lan-preview-actions">
           <button type="button" className="button secondary" onClick={() => setPendingPreview(null)}>取消</button>
-          <button type="button" className="button primary" autoFocus onClick={() => void sync()}><ArrowRightLeft />确认并开始同步</button>
+          {(() => {
+            // Both sides showing "不会产生记录变化" means the merge would write
+            // literally nothing on either device. Disable the confirm button so
+            // the user is not led to trigger a pointless round trip; the intent
+            // is already conveyed by the two "不会产生记录变化" lines above.
+            const nothingToSync = !hasPreviewChange(pendingPreview.local) && !hasPreviewChange(pendingPreview.remote)
+            return <button
+              type="button"
+              className="button primary"
+              autoFocus
+              disabled={nothingToSync}
+              onClick={() => void sync()}
+              title={nothingToSync ? '双方数据已经一致，无需同步' : undefined}
+            ><ArrowRightLeft />{nothingToSync ? '无需同步' : '确认并开始同步'}</button>
+          })()}
         </div>
       </section>
     </div>}
