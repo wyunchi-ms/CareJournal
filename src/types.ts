@@ -347,6 +347,39 @@ export interface LanSyncSnapshot {
   reimbursementPlans: ReimbursementPlan[]
   assets: MediaAsset[]
   tombstones: SyncTombstone[]
+  /**
+   * Version 3 transport metadata. Older peers omit this field and continue to
+   * exchange a single full snapshot.
+   */
+  transfer?: {
+    phase: 'preview' | 'metadata' | 'assets'
+    done?: boolean
+    assetIndex?: number
+    assetCount?: number
+    skippedAssets?: number
+    preview?: LanSyncPreview
+    chunk?: {
+      asset: MediaAsset
+      index: number
+      count: number
+      data: string
+    }
+  }
+}
+
+export interface LanSyncPreviewCount {
+  added: number
+  updated: number
+  deleted: number
+}
+
+export interface LanSyncPreview {
+  events: LanSyncPreviewCount
+  chemotherapyTemplates: LanSyncPreviewCount
+  records: LanSyncPreviewCount
+  pins: LanSyncPreviewCount
+  reimbursementPlans: LanSyncPreviewCount
+  assets: LanSyncPreviewCount
 }
 
 export interface LanSyncMergeSummary {

@@ -96,7 +96,7 @@ describe('SettingsPage', () => {
     render(<SettingsPage />)
 
     fireEvent.click(screen.getByRole('button', { name: /局域网同步/ }))
-    expect(screen.getByText(/无需配对码，设备间会自动协商临时密钥/)).toBeInTheDocument()
+    expect(screen.getByText(/无需配对码，数据仅在当前局域网内直接传输/)).toBeInTheDocument()
     expect(screen.queryByLabelText(/配对码/)).not.toBeInTheDocument()
   })
 

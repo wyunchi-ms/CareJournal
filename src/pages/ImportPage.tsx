@@ -6,7 +6,8 @@ import { ConfirmSheet } from '../components/ConfirmSheet'
 import { ImagePreview } from '../components/ImagePreview'
 import { PdfPreview } from '../components/PdfPreview'
 import { SwipeableListItem } from '../components/SwipeableListItem'
-import { canImportAndroidFolder, folderSourceToStoredImage, pickAndroidImageFolder } from '../services/folderImport'
+import { canImportAndroidFolder, folderSourceToStoredImage, materializeStoredImage, pickAndroidImageFolder } from '../services/folderImport'
+import { persistStoredImage } from '../services/imageStorage'
 import { isLlmConfigured } from '../services/llmProviders'
 import { prepareImage, preparePdf } from '../services/images'
 import { storedImageSource } from '../services/imageStorage'
@@ -232,7 +233,11 @@ export function ImportPage() {
       setPreparing({ ...progress })
       for (const source of result.files) {
         try {
-          const added = await enqueueOcrImage(folderSourceToStoredImage(source))
+          // Copy into app-private storage while the SAF grant is definitely
+          // valid. Queued jobs and later LAN sync must not depend on the
+          // original folder permission still existing.
+          const durable = await persistStoredImage(await materializeStoredImage(folderSourceToStoredImage(source)))
+          const added = await enqueueOcrImage(durable)
           if (added) progress.added += 1
           else progress.skipped += 1
         } catch {

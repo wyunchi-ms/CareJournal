@@ -5,7 +5,7 @@ import { util } from '@kit.ArkTS';
 
 const PORT: number = 53318;
 const BROADCAST_ADDRESS: string = '255.255.255.255';
-const PEER_TTL_MS: number = 16000;
+const PEER_TTL_MS: number = 90000;
 
 interface PeerAdvertisement {
   app: string;
@@ -145,7 +145,7 @@ export class LanSyncService {
     if (!requestId) throw new Error('目标设备未返回同步请求编号');
     const deadline = Date.now() + 120000;
     while (Date.now() < deadline) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 850));
+      await new Promise<void>((resolve) => setTimeout(resolve, 150));
       const result = await this.rawRequest(http.RequestMethod.GET, `${base}/carejournal/v1/result/${requestId}`, '', 10000);
       const body = JSON.parse(result.body) as Record<string, object>;
       if (result.status === 202) continue;
@@ -177,7 +177,7 @@ export class LanSyncService {
       try {
         const text = new util.TextDecoder().decodeToString(new Uint8Array(event.message));
         const advertisement = JSON.parse(text) as PeerAdvertisement;
-        if (advertisement.app !== 'carejournal' || advertisement.version !== 2) return;
+        if (advertisement.app !== 'carejournal' || advertisement.version !== 4) return;
         if (!advertisement.fingerprint || !advertisement.publicKey ||
           advertisement.fingerprint === this.fingerprint) return;
         const host = event.remoteInfo.address;
@@ -209,7 +209,7 @@ export class LanSyncService {
     if (!this.active || !this.udp) return;
     const payload: PeerAdvertisement = {
       app: 'carejournal',
-      version: 2,
+      version: 4,
       alias: this.alias,
       deviceType: 'mobile',
       fingerprint: this.fingerprint,

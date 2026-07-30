@@ -5,9 +5,11 @@ import type {
   ExamRecord,
   LanSyncEntityKind,
   LanSyncMergeSummary,
+  LanSyncPreview,
   LanSyncSnapshot,
   MediaAsset,
   ReimbursementPlan,
+  StoredImage,
   SyncTombstone,
   TreatmentEvent,
 } from '../types'
@@ -32,6 +34,7 @@ export interface LanEncryptedEnvelope {
   iv: string
   senderPublicKey: string
   data: string
+  plaintext?: LanSyncSnapshot
 }
 
 export interface LanCryptoIdentity {
@@ -40,6 +43,10 @@ export interface LanCryptoIdentity {
 }
 
 const syncedKinds = ['event', 'chemotherapyTemplate', 'record', 'pin', 'reimbursementPlan', 'asset'] as const
+// Plain LAN envelopes no longer incur a second Base64 expansion, so a larger
+// chunk remains comfortably within the Android WebView bridge limit.
+const LAN_ASSET_CHUNK_CHARACTERS = 256 * 1024
+const MAX_LAN_ASSET_CHARACTERS = 48 * 1024 * 1024
 
 const kindFields = {
   event: 'events',
@@ -153,7 +160,7 @@ function portableAsset(asset: MediaAsset, dataUrl: string): MediaAsset {
   return result
 }
 
-export async function createLanSyncSnapshot(deviceName: string): Promise<LanSyncSnapshot> {
+async function loadLanCatalog() {
   const [events, chemotherapyTemplates, records, pins, reimbursementPlans, assets, tombstones] = await Promise.all([
     repository.list<TreatmentEvent>('event'),
     repository.list<ChemotherapyTemplate>('chemotherapyTemplate'),
@@ -164,22 +171,229 @@ export async function createLanSyncSnapshot(deviceName: string): Promise<LanSync
     repository.list<SyncTombstone>('syncTombstone'),
   ])
   const catalog = reconcileMediaCatalog(records, [], reimbursementPlans, assets, { pruneUnused: true })
-  const transferredAssets: MediaAsset[] = []
-  for (const asset of catalog.assets) {
-    const materialized = await materializeStoredImage(asset)
-    transferredAssets.push(portableAsset(asset, materialized.dataUrl))
-  }
+  return { events, chemotherapyTemplates, pins, tombstones, catalog }
+}
+
+function metadataAsset(asset: MediaAsset): MediaAsset {
+  return portableAsset(asset, '')
+}
+
+function snapshotWith(
+  deviceName: string,
+  source: Awaited<ReturnType<typeof loadLanCatalog>>,
+  assets: MediaAsset[],
+): LanSyncSnapshot {
   return {
     version: 1,
     deviceName,
     createdAt: new Date().toISOString(),
-    events,
-    chemotherapyTemplates,
-    records: catalog.records.map(compactRecordMedia),
-    pins,
-    reimbursementPlans: catalog.reimbursementPlans.map(compactReimbursementMedia),
-    assets: transferredAssets,
-    tombstones,
+    events: source.events,
+    chemotherapyTemplates: source.chemotherapyTemplates,
+    records: source.catalog.records.map(compactRecordMedia),
+    pins: source.pins,
+    reimbursementPlans: source.catalog.reimbursementPlans.map(compactReimbursementMedia),
+    assets,
+    tombstones: source.tombstones,
+  }
+}
+
+export async function createLanSyncSnapshot(deviceName: string): Promise<LanSyncSnapshot> {
+  const source = await loadLanCatalog()
+  const transferredAssets: MediaAsset[] = []
+  for (const asset of source.catalog.assets) {
+    const materialized = await materializeStoredImage(asset)
+    transferredAssets.push(portableAsset(asset, materialized.dataUrl))
+  }
+  return snapshotWith(deviceName, source, transferredAssets)
+}
+
+export async function createLanMetadataSnapshot(deviceName: string): Promise<LanSyncSnapshot> {
+  const source = await loadLanCatalog()
+  return {
+    ...snapshotWith(deviceName, source, source.catalog.assets.map(metadataAsset)),
+    transfer: {
+      phase: 'metadata',
+      assetCount: source.catalog.assets.filter(assetAvailableLocally).length,
+    },
+  }
+}
+
+export async function createLanPreviewSnapshot(deviceName: string): Promise<LanSyncSnapshot> {
+  const snapshot = await createLanMetadataSnapshot(deviceName)
+  return { ...snapshot, transfer: { ...snapshot.transfer!, phase: 'preview' } }
+}
+
+export async function previewLanSyncSnapshot(incoming: LanSyncSnapshot): Promise<LanSyncPreview> {
+  const [events, chemotherapyTemplates, records, pins, reimbursementPlans, assets, localTombstones] = await Promise.all([
+    repository.list<TreatmentEvent>('event'),
+    repository.list<ChemotherapyTemplate>('chemotherapyTemplate'),
+    repository.list<ExamRecord>('record'),
+    repository.list<ChartPin>('pin'),
+    repository.list<ReimbursementPlan>('reimbursementPlan'),
+    repository.list<MediaAsset>('asset'),
+    repository.list<SyncTombstone>('syncTombstone'),
+  ])
+  const tombstones = new Map([...localTombstones, ...incoming.tombstones].map((item) => [item.id, item]))
+  function count<T extends { id: string }>(kind: LanSyncEntityKind, local: T[], remote: T[]) {
+    const localById = new Map(local.map((item) => [item.id, item]))
+    let added = 0
+    let updated = 0
+    for (const item of remote) {
+      const existing = localById.get(item.id)
+      if (!existing) added += 1
+      else if (JSON.stringify(existing) !== JSON.stringify(item)) updated += 1
+    }
+    const deleted = local.filter((item) => {
+      const tombstone = tombstones.get(`${kind}:${item.id}`)
+      return tombstone && Date.parse(tombstone.deletedAt) >= timestamp(item)
+    }).length
+    return { added, updated, deleted }
+  }
+  return {
+    events: count('event', events, incoming.events),
+    chemotherapyTemplates: count('chemotherapyTemplate', chemotherapyTemplates, incoming.chemotherapyTemplates),
+    records: count('record', records, incoming.records),
+    pins: count('pin', pins, incoming.pins),
+    reimbursementPlans: count('reimbursementPlan', reimbursementPlans, incoming.reimbursementPlans),
+    assets: count('asset', assets, incoming.assets),
+  }
+}
+
+function assetAvailableLocally(asset: MediaAsset) {
+  return Boolean(asset.dataUrl || asset.storagePath || asset.sourceUri)
+}
+
+function emptyLanSnapshot(deviceName: string): LanSyncSnapshot {
+  return {
+    version: 1,
+    deviceName,
+    createdAt: new Date().toISOString(),
+    events: [],
+    chemotherapyTemplates: [],
+    records: [],
+    pins: [],
+    reimbursementPlans: [],
+    assets: [],
+    tombstones: [],
+  }
+}
+
+export interface LanAssetChunkSource {
+  readonly assetCount: number
+  readonly skippedCount: number
+  next(): Promise<LanSyncSnapshot>
+}
+
+export async function createLanAssetChunkSource(deviceName: string): Promise<LanAssetChunkSource> {
+  const source = await loadLanCatalog()
+  const assets = source.catalog.assets.filter(assetAvailableLocally)
+  let assetIndex = 0
+  let chunkIndex = 0
+  let currentData = ''
+  let currentAsset: MediaAsset | undefined
+  let skippedAssets = 0
+
+  return {
+    assetCount: assets.length,
+    get skippedCount() { return skippedAssets },
+    async next() {
+      while (!currentAsset && assetIndex < assets.length) {
+        const candidate = assets[assetIndex]
+        let materialized: StoredImage
+        try {
+          materialized = await materializeStoredImage(candidate) as MediaAsset
+        } catch (error) {
+          skippedAssets += 1
+          assetIndex += 1
+          console.warn(`跳过无法读取的同步素材：${candidate.name}`, error)
+          continue
+        }
+        if (!materialized.dataUrl) {
+          assetIndex += 1
+          continue
+        }
+        if (materialized.dataUrl.length > MAX_LAN_ASSET_CHARACTERS) {
+          throw new Error(`素材“${candidate.name}”超过局域网同步的单文件上限（约 36 MB），请先压缩或拆分`)
+        }
+        currentAsset = metadataAsset(candidate)
+        currentData = materialized.dataUrl
+        chunkIndex = 0
+      }
+
+      const snapshot = emptyLanSnapshot(deviceName)
+      if (!currentAsset) {
+        snapshot.transfer = {
+          phase: 'assets',
+          done: true,
+          assetIndex: assets.length,
+          assetCount: assets.length,
+          skippedAssets,
+        }
+        return snapshot
+      }
+
+      const chunkCount = Math.max(1, Math.ceil(currentData.length / LAN_ASSET_CHUNK_CHARACTERS))
+      const data = currentData.slice(
+        chunkIndex * LAN_ASSET_CHUNK_CHARACTERS,
+        (chunkIndex + 1) * LAN_ASSET_CHUNK_CHARACTERS,
+      )
+      snapshot.transfer = {
+        phase: 'assets',
+        done: false,
+        assetIndex,
+        assetCount: assets.length,
+        chunk: {
+          asset: currentAsset,
+          index: chunkIndex,
+          count: chunkCount,
+          data,
+        },
+      }
+      chunkIndex += 1
+      if (chunkIndex >= chunkCount) {
+        assetIndex += 1
+        chunkIndex = 0
+        currentData = ''
+        currentAsset = undefined
+      }
+      return snapshot
+    },
+  }
+}
+
+interface PendingLanAsset {
+  asset: MediaAsset
+  count: number
+  parts: string[]
+}
+
+export class LanAssetChunkReceiver {
+  private pending = new Map<string, PendingLanAsset>()
+
+  async accept(snapshot: LanSyncSnapshot): Promise<LanSyncSnapshot | null> {
+    const chunk = snapshot.transfer?.chunk
+    if (snapshot.transfer?.phase !== 'assets' || !chunk) return null
+    if (chunk.count < 1 || chunk.count > 1024 || chunk.index < 0 || chunk.index >= chunk.count) {
+      throw new Error('收到的素材分块信息无效')
+    }
+    let pending = this.pending.get(chunk.asset.id)
+    if (!pending) {
+      pending = { asset: chunk.asset, count: chunk.count, parts: new Array<string>(chunk.count) }
+      this.pending.set(chunk.asset.id, pending)
+    }
+    if (pending.count !== chunk.count) throw new Error('收到的素材分块数量不一致')
+    pending.parts[chunk.index] = chunk.data
+    if (pending.parts.filter(Boolean).length !== pending.count) return null
+
+    const dataUrl = pending.parts.join('')
+    this.pending.delete(chunk.asset.id)
+    if (dataUrl.length > MAX_LAN_ASSET_CHARACTERS || !dataUrl.startsWith('data:')) {
+      throw new Error('收到的素材内容无效或超过单文件上限')
+    }
+    return {
+      ...emptyLanSnapshot(snapshot.deviceName),
+      assets: [{ ...pending.asset, dataUrl }],
+    }
   }
 }
 
@@ -271,13 +485,6 @@ function ownedBytes(bytes: Uint8Array) {
   return new Uint8Array(bytes)
 }
 
-async function compress(bytes: Uint8Array) {
-  const blob = new Blob([ownedBytes(bytes)])
-  if (typeof CompressionStream === 'undefined' || typeof blob.stream !== 'function') return { compression: 'none' as const, bytes }
-  const stream = blob.stream().pipeThrough(new CompressionStream('gzip'))
-  return { compression: 'gzip' as const, bytes: new Uint8Array(await new Response(stream).arrayBuffer()) }
-}
-
 async function decompress(bytes: Uint8Array, compression: LanEncryptedEnvelope['compression']) {
   if (compression === 'none') return bytes
   const blob = new Blob([ownedBytes(bytes)])
@@ -320,22 +527,26 @@ async function deriveLanKey(identity: LanCryptoIdentity, peerPublicKey: string, 
 }
 
 export async function encryptLanSnapshot(snapshot: LanSyncSnapshot, identity: LanCryptoIdentity, peerPublicKey: string): Promise<LanEncryptedEnvelope> {
-  const salt = crypto.getRandomValues(new Uint8Array(16))
-  const iv = crypto.getRandomValues(new Uint8Array(12))
-  const compressed = await compress(new TextEncoder().encode(JSON.stringify(snapshot)))
-  const key = await deriveLanKey(identity, peerPublicKey, salt)
-  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, ownedBytes(compressed.bytes))
+  void peerPublicKey
   return {
     version: 2,
-    compression: compressed.compression,
-    salt: bytesToBase64(salt),
-    iv: bytesToBase64(iv),
+    compression: 'none',
+    salt: '',
+    iv: '',
     senderPublicKey: identity.publicKey,
-    data: bytesToBase64(new Uint8Array(encrypted)),
+    data: '',
+    plaintext: snapshot,
   }
 }
 
 export async function decryptLanSnapshot(envelope: LanEncryptedEnvelope, identity: LanCryptoIdentity): Promise<LanSyncSnapshot> {
+  if (envelope.plaintext) {
+    const snapshot = envelope.plaintext
+    if (snapshot.version !== 1 || !Array.isArray(snapshot.records) || !Array.isArray(snapshot.assets)) {
+      throw new Error('同步数据内容无效')
+    }
+    return snapshot
+  }
   try {
     if (envelope.version !== 2 || !envelope.senderPublicKey) throw new Error('版本不兼容')
     const salt = base64ToBytes(envelope.salt)

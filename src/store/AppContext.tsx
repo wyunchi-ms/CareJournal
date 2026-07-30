@@ -11,8 +11,8 @@ import { isLlmConfigured, mergePortableLlmSettings, normalizeAppPreferences } fr
 import { sortChartPins } from '../services/chartPins'
 import { buildVocabulary } from '../services/vocabulary'
 import { keepHospitalReimbursementMaterials } from '../services/reimbursement'
-import { createLanSyncSnapshot, mergeLanSyncSnapshot } from '../services/lanSync'
-import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, DynamicVocabulary, ExamRecord, LanSyncMergeSummary, LanSyncSnapshot, MediaAsset, OcrQueueItem, ReimbursementPlan, StoredImage, TreatmentEvent } from '../types'
+import { createLanSyncSnapshot, mergeLanSyncSnapshot, previewLanSyncSnapshot } from '../services/lanSync'
+import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, DynamicVocabulary, ExamRecord, LanSyncMergeSummary, LanSyncPreview, LanSyncSnapshot, MediaAsset, OcrQueueItem, ReimbursementPlan, StoredImage, TreatmentEvent } from '../types'
 import { DEFAULT_PREFERENCES, newId } from '../types'
 
 interface OcrQueueStats {
@@ -68,6 +68,9 @@ interface AppState {
   deduplicateImagesGlobally: () => Promise<ImageDeduplicationResult>
   createLanSnapshot: (deviceName: string) => Promise<LanSyncSnapshot>
   mergeLanSnapshot: (snapshot: LanSyncSnapshot) => Promise<LanSyncMergeSummary>
+  previewLanSnapshot: (snapshot: LanSyncSnapshot) => Promise<LanSyncPreview>
+  storeLanAsset: (asset: MediaAsset) => Promise<void>
+  finalizeLanAssets: () => Promise<void>
   enqueueOcrImage: (image: StoredImage) => Promise<boolean>
   retryOcrJob: (id: string) => Promise<void>
   retryAllFailedOcrJobs: () => Promise<void>
@@ -610,6 +613,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return merged.summary
   }, [])
 
+  const storeLanAsset = useCallback(async (asset: MediaAsset) => {
+    const stored = await persistStoredImage(asset)
+    const durable = {
+      ...asset,
+      ...stored,
+      id: asset.id,
+      createdAt: asset.createdAt,
+      updatedAt: asset.updatedAt,
+    }
+    await repository.put('asset', durable.id, durable)
+    const next = new Map(mediaAssetsRef.current.map((item) => [item.id, item]))
+    next.set(durable.id, durable)
+    mediaAssetsRef.current = [...next.values()]
+  }, [])
+
+  const finalizeLanAssets = useCallback(async () => {
+    const catalog = reconcileMediaCatalog(
+      recordsRef.current,
+      ocrJobsRef.current,
+      reimbursementPlansRef.current,
+      mediaAssetsRef.current,
+    )
+    recordsRef.current = catalog.records
+    setRecords(catalog.records)
+    ocrJobsRef.current = catalog.jobs
+    setOcrJobs(catalog.jobs)
+    reimbursementPlansRef.current = catalog.reimbursementPlans
+    setReimbursementPlans(catalog.reimbursementPlans)
+    await garbageCollectNativeImages(catalog.records, catalog.jobs, catalog.reimbursementPlans)
+  }, [])
+
   useEffect(() => {
     const configured = isLlmConfigured(preferences.llm)
     if (!ready || !configured || processingOcrRef.current) return
@@ -720,13 +754,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     restoreBackup,
     deduplicateImagesGlobally,
     createLanSnapshot: createLanSyncSnapshot,
-    mergeLanSnapshot,
+    mergeLanSnapshot, previewLanSnapshot: previewLanSyncSnapshot, storeLanAsset, finalizeLanAssets,
     enqueueOcrImage,
     retryOcrJob,
     retryAllFailedOcrJobs,
     removeOcrJob,
     clearCompletedOcrJobs,
-  }), [ready, startupMessage, storageError, events, chemotherapyTemplates, records, reimbursementPlans, pins, ocrJobs, ocrQueueStats, preferences, vocabulary, saveEvent, saveEvents, deleteEvent, saveChemotherapyTemplate, reorderChemotherapyTemplates, deleteChemotherapyTemplate, saveRecord, saveImportedRecords, rerecognizeRecord, deleteRecord, saveReimbursementPlan, deleteReimbursementPlan, savePin, reorderPins, deletePin, savePreferences, restoreBackup, deduplicateImagesGlobally, mergeLanSnapshot, enqueueOcrImage, retryOcrJob, retryAllFailedOcrJobs, removeOcrJob, clearCompletedOcrJobs])
+  }), [ready, startupMessage, storageError, events, chemotherapyTemplates, records, reimbursementPlans, pins, ocrJobs, ocrQueueStats, preferences, vocabulary, saveEvent, saveEvents, deleteEvent, saveChemotherapyTemplate, reorderChemotherapyTemplates, deleteChemotherapyTemplate, saveRecord, saveImportedRecords, rerecognizeRecord, deleteRecord, saveReimbursementPlan, deleteReimbursementPlan, savePin, reorderPins, deletePin, savePreferences, restoreBackup, deduplicateImagesGlobally, mergeLanSnapshot, storeLanAsset, finalizeLanAssets, enqueueOcrImage, retryOcrJob, retryAllFailedOcrJobs, removeOcrJob, clearCompletedOcrJobs])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

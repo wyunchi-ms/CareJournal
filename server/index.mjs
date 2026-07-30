@@ -67,7 +67,7 @@ async function readJson(request, limit = maxBodyBytes) {
 function lanAdvertisement(announce = false) {
   return Buffer.from(JSON.stringify({
     app: 'carejournal',
-    version: 2,
+    version: 4,
     alias: lanState.alias,
     deviceType: 'web',
     fingerprint: lanState.fingerprint,
@@ -112,7 +112,7 @@ async function startLan(alias, publicKey) {
   lanState.udp.on('message', (message, remote) => {
     try {
       const advertisement = JSON.parse(message.toString('utf8'))
-      if (advertisement.app !== 'carejournal' || advertisement.version !== 2 || !advertisement.publicKey || advertisement.fingerprint === lanState.fingerprint) return
+      if (advertisement.app !== 'carejournal' || advertisement.version !== 4 || !advertisement.publicKey || advertisement.fingerprint === lanState.fingerprint) return
       lanState.peers.set(advertisement.fingerprint, {
         fingerprint: advertisement.fingerprint,
         alias: String(advertisement.alias || 'CareJournal 设备'),
@@ -197,7 +197,7 @@ async function sendLanEnvelope(peer, envelope) {
   const { requestId } = await created.json()
   const deadline = Date.now() + 120000
   while (Date.now() < deadline) {
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 850))
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 150))
     const result = await fetch(`${base}/carejournal/v1/result/${requestId}`, { signal: AbortSignal.timeout(10000) })
     const body = await result.json()
     if (result.status === 202) continue

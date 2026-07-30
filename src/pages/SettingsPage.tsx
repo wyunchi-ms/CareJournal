@@ -8,7 +8,7 @@ import { testLlmConnection } from '../services/ocr'
 import { useApp } from '../store/AppContext'
 import type { LlmProviderId, LlmProviderSettings } from '../types'
 
-export function SettingsPage() {
+export function SettingsPage({ lanSyncManagedGlobally = false }: { lanSyncManagedGlobally?: boolean }) {
   const { preferences, savePreferences } = useApp()
   const [form, setForm] = useState(preferences)
   const [llmExpanded, setLlmExpanded] = useState(() => window.location.hash.endsWith('#llm-settings'))
@@ -109,7 +109,7 @@ export function SettingsPage() {
         </div>
         <label className="privacy-ocr-setting"><span className="settings-icon"><ScanText /></span><span><strong>PaddleOCR 本地脱敏</strong><small>先在设备上提取文字并删除患者姓名、病案号、住院号、身份证号和电话等信息；医院与科室会保留。开启后，原始图片不会发送给 LLM。</small></span><input type="checkbox" aria-label="PaddleOCR 本地脱敏" checked={form.localPrivacyOcrEnabled} onChange={(e) => setForm((current) => ({ ...current, localPrivacyOcrEnabled: e.target.checked }))} /></label>
       </SettingsCollapsibleCard>
-      <LanSyncPanel />
+      {!lanSyncManagedGlobally && <LanSyncPanel />}
       <SettingsCollapsibleCard
         className="privacy-entry-card"
         icon={<ShieldCheck />}

@@ -1,7 +1,9 @@
 package com.carejournal.app;
 
 import android.content.Context;
+import android.net.DhcpInfo;
 import android.net.wifi.WifiManager;
+import android.os.Build;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -23,6 +25,8 @@ import java.net.MulticastSocket;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URL;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -40,7 +44,7 @@ public class LanSyncPlugin extends Plugin {
     private static final String MULTICAST_ADDRESS = "224.0.0.167";
     private static final String BROADCAST_ADDRESS = "255.255.255.255";
     private static final int PORT = 53318;
-    private static final long PEER_TTL_MS = 16000;
+    private static final long PEER_TTL_MS = 90000;
     private static final int MAX_BODY_BYTES = 300 * 1024 * 1024;
 
     private final ExecutorService executor = Executors.newCachedThreadPool();
@@ -57,7 +61,7 @@ public class LanSyncPlugin extends Plugin {
 
     @PluginMethod
     public void start(PluginCall call) {
-        alias = call.getString("alias", "CareJournal 手机");
+        alias = resolvedAlias(call.getString("alias", ""));
         publicKey = call.getString("publicKey", "");
         if (publicKey.isEmpty()) {
             call.reject("无法开启局域网同步：设备加密密钥无效");
@@ -147,7 +151,7 @@ public class LanSyncPlugin extends Plugin {
                 String requestId = created.getString("requestId");
                 long deadline = System.currentTimeMillis() + 120000;
                 while (System.currentTimeMillis() < deadline) {
-                    Thread.sleep(850);
+                    Thread.sleep(25);
                     HttpResult result = rawRequest("GET", base + "/carejournal/v1/result/" + requestId, null, 10000);
                     JSONObject body = new JSONObject(result.body);
                     if (result.status == 202) continue;
@@ -164,6 +168,20 @@ public class LanSyncPlugin extends Plugin {
                 call.reject("局域网同步失败：" + safeMessage(error), error);
             }
         });
+    }
+
+    @PluginMethod
+    public void setTransferActive(PluginCall call) {
+        try {
+            if (Boolean.TRUE.equals(call.getBoolean("active", false))) {
+                LanSyncForegroundService.start(getContext());
+            } else {
+                LanSyncForegroundService.stop(getContext());
+            }
+            call.resolve();
+        } catch (Exception error) {
+            call.reject("无法更新后台同步状态：" + safeMessage(error), error);
+        }
     }
 
     private void startHttpServer() throws IOException {
@@ -208,7 +226,24 @@ public class LanSyncPlugin extends Plugin {
                 return;
             }
             if ("POST".equals(method) && "/carejournal/v1/sync".equals(path)) {
-                new JSONObject(body);
+                JSONObject envelope = new JSONObject(body);
+                String remotePublicKey = envelope.optString("senderPublicKey", "");
+                String remoteFingerprint = headerValue(headerLines, "x-carejournal-fingerprint");
+                String remoteAlias = decodeHeader(headerValue(headerLines, "x-carejournal-alias"));
+                if (!remotePublicKey.isEmpty()) {
+                    if (remoteFingerprint.isEmpty()) remoteFingerprint = remotePublicKey.substring(0, Math.min(32, remotePublicKey.length()));
+                    if (remoteAlias.isEmpty()) remoteAlias = "CareJournal 设备";
+                    peers.put(remoteFingerprint, new Peer(
+                        remoteFingerprint,
+                        remoteAlias,
+                        "mobile",
+                        remotePublicKey,
+                        client.getInetAddress().getHostAddress(),
+                        PORT,
+                        System.currentTimeMillis()
+                    ));
+                    notifyPeers();
+                }
                 String requestId = UUID.randomUUID().toString();
                 PendingRequest request = new PendingRequest(requestId, body);
                 pending.put(requestId, request);
@@ -242,16 +277,26 @@ public class LanSyncPlugin extends Plugin {
 
     private void startDiscovery() throws IOException {
         WifiManager wifiManager = (WifiManager) getContext().getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-        multicastLock = wifiManager.createMulticastLock("carejournal-lan-sync");
-        multicastLock.setReferenceCounted(false);
-        multicastLock.acquire();
+        if (wifiManager != null) {
+            try {
+                multicastLock = wifiManager.createMulticastLock("carejournal-lan-sync");
+                multicastLock.setReferenceCounted(false);
+                multicastLock.acquire();
+            } catch (Exception ignored) {
+                multicastLock = null;
+            }
+        }
 
         multicastSocket = new MulticastSocket(null);
         multicastSocket.setReuseAddress(true);
         multicastSocket.setBroadcast(true);
         multicastSocket.bind(new InetSocketAddress(PORT));
         multicastSocket.setTimeToLive(1);
-        multicastSocket.joinGroup(InetAddress.getByName(MULTICAST_ADDRESS));
+        try {
+            multicastSocket.joinGroup(InetAddress.getByName(MULTICAST_ADDRESS));
+        } catch (Exception ignored) {
+            // Broadcast discovery remains available when a vendor blocks multicast.
+        }
         executor.execute(() -> {
             byte[] buffer = new byte[4096];
             while (active && multicastSocket != null && !multicastSocket.isClosed()) {
@@ -259,7 +304,7 @@ public class LanSyncPlugin extends Plugin {
                     java.net.DatagramPacket packet = new java.net.DatagramPacket(buffer, buffer.length);
                     multicastSocket.receive(packet);
                     JSONObject advertisement = new JSONObject(new String(packet.getData(), packet.getOffset(), packet.getLength(), StandardCharsets.UTF_8));
-                    if (!"carejournal".equals(advertisement.optString("app")) || advertisement.optInt("version") != 2) continue;
+                    if (!"carejournal".equals(advertisement.optString("app")) || advertisement.optInt("version") != 4) continue;
                     String remoteFingerprint = advertisement.optString("fingerprint");
                     String remotePublicKey = advertisement.optString("publicKey");
                     if (remoteFingerprint.isEmpty() || remotePublicKey.isEmpty() || remoteFingerprint.equals(fingerprint)) continue;
@@ -273,7 +318,13 @@ public class LanSyncPlugin extends Plugin {
                         System.currentTimeMillis()
                     ));
                     notifyPeers();
-                    if (advertisement.optBoolean("announce")) announce(false);
+                    // Reply directly to the sender as well as through
+                    // broadcast. Some vendor Wi-Fi stacks deliver broadcast
+                    // in only one direction, while unicast remains reliable.
+                    if (advertisement.optBoolean("announce")) {
+                        announceTo(packet.getAddress());
+                        announce(false);
+                    }
                 } catch (Exception error) {
                     if (active) error.printStackTrace();
                 }
@@ -285,11 +336,11 @@ public class LanSyncPlugin extends Plugin {
     }
 
     private void announce(boolean requestResponse) {
+        if (!active || multicastSocket == null) return;
         try {
-            if (!active || multicastSocket == null) return;
             JSONObject advertisement = new JSONObject()
                 .put("app", "carejournal")
-                .put("version", 2)
+                .put("version", 4)
                 .put("alias", alias)
                 .put("deviceType", "mobile")
                 .put("fingerprint", fingerprint)
@@ -297,15 +348,84 @@ public class LanSyncPlugin extends Plugin {
                 .put("port", PORT)
                 .put("announce", requestResponse);
             byte[] data = advertisement.toString().getBytes(StandardCharsets.UTF_8);
-            java.net.DatagramPacket packet = new java.net.DatagramPacket(
-                data, data.length, InetAddress.getByName(MULTICAST_ADDRESS), PORT);
-            multicastSocket.send(packet);
-            java.net.DatagramPacket broadcastPacket = new java.net.DatagramPacket(
-                data, data.length, InetAddress.getByName(BROADCAST_ADDRESS), PORT);
-            multicastSocket.send(broadcastPacket);
+            // Some Android vendors reject multicast sends even after the lock
+            // is acquired. Each destination must be attempted independently so
+            // that a multicast failure cannot suppress the broadcast fallback.
+            sendAdvertisement(data, MULTICAST_ADDRESS);
+            sendAdvertisement(data, BROADCAST_ADDRESS);
+            InetAddress directedBroadcast = wifiBroadcastAddress();
+            if (directedBroadcast != null && !BROADCAST_ADDRESS.equals(directedBroadcast.getHostAddress())) {
+                sendAdvertisement(data, directedBroadcast.getHostAddress());
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void sendAdvertisement(byte[] data, String address) {
+        try {
+            MulticastSocket socket = multicastSocket;
+            if (!active || socket == null || socket.isClosed()) return;
+            socket.send(new java.net.DatagramPacket(
+                data, data.length, InetAddress.getByName(address), PORT));
         } catch (Exception ignored) {
-            // A later scheduled announcement can recover from transient Wi-Fi changes.
+            // Other destinations and later scheduled announcements can recover.
         }
+    }
+
+    private void announceTo(InetAddress address) {
+        if (!active || address == null || multicastSocket == null) return;
+        try {
+            JSONObject advertisement = new JSONObject()
+                .put("app", "carejournal")
+                .put("version", 4)
+                .put("alias", alias)
+                .put("deviceType", "mobile")
+                .put("fingerprint", fingerprint)
+                .put("publicKey", publicKey)
+                .put("port", PORT)
+                .put("announce", false);
+            byte[] data = advertisement.toString().getBytes(StandardCharsets.UTF_8);
+            multicastSocket.send(new java.net.DatagramPacket(data, data.length, address, PORT));
+        } catch (Exception ignored) {}
+    }
+
+    @SuppressWarnings("deprecation")
+    private InetAddress wifiBroadcastAddress() {
+        try {
+            WifiManager wifiManager = (WifiManager) getContext().getApplicationContext()
+                .getSystemService(Context.WIFI_SERVICE);
+            DhcpInfo dhcp = wifiManager == null ? null : wifiManager.getDhcpInfo();
+            if (dhcp == null || dhcp.netmask == 0) return null;
+            int broadcast = (dhcp.ipAddress & dhcp.netmask) | ~dhcp.netmask;
+            byte[] quads = new byte[4];
+            for (int index = 0; index < 4; index++) {
+                quads[index] = (byte) ((broadcast >> (index * 8)) & 0xff);
+            }
+            return InetAddress.getByAddress(quads);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static String resolvedAlias(String requested) {
+        String value = requested == null ? "" : requested.trim();
+        String normalized = value.toLowerCase(java.util.Locale.ROOT)
+            .replace(" ", "")
+            .replace("-", "");
+        boolean generic = normalized.isEmpty()
+            || "carejournal".equals(normalized)
+            || "carejournal手机".equals(normalized)
+            || "carejournalandroid".equals(normalized);
+        if (!generic) return value.length() > 48 ? value.substring(0, 48) : value;
+
+        String manufacturer = Build.MANUFACTURER == null ? "" : Build.MANUFACTURER.trim();
+        String model = Build.MODEL == null ? "" : Build.MODEL.trim();
+        String device = model;
+        if (!manufacturer.isEmpty() && !model.toLowerCase(java.util.Locale.ROOT)
+            .startsWith(manufacturer.toLowerCase(java.util.Locale.ROOT))) {
+            device = manufacturer + " " + model;
+        }
+        device = device.trim();
+        return device.isEmpty() ? "CareJournal Android" : device;
     }
 
     private void notifyPeers() {
@@ -399,19 +519,21 @@ public class LanSyncPlugin extends Plugin {
         output.flush();
     }
 
-    private static JSONObject requestJson(String method, String url, String body, int timeout) throws Exception {
+    private JSONObject requestJson(String method, String url, String body, int timeout) throws Exception {
         HttpResult result = rawRequest(method, url, body, timeout);
         JSONObject json = new JSONObject(result.body);
         if (result.status < 200 || result.status >= 300) throw new IOException(json.optString("error", "远程设备返回 " + result.status));
         return json;
     }
 
-    private static HttpResult rawRequest(String method, String url, String body, int timeout) throws Exception {
+    private HttpResult rawRequest(String method, String url, String body, int timeout) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
         connection.setRequestMethod(method);
         connection.setConnectTimeout(timeout);
         connection.setReadTimeout(timeout);
         connection.setRequestProperty("Content-Type", "application/json");
+        connection.setRequestProperty("X-CareJournal-Alias", URLEncoder.encode(alias, StandardCharsets.UTF_8.name()));
+        connection.setRequestProperty("X-CareJournal-Fingerprint", fingerprint);
         if (body != null) {
             connection.setDoOutput(true);
             byte[] data = body.getBytes(StandardCharsets.UTF_8);
@@ -431,6 +553,24 @@ public class LanSyncPlugin extends Plugin {
         }
         connection.disconnect();
         return new HttpResult(status, output.toString(StandardCharsets.UTF_8.name()));
+    }
+
+    private static String headerValue(String[] headers, String name) {
+        String prefix = name.toLowerCase(java.util.Locale.ROOT) + ":";
+        for (String header : headers) {
+            if (header.toLowerCase(java.util.Locale.ROOT).startsWith(prefix)) {
+                return header.substring(header.indexOf(':') + 1).trim();
+            }
+        }
+        return "";
+    }
+
+    private static String decodeHeader(String value) {
+        try {
+            return URLDecoder.decode(value, StandardCharsets.UTF_8.name());
+        } catch (Exception ignored) {
+            return value;
+        }
     }
 
     private static String safeMessage(Exception error) {

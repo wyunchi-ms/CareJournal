@@ -34,6 +34,7 @@ interface LanSyncNativePlugin {
   sendSync(options: { host: string; port: number; envelope: string }): Promise<{ envelope: string }>
   completeSync(options: { requestId: string; envelope: string }): Promise<void>
   rejectSync(options: { requestId: string; error: string }): Promise<void>
+  setTransferActive(options: { active: boolean }): Promise<void>
   addListener(eventName: 'peersChanged', listener: (event: { peers: LanPeer[] }) => void): Promise<PluginListenerHandle>
   addListener(eventName: 'syncRequest', listener: (event: { requestId: string; envelope: string; peerAddress?: string }) => void): Promise<PluginListenerHandle>
 }
@@ -76,6 +77,7 @@ class LanSyncTransport {
         }
       })
       const info = parseHarmonyResult<LanServiceInfo>(await getHarmonyBridge().lanStart(alias, publicKey))
+      this.pollTimer = window.setInterval(() => void this.pollNative(), 1500)
       await this.refresh()
       return info
     }
@@ -88,6 +90,7 @@ class LanSyncTransport {
         })),
       ]
       const info = await NativeLanSync.start({ alias, publicKey })
+      this.pollTimer = window.setInterval(() => void this.pollNative(), 1500)
       await this.refresh()
       return info
     }
@@ -161,6 +164,12 @@ class LanSyncTransport {
     else await fetchJson('/api/lan/reject', { method: 'POST', body: JSON.stringify(payload) })
   }
 
+  async setTransferActive(active: boolean) {
+    if (Capacitor.isNativePlatform() && !isHarmonyPlatform()) {
+      await NativeLanSync.setTransferActive({ active })
+    }
+  }
+
   onPeers(listener: (peers: LanPeer[]) => void) {
     this.peerListeners.add(listener)
     return () => this.peerListeners.delete(listener)
@@ -182,6 +191,21 @@ class LanSyncTransport {
       requests.forEach((request) => this.emitRequest(request))
     } catch {
       // The settings panel displays start/send failures. Transient polling errors retry.
+    }
+  }
+
+  private async pollNative() {
+    if (!this.active) return
+    try {
+      if (isHarmonyPlatform()) {
+        const { peers } = parseHarmonyResult<{ peers: LanPeer[] }>(await getHarmonyBridge().lanListPeers())
+        this.emitPeers(peers)
+      } else if (Capacitor.isNativePlatform()) {
+        const { peers } = await NativeLanSync.listPeers()
+        this.emitPeers(peers)
+      }
+    } catch {
+      // Event delivery is still primary; polling only repairs missed callbacks.
     }
   }
 

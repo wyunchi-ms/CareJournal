@@ -1,7 +1,7 @@
 import { Activity, AlertTriangle, CalendarDays, ChartNoAxesCombined, ListChecks, Pill, Settings, WalletCards } from 'lucide-react'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType } from 'react-router-dom'
 import { closeTopModal } from './components/modalStack'
 import { useApp } from './store/AppContext'
@@ -73,7 +73,7 @@ function OcrBackgroundStatus() {
   )
 }
 
-export default function App() {
+export default function App({ lanSyncPanel }: { lanSyncPanel?: ReactNode }) {
   const { ready, startupMessage, storageError } = useApp()
   const location = useLocation()
   const navigate = useNavigate()
@@ -173,11 +173,14 @@ export default function App() {
             <Route path="/import" element={<ImportPage />} />
             <Route path="/reimbursement" element={<ReimbursementPage />} />
             <Route path="/charts" element={<ChartsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings" element={<SettingsPage lanSyncManagedGlobally={Boolean(lanSyncPanel)} />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="*" element={<Navigate to="/calendar" replace />} />
           </Routes>
         </div>
+        {lanSyncPanel && <div className={`global-lan-panel${location.pathname === '/settings' ? '' : ' hidden'}`}>
+          {lanSyncPanel}
+        </div>}
       </main>
       <OcrBackgroundStatus />
     </div>

@@ -34,6 +34,17 @@ vi.mock('../services/folderImport', () => ({
     relativePath: source.relativePath,
   }),
   pickAndroidImageFolder: folderImport.pick,
+  materializeStoredImage: async (image: Record<string, unknown>) => ({
+    ...image,
+    dataUrl: 'data:image/jpeg;base64,QQ==',
+    storagePath: 'report-images/test.jpg',
+    localUri: 'file:///test.jpg',
+  }),
+}))
+
+vi.mock('../services/imageStorage', () => ({
+  persistStoredImage: async (image: Record<string, unknown>) => ({ ...image, dataUrl: '' }),
+  storedImageSource: (image: { dataUrl?: string; localUri?: string }) => image.dataUrl || image.localUri || '',
 }))
 
 const enqueueOcrImage = vi.fn()
