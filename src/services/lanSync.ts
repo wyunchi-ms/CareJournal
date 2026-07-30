@@ -199,6 +199,74 @@ function mergeValues<T extends { id: string }>(
   return result
 }
 
+/**
+ * Assets are content-identified: `MediaAsset.id === `sha256:${sha256}``. Two
+ * rows sharing an id have byte-identical contents, so there is no meaningful
+ * "update" to apply — merging their local-only metadata (visualFingerprint,
+ * createdAt, updatedAt) would just amplify device-local drift into repeated
+ * "更新 N 素材" preview noise and pointless writes on the source device.
+ *
+ * We therefore keep the local row unchanged whenever the id matches, honour
+ * tombstones the usual way, and only actually copy incoming rows when the id
+ * is new locally.
+ */
+function mergeAssetsById(
+  local: MediaAsset[],
+  incoming: MediaAsset[],
+  tombstones: Map<string, SyncTombstone>,
+  summary: LanSyncMergeSummary,
+): MediaAsset[] {
+  const localById = new Map(local.map((asset) => [asset.id, asset]))
+  const incomingById = new Map(incoming.map((asset) => [asset.id, asset]))
+  const result: MediaAsset[] = []
+  const ids = new Set([...localById.keys(), ...incomingById.keys()])
+  for (const id of ids) {
+    const localValue = localById.get(id)
+    const incomingValue = incomingById.get(id)
+    const tombstoneId = `asset:${id}`
+    const tombstone = tombstones.get(tombstoneId)
+    const newestEntityTime = Math.max(timestamp(localValue), timestamp(incomingValue))
+    if (tombstone && Date.parse(tombstone.deletedAt) >= newestEntityTime) {
+      if (localValue) summary.deleted += 1
+      continue
+    }
+    if (tombstone) tombstones.delete(tombstoneId)
+    if (localValue) {
+      result.push(localValue)
+      summary.unchanged += 1
+      continue
+    }
+    if (incomingValue) {
+      result.push(incomingValue)
+      summary.added += 1
+    }
+  }
+  return result
+}
+
+/**
+ * Preview counter counterpart for {@link mergeAssetsById}. Only counts assets
+ * whose id does not exist locally as "added" — same id is never "updated" —
+ * and honours asset tombstones the usual way. Pending rows (bytes not yet
+ * received) are treated as absent so the peer knows to re-send them.
+ */
+function countAssetsForPreview(
+  local: MediaAsset[],
+  incoming: MediaAsset[],
+  tombstones: Map<string, SyncTombstone>,
+) {
+  const availableById = new Map(local.filter((asset) => !asset.pendingSync).map((asset) => [asset.id, asset]))
+  let added = 0
+  for (const item of incoming) {
+    if (!availableById.has(item.id)) added += 1
+  }
+  const deleted = [...availableById.values()].filter((asset) => {
+    const tombstone = tombstones.get(`asset:${asset.id}`)
+    return tombstone && Date.parse(tombstone.deletedAt) >= timestamp(asset)
+  }).length
+  return { added, updated: 0, deleted }
+}
+
 function portableAsset(asset: MediaAsset, dataUrl: string): MediaAsset {
   const result: MediaAsset = { ...asset, dataUrl }
   delete result.storagePath
@@ -317,14 +385,9 @@ export async function previewLanSyncSnapshot(incoming: LanSyncSnapshot): Promise
     records: count('record', records, incoming.records),
     pins: count('pin', pins, incoming.pins),
     reimbursementPlans: count('reimbursementPlan', reimbursementPlans, incoming.reimbursementPlans),
-    // Pending rows are placeholders left behind by an interrupted asset chunk
-    // stream. They must not shadow the incoming asset so the peer knows to
-    // re-send the bytes on the next attempt.
-    assets: count(
-      'asset',
-      assets.filter((asset) => !asset.pendingSync).map(metadataAsset),
-      incoming.assets.map(metadataAsset),
-    ),
+    // Assets are content-immutable. Same id ⇔ same bytes → never "updated".
+    // Pending rows are treated as absent so the peer knows to send them.
+    assets: countAssetsForPreview(assets, incoming.assets, tombstones),
   }
 }
 
@@ -534,7 +597,7 @@ export async function mergeLanSyncSnapshot(
   const mergedRecords = mergeValues('record', records, incomingRecords, tombstones, summary)
   const mergedPins = mergeValues('pin', pins, filtered.pins, tombstones, summary)
   const mergedPlans = mergeValues('reimbursementPlan', reimbursementPlans, filtered.reimbursementPlans, tombstones, summary)
-  const mergedAssets = await persistAssets(mergeValues('asset', assets, filtered.assets, tombstones, summary))
+  const mergedAssets = await persistAssets(mergeAssetsById(assets, filtered.assets, tombstones, summary))
   const catalog = reconcileMediaCatalog(mergedRecords, [], mergedPlans, mergedAssets, { pruneUnused: true })
 
   const replacements: Array<[EntityKind, Array<{ id: string; payload: unknown }>]> = [

@@ -499,4 +499,77 @@ describe('LAN sync transport', () => {
       transfer: { phase: 'assets', done: true, assetCount: 0 },
     })
   })
+
+  it('treats assets with the same id as identical even when local metadata drifted', async () => {
+    // The receiver's local copy carries a device-specific visualFingerprint and
+    // a locally-stamped updatedAt (the classic churn caused by startup
+    // reconciliation on the source device). The peer sends the same asset id
+    // with different values across those secondary fields.
+    const localCopy: MediaAsset = {
+      id: 'sha256:stable-asset',
+      name: 'photo.jpg',
+      mimeType: 'image/jpeg',
+      dataUrl: '',
+      sha256: 'stable-asset',
+      visualFingerprint: 'v1:48x96:LOCAL-DEVICE-DIGEST',
+      storagePath: 'files/assets/stable-asset.jpg',
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    }
+    await repository.put('asset', localCopy.id, localCopy)
+    // A record has to reference the asset or reconcileMediaCatalog(pruneUnused)
+    // will drop it during the merge, mirroring how records actually keep
+    // assets alive in production.
+    await repository.put('record', 'record-stable', {
+      id: 'record-stable',
+      reportType: 'lab',
+      sampleDate: '2026-06-01',
+      indicators: [],
+      images: [{
+        id: 'image-stable',
+        assetId: localCopy.id,
+        name: localCopy.name,
+        mimeType: localCopy.mimeType,
+        dataUrl: '',
+        sha256: localCopy.sha256,
+        visualFingerprint: localCopy.visualFingerprint,
+      }],
+      linkedEventIds: [],
+      fingerprint: 'record-stable',
+      ocrStatus: 'completed',
+      ocrAttempts: 1,
+      createdAt: localCopy.createdAt,
+      updatedAt: localCopy.updatedAt,
+    })
+
+    const drifted: MediaAsset = {
+      id: localCopy.id,
+      name: localCopy.name,
+      mimeType: localCopy.mimeType,
+      dataUrl: '',
+      sha256: localCopy.sha256,
+      visualFingerprint: 'v1:48x96:REMOTE-DEVICE-DIGEST',
+      createdAt: '2026-07-30T00:00:00.000Z',
+      updatedAt: '2026-07-30T00:00:00.000Z',
+    }
+    const peerSnapshot: LanSyncSnapshot = {
+      ...snapshot,
+      assets: [drifted],
+    }
+
+    // Preview must show 0 changes for this asset — same id ⇒ same bytes.
+    const preview = await previewLanSyncSnapshot(peerSnapshot)
+    expect(preview.assets).toEqual({ added: 0, updated: 0, deleted: 0 })
+
+    // Merging must NOT touch the existing row so the source-of-truth device
+    // keeps its original updatedAt/createdAt/visualFingerprint.
+    const merged = await mergeLanSyncSnapshot(peerSnapshot)
+    const kept = merged.assets.find((asset) => asset.id === localCopy.id)
+    expect(kept?.visualFingerprint).toBe('v1:48x96:LOCAL-DEVICE-DIGEST')
+    expect(kept?.updatedAt).toBe('2026-07-01T00:00:00.000Z')
+    expect(kept?.createdAt).toBe('2026-06-01T00:00:00.000Z')
+    expect(kept?.storagePath).toBe('files/assets/stable-asset.jpg')
+    expect(merged.summary.updated).toBe(0)
+    expect(merged.summary.conflictsMerged).toBe(0)
+  })
 })
