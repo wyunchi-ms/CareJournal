@@ -57,7 +57,7 @@ describe('SettingsPage', () => {
     const cardNames = [/智能识别服务/, /局域网同步/, /隐私与数据/, /显示/]
     cardNames.forEach((name) => expect(screen.getByRole('button', { name })).toHaveAttribute('aria-expanded', 'false'))
     expect(screen.getByRole('button', { name: /Azure OpenAI · 尚未配置/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /未开启 · 同一 Wi-Fi 双向合并/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /未开启 · 同一 Wi-Fi 双向同步/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /深色模式：未开启/ })).toBeInTheDocument()
     expect(screen.queryByRole('checkbox', { name: '深色模式' })).not.toBeInTheDocument()
   })

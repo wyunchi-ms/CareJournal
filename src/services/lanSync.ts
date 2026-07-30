@@ -57,6 +57,54 @@ const kindFields = {
   asset: 'assets',
 } as const satisfies Record<LanSyncEntityKind, keyof LanSyncSnapshot>
 
+/**
+ * Per-kind include map used to skip whole entity kinds during LAN sync. A
+ * missing key or `true` value means "include this kind"; `false` means "drop
+ * every entry of this kind, in both sides' snapshots and in tombstones". The
+ * filter is a purely local decision by the caller and is never serialized —
+ * peers coordinate the same intent through `LanSyncSnapshot.transfer.wantedKinds`.
+ */
+export type LanSyncKindFilter = Partial<Record<LanSyncEntityKind, boolean>>
+
+function includesKind(filter: LanSyncKindFilter | undefined, kind: LanSyncEntityKind): boolean {
+  if (!filter) return true
+  return filter[kind] !== false
+}
+
+/** Build a filter from the `wantedKinds` field the initiator sent on the wire. */
+export function kindFilterFromWantedKinds(wanted?: readonly LanSyncEntityKind[]): LanSyncKindFilter | undefined {
+  if (!wanted) return undefined
+  return {
+    event: wanted.includes('event'),
+    chemotherapyTemplate: wanted.includes('chemotherapyTemplate'),
+    record: wanted.includes('record'),
+    pin: wanted.includes('pin'),
+    reimbursementPlan: wanted.includes('reimbursementPlan'),
+    asset: wanted.includes('asset'),
+  }
+}
+
+/** Drop excluded kinds (and their tombstones) from a snapshot in-place-safe. */
+function applyKindFilter(snapshot: LanSyncSnapshot, filter?: LanSyncKindFilter): LanSyncSnapshot {
+  if (!filter) return snapshot
+  return {
+    ...snapshot,
+    events: includesKind(filter, 'event') ? snapshot.events : [],
+    chemotherapyTemplates: includesKind(filter, 'chemotherapyTemplate') ? snapshot.chemotherapyTemplates : [],
+    records: includesKind(filter, 'record') ? snapshot.records : [],
+    pins: includesKind(filter, 'pin') ? snapshot.pins : [],
+    reimbursementPlans: includesKind(filter, 'reimbursementPlan') ? snapshot.reimbursementPlans : [],
+    assets: includesKind(filter, 'asset') ? snapshot.assets : [],
+    tombstones: snapshot.tombstones.filter((tombstone) => {
+      const kind = tombstone.id.split(':')[0] as LanSyncEntityKind
+      // Unknown prefixes fall through untouched so we never silently discard
+      // future tombstone kinds we do not know about yet.
+      if (!(syncedKinds as readonly string[]).includes(kind)) return true
+      return includesKind(filter, kind)
+    }),
+  }
+}
+
 function timestamp(value: unknown) {
   if (!value || typeof value !== 'object') return 0
   const item = value as { updatedAt?: string; createdAt?: string }
@@ -211,13 +259,21 @@ export async function createLanSyncSnapshot(deviceName: string): Promise<LanSync
   return snapshotWith(deviceName, source, transferredAssets)
 }
 
-export async function createLanMetadataSnapshot(deviceName: string): Promise<LanSyncSnapshot> {
+export async function createLanMetadataSnapshot(
+  deviceName: string,
+  options: { include?: LanSyncKindFilter } = {},
+): Promise<LanSyncSnapshot> {
   const source = await loadLanCatalog()
   const availableAssets = source.catalog.assets.filter(assetAvailableLocally)
+  const base = snapshotWith(deviceName, source, source.catalog.assets.map(metadataAsset))
+  const filtered = applyKindFilter(base, options.include)
   return {
-    ...snapshotWith(deviceName, source, source.catalog.assets.map(metadataAsset)),
+    ...filtered,
     transfer: {
       phase: 'metadata',
+      // availableAssetIds always reflects real local availability. Even when
+      // the caller has excluded assets from this direction, the field still
+      // lets older peers skip duplicates from their side.
       assetCount: availableAssets.length,
       availableAssetIds: availableAssets.map((asset) => asset.id),
     },
@@ -301,10 +357,14 @@ export interface LanAssetChunkSource {
 export async function createLanAssetChunkSource(
   deviceName: string,
   peerAvailableAssetIds: Iterable<string> = [],
+  options: { include?: LanSyncKindFilter } = {},
 ): Promise<LanAssetChunkSource> {
   const source = await loadLanCatalog()
   const peerAssets = new Set(peerAvailableAssetIds)
-  const assets = source.catalog.assets.filter((asset) => assetAvailableLocally(asset) && !peerAssets.has(asset.id))
+  const includeAssets = includesKind(options.include, 'asset')
+  const assets = includeAssets
+    ? source.catalog.assets.filter((asset) => assetAvailableLocally(asset) && !peerAssets.has(asset.id))
+    : []
   let assetIndex = 0
   let chunkIndex = 0
   let currentData = ''
@@ -439,8 +499,12 @@ async function persistAssets(assets: MediaAsset[]) {
   return persisted
 }
 
-export async function mergeLanSyncSnapshot(incoming: LanSyncSnapshot): Promise<MergedLanData> {
+export async function mergeLanSyncSnapshot(
+  incoming: LanSyncSnapshot,
+  options: { include?: LanSyncKindFilter } = {},
+): Promise<MergedLanData> {
   if (incoming.version !== 1) throw new Error('对方使用了不兼容的局域网同步版本')
+  const filtered = applyKindFilter(incoming, options.include)
   const [events, chemotherapyTemplates, records, pins, reimbursementPlans, assets, localTombstones] = await Promise.all([
     repository.list<TreatmentEvent>('event'),
     repository.list<ChemotherapyTemplate>('chemotherapyTemplate'),
@@ -456,21 +520,21 @@ export async function mergeLanSyncSnapshot(incoming: LanSyncSnapshot): Promise<M
     unchanged: 0,
     deleted: 0,
     conflictsMerged: 0,
-    assetsReceived: incoming.assets.length,
+    assetsReceived: filtered.assets.length,
   }
   const tombstones = new Map<string, SyncTombstone>()
-  for (const tombstone of [...localTombstones, ...incoming.tombstones]) {
+  for (const tombstone of [...localTombstones, ...filtered.tombstones]) {
     const existing = tombstones.get(tombstone.id)
     if (!existing || Date.parse(tombstone.deletedAt) > Date.parse(existing.deletedAt)) tombstones.set(tombstone.id, tombstone)
   }
 
-  const mergedEvents = mergeValues('event', events, incoming.events, tombstones, summary)
-  const mergedTemplates = mergeValues('chemotherapyTemplate', chemotherapyTemplates, incoming.chemotherapyTemplates, tombstones, summary)
-  const incomingRecords = incoming.records.map((record) => normalizeEntityPayload('record', record))
+  const mergedEvents = mergeValues('event', events, filtered.events, tombstones, summary)
+  const mergedTemplates = mergeValues('chemotherapyTemplate', chemotherapyTemplates, filtered.chemotherapyTemplates, tombstones, summary)
+  const incomingRecords = filtered.records.map((record) => normalizeEntityPayload('record', record))
   const mergedRecords = mergeValues('record', records, incomingRecords, tombstones, summary)
-  const mergedPins = mergeValues('pin', pins, incoming.pins, tombstones, summary)
-  const mergedPlans = mergeValues('reimbursementPlan', reimbursementPlans, incoming.reimbursementPlans, tombstones, summary)
-  const mergedAssets = await persistAssets(mergeValues('asset', assets, incoming.assets, tombstones, summary))
+  const mergedPins = mergeValues('pin', pins, filtered.pins, tombstones, summary)
+  const mergedPlans = mergeValues('reimbursementPlan', reimbursementPlans, filtered.reimbursementPlans, tombstones, summary)
+  const mergedAssets = await persistAssets(mergeValues('asset', assets, filtered.assets, tombstones, summary))
   const catalog = reconcileMediaCatalog(mergedRecords, [], mergedPlans, mergedAssets, { pruneUnused: true })
 
   const replacements: Array<[EntityKind, Array<{ id: string; payload: unknown }>]> = [

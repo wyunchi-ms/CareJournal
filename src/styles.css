@@ -956,6 +956,13 @@ legend { margin-bottom: 8px; color: var(--muted); font-size: .78rem; font-weight
 .lan-preview-device ul { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .lan-preview-device li { display: flex; justify-content: space-between; gap: 10px; font-size: .76rem; }
 .lan-preview-device li span { color: var(--muted); text-align: right; }
+.lan-preview-device li label { display: flex; flex: 1; align-items: center; gap: 10px; cursor: pointer; }
+.lan-preview-device li label input[type="checkbox"] { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--primary, currentColor); cursor: pointer; }
+.lan-preview-kind { display: flex; flex: 1; justify-content: space-between; gap: 10px; align-items: baseline; }
+.lan-preview-kind > span { color: var(--muted); text-align: right; }
+.lan-preview-skipped label { opacity: .55; }
+.lan-preview-skipped .lan-preview-kind strong { text-decoration: line-through; }
+.lan-preview-skip { flex: none; font-size: .68rem; font-style: normal; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
 .lan-preview-actions { display: grid; grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr); gap: 10px; }
 @media (max-width: 560px) { .lan-preview-grid { grid-template-columns: 1fr; } }
 .lan-sync-sheet { position: relative; width: min(440px, calc(100vw - 28px)); display: grid; gap: 12px; padding: 22px; border-radius: 19px; background: var(--surface); box-shadow: 0 24px 60px rgba(42, 30, 26, .24); }

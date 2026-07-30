@@ -11,7 +11,7 @@ import { isLlmConfigured, mergePortableLlmSettings, normalizeAppPreferences } fr
 import { sortChartPins } from '../services/chartPins'
 import { buildVocabulary } from '../services/vocabulary'
 import { keepHospitalReimbursementMaterials } from '../services/reimbursement'
-import { createLanSyncSnapshot, mergeLanSyncSnapshot, previewLanSyncSnapshot } from '../services/lanSync'
+import { createLanSyncSnapshot, mergeLanSyncSnapshot, previewLanSyncSnapshot, type LanSyncKindFilter } from '../services/lanSync'
 import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, DynamicVocabulary, ExamRecord, LanSyncMergeSummary, LanSyncPreview, LanSyncSnapshot, MediaAsset, OcrQueueItem, ReimbursementPlan, StoredImage, TreatmentEvent } from '../types'
 import { DEFAULT_PREFERENCES, newId } from '../types'
 
@@ -67,7 +67,7 @@ interface AppState {
   restoreBackup: (payload: BackupPayload) => Promise<void>
   deduplicateImagesGlobally: () => Promise<ImageDeduplicationResult>
   createLanSnapshot: (deviceName: string) => Promise<LanSyncSnapshot>
-  mergeLanSnapshot: (snapshot: LanSyncSnapshot) => Promise<LanSyncMergeSummary>
+  mergeLanSnapshot: (snapshot: LanSyncSnapshot, options?: { include?: LanSyncKindFilter }) => Promise<LanSyncMergeSummary>
   previewLanSnapshot: (snapshot: LanSyncSnapshot) => Promise<LanSyncPreview>
   storeLanAsset: (asset: MediaAsset) => Promise<void>
   finalizeLanAssets: () => Promise<void>
@@ -595,8 +595,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [storeCatalogAssets])
 
-  const mergeLanSnapshot = useCallback(async (snapshot: LanSyncSnapshot) => {
-    const merged = await mergeLanSyncSnapshot(snapshot)
+  const mergeLanSnapshot = useCallback(async (snapshot: LanSyncSnapshot, options?: { include?: LanSyncKindFilter }) => {
+    const merged = await mergeLanSyncSnapshot(snapshot, options)
     setEvents(byDateDescending(merged.events))
     setChemotherapyTemplates(sortTreatmentTemplates(merged.chemotherapyTemplates))
     const nextRecords = byDateDescending(merged.records)

@@ -355,20 +355,28 @@ export interface LanSyncSnapshot {
   reimbursementPlans: ReimbursementPlan[]
   assets: MediaAsset[]
   tombstones: SyncTombstone[]
-  /**
-   * Version 3 transport metadata. Older peers omit this field and continue to
-   * exchange a single full snapshot.
-   */
-  transfer?: {
-    phase: 'preview' | 'metadata' | 'assets'
-    done?: boolean
-    assetIndex?: number
-    assetCount?: number
-    /** IDs of files that this device can currently read and send. */
-    availableAssetIds?: string[]
-    skippedAssets?: number
-    preview?: LanSyncPreview
-    chunk?: {
+    /**
+     * Version 3 transport metadata. Older peers omit this field and continue to
+     * exchange a single full snapshot.
+     */
+    transfer?: {
+      phase: 'preview' | 'metadata' | 'assets'
+      done?: boolean
+      assetIndex?: number
+      assetCount?: number
+      /** IDs of files that this device can currently read and send. */
+      availableAssetIds?: string[]
+      /**
+       * Entity kinds the initiator is willing to accept from the responder in
+       * this sync. When present, the responder must only populate the listed
+       * kinds in its outbound metadata snapshot and chunk stream. Absent means
+       * "accept everything", which preserves compatibility with peers that do
+       * not know about the selectable-sync feature.
+       */
+      wantedKinds?: LanSyncEntityKind[]
+      skippedAssets?: number
+      preview?: LanSyncPreview
+      chunk?: {
       asset: MediaAsset
       index: number
       count: number

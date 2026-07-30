@@ -9,14 +9,16 @@ import {
   createLanPreviewSnapshot,
   decryptLanSnapshot,
   encryptLanSnapshot,
+  kindFilterFromWantedKinds,
   LanAssetChunkReceiver,
   snapshotEntityCount,
   type LanAssetChunkSource,
   type LanCryptoIdentity,
+  type LanSyncKindFilter,
 } from '../services/lanSync'
 import { lanSyncTransport, type IncomingLanRequest, type LanPeer, type LanServiceInfo } from '../services/lanSyncTransport'
 import { isHarmonyPlatform } from '../platform/harmonyBridge'
-import type { LanSyncPreview } from '../types'
+import type { LanSyncEntityKind, LanSyncPreview, LanSyncSnapshot } from '../types'
 
 type SyncStatus = { tone: 'neutral' | 'working' | 'success' | 'error'; message: string; progress?: number }
 
@@ -29,29 +31,79 @@ function transferProgress(transfer: NonNullable<import('../types').LanSyncSnapsh
   return Math.max(0, Math.min(100, (((transfer.assetIndex ?? 0) + withinAsset) / count) * 100))
 }
 
-const previewKinds: Array<[keyof LanSyncPreview, string]> = [
-  ['events', '病程'],
-  ['chemotherapyTemplates', '方案'],
-  ['records', '检查'],
-  ['pins', '图表'],
-  ['reimbursementPlans', '报销'],
-  ['assets', '素材'],
+const previewKinds: Array<[keyof LanSyncPreview, LanSyncEntityKind, string]> = [
+  ['events', 'event', '病程'],
+  ['chemotherapyTemplates', 'chemotherapyTemplate', '方案'],
+  ['records', 'record', '检查'],
+  ['pins', 'pin', '图表'],
+  ['reimbursementPlans', 'reimbursementPlan', '报销'],
+  ['assets', 'asset', '素材'],
 ]
 
-function PreviewSummary({ title, preview }: { title: string; preview: LanSyncPreview }) {
-  const rows = previewKinds.filter(([kind]) => {
-    const item = preview[kind]
+type KindSelection = Record<LanSyncEntityKind, boolean>
+
+type SyncSelection = {
+  /** Kinds the local device is willing to accept from the peer. */
+  accept: KindSelection
+  /** Kinds the local device is willing to send to the peer. */
+  send: KindSelection
+}
+
+function fullKindSelection(): KindSelection {
+  return {
+    event: true,
+    chemotherapyTemplate: true,
+    record: true,
+    pin: true,
+    reimbursementPlan: true,
+    asset: true,
+  }
+}
+
+function defaultSyncSelection(): SyncSelection {
+  return { accept: fullKindSelection(), send: fullKindSelection() }
+}
+
+function selectedKinds(selection: KindSelection): LanSyncEntityKind[] {
+  return (Object.entries(selection) as Array<[LanSyncEntityKind, boolean]>)
+    .filter(([, on]) => on)
+    .map(([kind]) => kind)
+}
+
+function PreviewSummary({
+  title,
+  preview,
+  selection,
+  onToggle,
+}: {
+  title: string
+  preview: LanSyncPreview
+  selection: KindSelection
+  onToggle: (kind: LanSyncEntityKind) => void
+}) {
+  const rows = previewKinds.filter(([previewKey]) => {
+    const item = preview[previewKey]
     return item.added || item.updated || item.deleted
   })
   return <section className="lan-preview-device">
     <h3>{title}</h3>
-    {rows.length ? <ul>{rows.map(([kind, label]) => {
-      const item = preview[kind]
-      return <li key={kind}><strong>{label}</strong><span>
-        {item.added > 0 && `新增 ${item.added}`}
-        {item.updated > 0 && `${item.added ? ' · ' : ''}更新 ${item.updated}`}
-        {item.deleted > 0 && `${item.added || item.updated ? ' · ' : ''}删除 ${item.deleted}`}
-      </span></li>
+    {rows.length ? <ul>{rows.map(([previewKey, kind, label]) => {
+      const item = preview[previewKey]
+      const checked = selection[kind]
+      return <li key={kind} className={checked ? undefined : 'lan-preview-skipped'}>
+        <label>
+          <input type="checkbox" checked={checked} onChange={() => onToggle(kind)} aria-label={`同步${label}`} />
+          <span className="lan-preview-kind">
+            <strong>{label}</strong>
+            <span>
+              {item.added > 0 && `新增 ${item.added}`}
+              {item.updated > 0 && `${item.added ? ' · ' : ''}更新 ${item.updated}`}
+              {item.deleted > 0 && `${item.added || item.updated ? ' · ' : ''}删除 ${item.deleted}`}
+            </span>
+          </span>
+          {!checked && <em className="lan-preview-skip">已跳过</em>}
+        </label>
+      </li>
     })}</ul> : <p>不会产生记录变化</p>}
   </section>
 }
@@ -68,7 +120,7 @@ function deviceAlias() {
 
 function summaryText(summary: Awaited<ReturnType<ReturnType<typeof useApp>['mergeLanSnapshot']>>) {
   const changed = summary.added + summary.updated + summary.deleted
-  return `同步完成：${changed} 项变更，合并 ${summary.conflictsMerged} 项冲突，接收 ${summary.assetsReceived} 个素材`
+  return `同步完成：${changed} 项变化，处理 ${summary.conflictsMerged} 项双方修改，接收 ${summary.assetsReceived} 个素材`
 }
 
 export function LanSyncPanel() {
@@ -79,11 +131,14 @@ export function LanSyncPanel() {
   const [info, setInfo] = useState<LanServiceInfo | null>(null)
   const [peers, setPeers] = useState<LanPeer[]>([])
   const [selectedPeer, setSelectedPeer] = useState<LanPeer | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
   const [pendingPreview, setPendingPreview] = useState<{
     peer: LanPeer
     local: LanSyncPreview
     remote: LanSyncPreview
+    remoteSnapshot: LanSyncSnapshot
   } | null>(null)
+  const [syncSelection, setSyncSelection] = useState<SyncSelection>(defaultSyncSelection)
   const [status, setStatus] = useState<SyncStatus>({ tone: 'neutral', message: '开启后，同一 Wi-Fi 下的 CareJournal 设备会在这里出现。' })
   const busyRef = useRef(false)
   const infoRef = useRef<LanServiceInfo | null>(null)
@@ -115,11 +170,18 @@ export function LanSyncPanel() {
       }
       if (incoming.transfer?.phase === 'metadata') {
         await lanSyncTransport.setTransferActive(true)
-        setStatus({ tone: 'working', message: '正在合并记录并准备分块传输素材…', progress: 6 })
+        setStatus({ tone: 'working', message: '正在同步记录并准备传输素材…', progress: 6 })
         const summary = await mergeLanSnapshot(incoming)
-        outboundAssetsRef.current = await createLanAssetChunkSource(currentInfo.alias)
+        // The initiator declares which kinds it is willing to accept. We honour
+        // that so no bytes are wasted for kinds the user unchecked over there.
+        const responderInclude = kindFilterFromWantedKinds(incoming.transfer.wantedKinds)
+        outboundAssetsRef.current = await createLanAssetChunkSource(
+          currentInfo.alias,
+          incoming.transfer.availableAssetIds,
+          { include: responderInclude },
+        )
         inboundAssetsRef.current = new LanAssetChunkReceiver()
-        const metadata = await createLanMetadataSnapshot(currentInfo.alias)
+        const metadata = await createLanMetadataSnapshot(currentInfo.alias, { include: responderInclude })
         const response = await encryptLanSnapshot(metadata, identity, request.envelope.senderPublicKey)
         await lanSyncTransport.completeSync(request.requestId, response)
         setStatus({
@@ -229,8 +291,9 @@ export function LanSyncPanel() {
       return
     }
     busyRef.current = true
+    setPreviewLoading(true)
     const peer = selectedPeer
-    setStatus({ tone: 'working', message: `正在计算与 ${peer.alias} 合并后的变化…`, progress: 2 })
+    setStatus({ tone: 'working', message: `正在比较与 ${peer.alias} 同步后的变化…`, progress: 2 })
     try {
       const localAlias = info?.alias || deviceAlias()
       const snapshot = await createLanPreviewSnapshot(localAlias)
@@ -239,9 +302,11 @@ export function LanSyncPanel() {
       const remoteSnapshot = await decryptLanSnapshot(response, identity)
       const localPreview = await previewLanSnapshot(remoteSnapshot)
       setSelectedPeer(null)
+      setSyncSelection(defaultSyncSelection())
       setPendingPreview({
         peer,
         local: localPreview,
+        remoteSnapshot,
         remote: remoteSnapshot.transfer?.preview ?? {
           events: { added: 0, updated: 0, deleted: 0 },
           chemotherapyTemplates: { added: 0, updated: 0, deleted: 0 },
@@ -255,6 +320,7 @@ export function LanSyncPanel() {
     } catch (error) {
       setStatus({ tone: 'error', message: error instanceof Error ? error.message : '无法生成同步预览' })
     } finally {
+      setPreviewLoading(false)
       busyRef.current = false
     }
   }
@@ -269,19 +335,28 @@ export function LanSyncPanel() {
     }
     busyRef.current = true
     await lanSyncTransport.setTransferActive(true).catch(() => undefined)
+    // Snapshot the user's kind selection before we tear down the preview state.
+    const selection = syncSelection
+    const sendFilter: LanSyncKindFilter = selection.send
+    const acceptFilter: LanSyncKindFilter = selection.accept
     setPendingPreview(null)
     setStatus({ tone: 'working', message: `正在整理与 ${peer.alias} 同步的记录…`, progress: 3 })
     try {
       const localAlias = info?.alias || deviceAlias()
-      const outboundAssets = await createLanAssetChunkSource(localAlias)
+      const outboundAssets = await createLanAssetChunkSource(
+        localAlias,
+        pendingPreview.remoteSnapshot.transfer?.availableAssetIds,
+        { include: sendFilter },
+      )
       outboundAssetsRef.current = outboundAssets
       inboundAssetsRef.current = new LanAssetChunkReceiver()
-      const snapshot = await createLanMetadataSnapshot(localAlias)
+      const snapshot = await createLanMetadataSnapshot(localAlias, { include: sendFilter })
+      if (snapshot.transfer) snapshot.transfer.wantedKinds = selectedKinds(selection.accept)
       setStatus({ tone: 'working', message: '正在交换病程、检查、图表和报销记录…', progress: 4 })
       const encrypted = await encryptLanSnapshot(snapshot, identity, peer.publicKey)
       const response = await lanSyncTransport.sendSync(peer, encrypted)
       const mergedRemote = await decryptLanSnapshot(response, identity)
-      const summary = await mergeLanSnapshot(mergedRemote)
+      const summary = await mergeLanSnapshot(mergedRemote, { include: acceptFilter })
       setStatus({ tone: 'working', message: `${summaryText(summary)}；正在交换图片和 PDF…`, progress: 10 })
 
       let localDone = false
@@ -301,8 +376,13 @@ export function LanSyncPanel() {
         const encryptedResponse = await lanSyncTransport.sendSync(peer, encryptedChunk)
         const remoteChunk = await decryptLanSnapshot(encryptedResponse, identity)
         remoteDone = Boolean(remoteChunk.transfer?.done)
-        const completedAsset = await inboundAssetsRef.current.accept(remoteChunk)
-        if (completedAsset?.assets[0]) await storeLanAsset(completedAsset.assets[0])
+        // The user may have unchecked incoming assets for this sync. Older
+        // peers still emit chunks regardless of wantedKinds, so we discard
+        // them here rather than leaking them into the DB.
+        if (selection.accept.asset) {
+          const completedAsset = await inboundAssetsRef.current.accept(remoteChunk)
+          if (completedAsset?.assets[0]) await storeLanAsset(completedAsset.assets[0])
+        }
       }
 
       await finalizeLanAssets()
@@ -324,10 +404,15 @@ export function LanSyncPanel() {
       className="lan-sync-section"
       icon={<Wifi />}
       title="局域网同步"
-      summary={active ? `已开启 · ${peers.length ? `${peers.length} 台设备可用` : '等待发现设备'}` : '未开启 · 同一 Wi-Fi 双向合并'}
+      summary={active ? `已开启 · ${peers.length ? `${peers.length} 台设备可用` : '等待发现设备'}` : '未开启 · 同一 Wi-Fi 双向同步'}
       expanded={expanded}
       onToggle={() => setExpanded((value) => !value)}
     >
+      <div className="callout lan-security-note">
+        <ShieldCheck />
+        <span>无需配对码，数据仅在当前局域网内直接传输；不会同步 LLM 配置和 API Key。请只在可信 Wi-Fi 下开启。</span>
+      </div>
+
       {!active ? <button type="button" className="button primary lan-start-button" disabled={starting} onClick={() => void start()}>
         {starting ? <LoaderCircle className="spin" /> : <Wifi />}{starting ? '正在开启…' : '开启局域网同步'}
       </button> : <>
@@ -358,28 +443,41 @@ export function LanSyncPanel() {
       </div>}
     </SettingsCollapsibleCard>
 
-    {selectedPeer && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedPeer(null) }}>
+    {selectedPeer && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (!previewLoading && event.target === event.currentTarget) setSelectedPeer(null) }}>
       <section className="lan-sync-sheet" role="dialog" aria-modal="true" aria-labelledby="lan-sync-title">
-        <button type="button" className="icon-button lan-sync-close" aria-label="关闭" onClick={() => setSelectedPeer(null)}><X /></button>
+        <button type="button" className="icon-button lan-sync-close" aria-label="关闭" disabled={previewLoading} onClick={() => setSelectedPeer(null)}><X /></button>
         <span className="lan-peer-icon large">{selectedPeer.deviceType === 'web' ? <Laptop /> : <Smartphone />}</span>
         <h2 id="lan-sync-title">与 {selectedPeer.alias} 同步</h2>
-        <p>确认后会自动加密传输，并双向合并两台设备的数据；相同记录会合并，不会整库覆盖。</p>
-        <button type="button" className="button primary" autoFocus onClick={() => void prepareSyncPreview()}><ArrowRightLeft />查看合并结果</button>
+        <p>{previewLoading ? '正在比较两台设备的数据，请稍候…' : '先查看同步后双方会增加或更新哪些内容；再次确认后才会真正写入数据。'}</p>
+        <button type="button" className="button primary" disabled={previewLoading} autoFocus onClick={() => void prepareSyncPreview()}>
+          {previewLoading ? <LoaderCircle className="spin" /> : <ArrowRightLeft />}
+          {previewLoading ? '正在准备同步内容…' : '查看同步内容'}
+        </button>
       </section>
     </div>}
 
     {pendingPreview && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPendingPreview(null) }}>
       <section className="lan-sync-sheet lan-preview-sheet" role="dialog" aria-modal="true" aria-labelledby="lan-preview-title">
         <button type="button" className="icon-button lan-sync-close" aria-label="关闭" onClick={() => setPendingPreview(null)}><X /></button>
-        <h2 id="lan-preview-title">确认合并结果</h2>
-        <p>以下是正式同步后预计产生的变化。确认前双方数据库都不会被修改。</p>
+        <h2 id="lan-preview-title">确认同步内容</h2>
+        <p>以下是同步后双方预计产生的变化。默认全部同步；取消勾选某一项即可跳过该类别。确认前两台设备的数据都不会被修改。</p>
         <div className="lan-preview-grid">
-          <PreviewSummary title="本机将发生" preview={pendingPreview.local} />
-          <PreviewSummary title={`${pendingPreview.peer.alias} 将发生`} preview={pendingPreview.remote} />
+          <PreviewSummary
+            title="本机将发生"
+            preview={pendingPreview.local}
+            selection={syncSelection.accept}
+            onToggle={(kind) => setSyncSelection((prev) => ({ ...prev, accept: { ...prev.accept, [kind]: !prev.accept[kind] } }))}
+          />
+          <PreviewSummary
+            title={`${pendingPreview.peer.alias} 将发生`}
+            preview={pendingPreview.remote}
+            selection={syncSelection.send}
+            onToggle={(kind) => setSyncSelection((prev) => ({ ...prev, send: { ...prev.send, [kind]: !prev.send[kind] } }))}
+          />
         </div>
         <div className="lan-preview-actions">
           <button type="button" className="button secondary" onClick={() => setPendingPreview(null)}>取消</button>
-          <button type="button" className="button primary" autoFocus onClick={() => void sync()}><ArrowRightLeft />确认并开始合并</button>
+          <button type="button" className="button primary" autoFocus onClick={() => void sync()}><ArrowRightLeft />确认并开始同步</button>
         </div>
       </section>
     </div>}

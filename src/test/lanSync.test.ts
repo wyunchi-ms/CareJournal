@@ -6,12 +6,13 @@ import {
   createLanMetadataSnapshot,
   decryptLanSnapshot,
   encryptLanSnapshot,
+  kindFilterFromWantedKinds,
   LanAssetChunkReceiver,
   mergeLanSyncSnapshot,
   previewLanSyncSnapshot,
   snapshotEntityCount,
 } from '../services/lanSync'
-import type { ExamRecord, LanSyncSnapshot, MediaAsset } from '../types'
+import type { ExamRecord, LanSyncSnapshot, MediaAsset, SyncTombstone, TreatmentEvent } from '../types'
 
 const snapshot: LanSyncSnapshot = {
   version: 1,
@@ -337,5 +338,165 @@ describe('LAN sync transport', () => {
 
     const preview = await previewLanSyncSnapshot(peerSnapshot)
     expect(preview.assets).toEqual({ added: 1, updated: 0, deleted: 0 })
+  })
+
+  it('converts a wantedKinds list into a per-kind include filter', () => {
+    expect(kindFilterFromWantedKinds(undefined)).toBeUndefined()
+    expect(kindFilterFromWantedKinds([])).toEqual({
+      event: false,
+      chemotherapyTemplate: false,
+      record: false,
+      pin: false,
+      reimbursementPlan: false,
+      asset: false,
+    })
+    expect(kindFilterFromWantedKinds(['event', 'asset'])).toEqual({
+      event: true,
+      chemotherapyTemplate: false,
+      record: false,
+      pin: false,
+      reimbursementPlan: false,
+      asset: true,
+    })
+  })
+
+  it('empties excluded kinds in the outgoing metadata but keeps availableAssetIds accurate', async () => {
+    const asset: MediaAsset = {
+      id: 'sha256:asset-filtered',
+      name: 'photo.jpg',
+      mimeType: 'image/jpeg',
+      dataUrl: 'data:image/jpeg;base64,QUFBQQ==',
+      sha256: 'asset-filtered',
+      createdAt: '2026-07-29T01:00:00.000Z',
+      updatedAt: '2026-07-29T01:00:00.000Z',
+    }
+    const record: ExamRecord = {
+      id: 'record-filtered',
+      reportType: 'lab',
+      sampleDate: '2026-07-29',
+      indicators: [],
+      images: [{
+        id: 'image-filtered',
+        assetId: asset.id,
+        name: asset.name,
+        mimeType: asset.mimeType,
+        dataUrl: '',
+        sha256: asset.sha256,
+      }],
+      linkedEventIds: [],
+      fingerprint: 'record-filtered',
+      ocrStatus: 'completed',
+      ocrAttempts: 1,
+      createdAt: asset.createdAt,
+      updatedAt: asset.updatedAt,
+    }
+    await repository.put('asset', asset.id, asset)
+    await repository.put('record', record.id, record)
+    await repository.put('event', 'event-kept', {
+      id: 'event-kept',
+      title: 'kept',
+      type: 'chemotherapy',
+      startDate: '2026-07-29',
+      endDate: '2026-07-29',
+      hospital: '',
+      department: '',
+      notes: '',
+      allDay: true,
+      tags: [],
+      linkedRecordIds: [],
+      createdAt: '2026-07-29T01:00:00.000Z',
+      updatedAt: '2026-07-29T01:00:00.000Z',
+    })
+
+    const dropped = await createLanMetadataSnapshot('A', { include: { asset: false, record: false } })
+    expect(dropped.assets).toHaveLength(0)
+    expect(dropped.records).toHaveLength(0)
+    expect(dropped.events).toHaveLength(1)
+    // availableAssetIds still shows what we truly have on disk so older peers
+    // stop advertising duplicates back at us.
+    expect(dropped.transfer?.availableAssetIds).toEqual([asset.id])
+  })
+
+  it('drops incoming entries and tombstones for kinds excluded by the include filter', async () => {
+    const localEvent: TreatmentEvent = {
+      id: 'event-local',
+      title: '本地事件',
+      type: 'chemotherapy',
+      startDate: '2026-07-29',
+      endDate: '2026-07-29',
+      hospital: '',
+      department: '',
+      notes: '',
+      allDay: true,
+      tags: [],
+      linkedRecordIds: [],
+      createdAt: '2026-07-29T01:00:00.000Z',
+      updatedAt: '2026-07-29T01:00:00.000Z',
+    }
+    await repository.put('event', localEvent.id, localEvent)
+
+    const incomingEvent: TreatmentEvent = {
+      ...localEvent,
+      id: 'event-incoming',
+      title: '对方事件',
+    }
+    const tombstone: SyncTombstone = {
+      id: `event:${localEvent.id}`,
+      entityKind: 'event',
+      entityId: localEvent.id,
+      deletedAt: '2026-07-30T00:00:00.000Z',
+      updatedAt: '2026-07-30T00:00:00.000Z',
+    }
+    const incoming: LanSyncSnapshot = {
+      ...snapshot,
+      events: [incomingEvent],
+      tombstones: [tombstone],
+    }
+
+    const merged = await mergeLanSyncSnapshot(incoming, { include: { event: false } })
+    const ids = merged.events.map((event) => event.id)
+    expect(ids).toContain(localEvent.id)
+    expect(ids).not.toContain(incomingEvent.id)
+    expect(merged.summary.added).toBe(0)
+    expect(merged.summary.deleted).toBe(0)
+  })
+
+  it('returns an empty chunk stream when the include filter excludes assets', async () => {
+    const asset: MediaAsset = {
+      id: 'sha256:asset-skipped',
+      name: 'skip.jpg',
+      mimeType: 'image/jpeg',
+      dataUrl: `data:image/jpeg;base64,${'A'.repeat(300_000)}`,
+      sha256: 'asset-skipped',
+      createdAt: '2026-07-29T01:00:00.000Z',
+      updatedAt: '2026-07-29T01:00:00.000Z',
+    }
+    await repository.put('asset', asset.id, asset)
+    await repository.put('record', 'record-skipped', {
+      id: 'record-skipped',
+      reportType: 'lab',
+      sampleDate: '2026-07-29',
+      indicators: [],
+      images: [{
+        id: 'image-skipped',
+        assetId: asset.id,
+        name: asset.name,
+        mimeType: asset.mimeType,
+        dataUrl: '',
+        sha256: asset.sha256,
+      }],
+      linkedEventIds: [],
+      fingerprint: 'record-skipped',
+      ocrStatus: 'completed',
+      ocrAttempts: 1,
+      createdAt: asset.createdAt,
+      updatedAt: asset.updatedAt,
+    })
+
+    const source = await createLanAssetChunkSource('A', [], { include: { asset: false } })
+    expect(source.assetCount).toBe(0)
+    await expect(source.next()).resolves.toMatchObject({
+      transfer: { phase: 'assets', done: true, assetCount: 0 },
+    })
   })
 })
