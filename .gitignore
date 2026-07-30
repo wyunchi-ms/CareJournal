@@ -1,5 +1,7 @@
 /node_modules/
 /.codex/
+/.codex-remote-attachments/
+/.sisyphus/
 /build/
 /dist/
 /.gradle/
@@ -13,10 +15,12 @@
 /android/.gradle-local/
 /android/.android/
 /android/.tmp/
+/android/.idea/
 /android/analytics.settings
 *.log
 *.jks
 *.keystore
+*.tsbuildinfo
 local.properties
 /harmony/.hvigor/
 /harmony/oh_modules/
@@ -24,3 +28,8 @@ local.properties
 /harmony/entry/build/
 /harmony/build/
 /harmony/entry/src/main/resources/rawfile/www/
+.env
+.env.local
+.env.*.local
+.DS_Store
+Thumbs.db
