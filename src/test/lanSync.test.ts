@@ -8,6 +8,7 @@ import {
   encryptLanSnapshot,
   LanAssetChunkReceiver,
   mergeLanSyncSnapshot,
+  previewLanSyncSnapshot,
   snapshotEntityCount,
 } from '../services/lanSync'
 import type { ExamRecord, LanSyncSnapshot, MediaAsset } from '../types'
@@ -125,6 +126,7 @@ describe('LAN sync transport', () => {
 
     const metadata = await createLanMetadataSnapshot('A')
     expect(metadata.transfer).toMatchObject({ phase: 'metadata', assetCount: 1 })
+    expect(metadata.transfer?.availableAssetIds).toEqual([asset.id])
     expect(metadata.assets[0].dataUrl).toBe('')
 
     const source = await createLanAssetChunkSource('A')
@@ -140,6 +142,12 @@ describe('LAN sync transport', () => {
     expect(chunks).toBeGreaterThan(1)
     expect(rebuilt?.assets[0]).toMatchObject({ id: asset.id, dataUrl })
     await expect(source.next()).resolves.toMatchObject({ transfer: { phase: 'assets', done: true } })
+
+    const unchangedSource = await createLanAssetChunkSource('A', [asset.id])
+    expect(unchangedSource.assetCount).toBe(0)
+    await expect(unchangedSource.next()).resolves.toMatchObject({
+      transfer: { phase: 'assets', done: true, assetCount: 0 },
+    })
   })
 
   it('skips an old folder-backed asset that is no longer readable without aborting record sync', async () => {
@@ -173,5 +181,161 @@ describe('LAN sync transport', () => {
       transfer: { phase: 'assets', done: true, skippedAssets: 1 },
     })
     expect(source.skippedCount).toBe(1)
+  })
+
+  it('marks LAN-merged assets as pending until the chunk stream delivers their bytes', async () => {
+    const metadataAsset: MediaAsset = {
+      id: 'sha256:remote-asset',
+      name: 'remote.jpg',
+      mimeType: 'image/jpeg',
+      dataUrl: '',
+      sha256: 'remote-asset',
+      createdAt: '2026-07-29T01:00:00.000Z',
+      updatedAt: '2026-07-29T01:00:00.000Z',
+    }
+    const record: ExamRecord = {
+      id: 'record-remote',
+      reportType: 'lab',
+      sampleDate: '2026-07-29',
+      indicators: [],
+      images: [{
+        id: 'image-remote',
+        assetId: metadataAsset.id,
+        name: metadataAsset.name,
+        mimeType: metadataAsset.mimeType,
+        dataUrl: '',
+        sha256: metadataAsset.sha256,
+      }],
+      linkedEventIds: [],
+      fingerprint: 'record-remote',
+      ocrStatus: 'completed',
+      ocrAttempts: 1,
+      createdAt: metadataAsset.createdAt,
+      updatedAt: metadataAsset.updatedAt,
+    }
+    const incoming: LanSyncSnapshot = {
+      ...snapshot,
+      records: [record],
+      assets: [metadataAsset],
+      transfer: {
+        phase: 'metadata',
+        assetCount: 1,
+        availableAssetIds: [metadataAsset.id],
+      },
+    }
+
+    const merged = await mergeLanSyncSnapshot(incoming)
+    expect(merged.assets).toHaveLength(1)
+    expect(merged.assets[0].pendingSync).toBe(true)
+    const stored = await repository.list<MediaAsset>('asset')
+    expect(stored[0]?.pendingSync).toBe(true)
+  })
+
+  it('advertises only assets whose bytes are actually available to peers', async () => {
+    const pending: MediaAsset = {
+      id: 'sha256:pending',
+      name: 'pending.jpg',
+      mimeType: 'image/jpeg',
+      dataUrl: '',
+      sha256: 'pending',
+      pendingSync: true,
+      createdAt: '2026-07-29T01:00:00.000Z',
+      updatedAt: '2026-07-29T01:00:00.000Z',
+    }
+    const real: MediaAsset = {
+      id: 'sha256:real',
+      name: 'real.jpg',
+      mimeType: 'image/jpeg',
+      dataUrl: 'data:image/jpeg;base64,QUFBQQ==',
+      sha256: 'real',
+      createdAt: '2026-07-29T01:00:00.000Z',
+      updatedAt: '2026-07-29T01:00:00.000Z',
+    }
+    await repository.put('asset', pending.id, pending)
+    await repository.put('asset', real.id, real)
+    await repository.put('record', 'record-mixed', {
+      id: 'record-mixed',
+      reportType: 'lab',
+      sampleDate: '2026-07-29',
+      indicators: [],
+      images: [
+        { id: 'image-pending', assetId: pending.id, name: pending.name, mimeType: pending.mimeType, dataUrl: '', sha256: pending.sha256 },
+        { id: 'image-real', assetId: real.id, name: real.name, mimeType: real.mimeType, dataUrl: '', sha256: real.sha256 },
+      ],
+      linkedEventIds: [],
+      fingerprint: 'record-mixed',
+      ocrStatus: 'completed',
+      ocrAttempts: 1,
+      createdAt: pending.createdAt,
+      updatedAt: pending.updatedAt,
+    })
+
+    const metadata = await createLanMetadataSnapshot('B')
+    expect(metadata.transfer?.availableAssetIds).toEqual([real.id])
+    // pendingSync must not leak into any snapshot sent to peers.
+    expect(metadata.assets.every((asset) => asset.pendingSync === undefined)).toBe(true)
+
+    const source = await createLanAssetChunkSource('B')
+    expect(source.assetCount).toBe(1)
+  })
+
+  it('lets the peer re-send exactly the pending bytes after an interrupted sync', async () => {
+    // Simulate the receiving side of an A -> B transfer that failed halfway:
+    // both asset rows already exist locally, but only one carries real bytes.
+    const delivered: MediaAsset = {
+      id: 'sha256:delivered',
+      name: 'delivered.jpg',
+      mimeType: 'image/jpeg',
+      dataUrl: 'data:image/jpeg;base64,QUFBQQ==',
+      sha256: 'delivered',
+      createdAt: '2026-07-29T01:00:00.000Z',
+      updatedAt: '2026-07-29T01:00:00.000Z',
+    }
+    const stuck: MediaAsset = {
+      id: 'sha256:stuck',
+      name: 'stuck.jpg',
+      mimeType: 'image/jpeg',
+      dataUrl: '',
+      sha256: 'stuck',
+      pendingSync: true,
+      createdAt: '2026-07-29T01:00:00.000Z',
+      updatedAt: '2026-07-29T01:00:00.000Z',
+    }
+    await repository.put('asset', delivered.id, delivered)
+    await repository.put('asset', stuck.id, stuck)
+    await repository.put('record', 'record-both', {
+      id: 'record-both',
+      reportType: 'lab',
+      sampleDate: '2026-07-29',
+      indicators: [],
+      images: [
+        { id: 'image-delivered', assetId: delivered.id, name: delivered.name, mimeType: delivered.mimeType, dataUrl: '', sha256: delivered.sha256 },
+        { id: 'image-stuck', assetId: stuck.id, name: stuck.name, mimeType: stuck.mimeType, dataUrl: '', sha256: stuck.sha256 },
+      ],
+      linkedEventIds: [],
+      fingerprint: 'record-both',
+      ocrStatus: 'completed',
+      ocrAttempts: 1,
+      createdAt: delivered.createdAt,
+      updatedAt: delivered.updatedAt,
+    })
+
+    // Peer (A) still has both assets and re-announces them in the metadata phase.
+    const peerAsset = (source: MediaAsset): MediaAsset => ({
+      id: source.id,
+      name: source.name,
+      mimeType: source.mimeType,
+      dataUrl: '',
+      sha256: source.sha256,
+      createdAt: source.createdAt,
+      updatedAt: source.updatedAt,
+    })
+    const peerSnapshot: LanSyncSnapshot = {
+      ...snapshot,
+      assets: [peerAsset(delivered), peerAsset(stuck)],
+    }
+
+    const preview = await previewLanSyncSnapshot(peerSnapshot)
+    expect(preview.assets).toEqual({ added: 1, updated: 0, deleted: 0 })
   })
 })

@@ -157,6 +157,10 @@ function portableAsset(asset: MediaAsset, dataUrl: string): MediaAsset {
   delete result.localUri
   delete result.sourceUri
   delete result.sourceKey
+  // pendingSync is a local-only marker for LAN sync progress. It must never
+  // travel across the wire, otherwise peers would start propagating each
+  // other's pending markers and dead-lock the reconciliation.
+  delete result.pendingSync
   return result
 }
 
@@ -209,11 +213,13 @@ export async function createLanSyncSnapshot(deviceName: string): Promise<LanSync
 
 export async function createLanMetadataSnapshot(deviceName: string): Promise<LanSyncSnapshot> {
   const source = await loadLanCatalog()
+  const availableAssets = source.catalog.assets.filter(assetAvailableLocally)
   return {
     ...snapshotWith(deviceName, source, source.catalog.assets.map(metadataAsset)),
     transfer: {
       phase: 'metadata',
-      assetCount: source.catalog.assets.filter(assetAvailableLocally).length,
+      assetCount: availableAssets.length,
+      availableAssetIds: availableAssets.map((asset) => asset.id),
     },
   }
 }
@@ -255,11 +261,19 @@ export async function previewLanSyncSnapshot(incoming: LanSyncSnapshot): Promise
     records: count('record', records, incoming.records),
     pins: count('pin', pins, incoming.pins),
     reimbursementPlans: count('reimbursementPlan', reimbursementPlans, incoming.reimbursementPlans),
-    assets: count('asset', assets, incoming.assets),
+    // Pending rows are placeholders left behind by an interrupted asset chunk
+    // stream. They must not shadow the incoming asset so the peer knows to
+    // re-send the bytes on the next attempt.
+    assets: count(
+      'asset',
+      assets.filter((asset) => !asset.pendingSync).map(metadataAsset),
+      incoming.assets.map(metadataAsset),
+    ),
   }
 }
 
 function assetAvailableLocally(asset: MediaAsset) {
+  if (asset.pendingSync) return false
   return Boolean(asset.dataUrl || asset.storagePath || asset.sourceUri)
 }
 
@@ -284,9 +298,13 @@ export interface LanAssetChunkSource {
   next(): Promise<LanSyncSnapshot>
 }
 
-export async function createLanAssetChunkSource(deviceName: string): Promise<LanAssetChunkSource> {
+export async function createLanAssetChunkSource(
+  deviceName: string,
+  peerAvailableAssetIds: Iterable<string> = [],
+): Promise<LanAssetChunkSource> {
   const source = await loadLanCatalog()
-  const assets = source.catalog.assets.filter(assetAvailableLocally)
+  const peerAssets = new Set(peerAvailableAssetIds)
+  const assets = source.catalog.assets.filter((asset) => assetAvailableLocally(asset) && !peerAssets.has(asset.id))
   let assetIndex = 0
   let chunkIndex = 0
   let currentData = ''
@@ -401,13 +419,22 @@ async function persistAssets(assets: MediaAsset[]) {
   const persisted: MediaAsset[] = []
   for (const asset of assets) {
     const stored = await persistStoredImage(asset)
-    persisted.push({
+    const durable: MediaAsset = {
       ...asset,
       ...stored,
       id: asset.id,
       createdAt: asset.createdAt,
       updatedAt: asset.updatedAt,
-    })
+    }
+    // Any row without real bytes stays flagged as pendingSync so a subsequent
+    // sync will treat it as missing on this device. Once the chunk stream
+    // delivers the payload the flag is cleared here or in storeLanAsset.
+    if (durable.dataUrl || durable.storagePath || durable.localUri || durable.sourceUri) {
+      delete durable.pendingSync
+    } else {
+      durable.pendingSync = true
+    }
+    persisted.push(durable)
   }
   return persisted
 }

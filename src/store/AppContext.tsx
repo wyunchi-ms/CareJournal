@@ -615,13 +615,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const storeLanAsset = useCallback(async (asset: MediaAsset) => {
     const stored = await persistStoredImage(asset)
-    const durable = {
+    const durable: MediaAsset = {
       ...asset,
       ...stored,
       id: asset.id,
       createdAt: asset.createdAt,
       updatedAt: asset.updatedAt,
     }
+    // Chunk data has now been persisted, so drop the pendingSync flag that the
+    // metadata-phase merge left on the row (if any). Without this, a full
+    // sync could leave the marker in place forever and the next sync would
+    // keep asking the peer for the same bytes.
+    delete durable.pendingSync
     await repository.put('asset', durable.id, durable)
     const next = new Map(mediaAssetsRef.current.map((item) => [item.id, item]))
     next.set(durable.id, durable)

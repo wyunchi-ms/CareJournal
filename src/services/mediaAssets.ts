@@ -33,13 +33,19 @@ export function mediaAssetId(image: StoredImage) {
   return storedImageIdentity(image)
 }
 
+function hasAssetBytes(source: Pick<StoredImage, 'dataUrl' | 'storagePath' | 'localUri' | 'sourceUri'>) {
+  return Boolean(source.dataUrl || source.storagePath || source.localUri || source.sourceUri)
+}
+
 function createAsset(image: StoredImage, id: string, now: string): MediaAsset {
-  return {
+  const asset: MediaAsset = {
     id,
     ...assetFields(image),
     createdAt: now,
     updatedAt: now,
   }
+  if (!hasAssetBytes(image)) asset.pendingSync = true
+  return asset
 }
 
 function mergeAsset(existing: MediaAsset, image: StoredImage, now: string): MediaAsset {
@@ -49,6 +55,10 @@ function mergeAsset(existing: MediaAsset, image: StoredImage, now: string): Medi
   for (const [key, value] of Object.entries(incoming) as Array<[keyof typeof incoming, string | undefined]>) {
     if (!value || existing[key]) continue
     Object.assign(next, { [key]: value })
+    changed = true
+  }
+  if (next.pendingSync && hasAssetBytes(next)) {
+    delete next.pendingSync
     changed = true
   }
   return changed ? { ...next, updatedAt: now } : existing

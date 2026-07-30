@@ -164,6 +164,14 @@ export interface MediaAsset {
   localUri?: string
   sourceUri?: string
   sourceKey?: string
+  /**
+   * Set on the receiver side when a LAN sync peer announced this asset in the
+   * metadata phase but the actual bytes have not been delivered yet. Cleared as
+   * soon as the chunk stream persists real content. The flag is local-only and
+   * is stripped by `metadataAsset` before any snapshot leaves the device, so it
+   * never travels across the wire.
+   */
+  pendingSync?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -356,6 +364,8 @@ export interface LanSyncSnapshot {
     done?: boolean
     assetIndex?: number
     assetCount?: number
+    /** IDs of files that this device can currently read and send. */
+    availableAssetIds?: string[]
     skippedAssets?: number
     preview?: LanSyncPreview
     chunk?: {
