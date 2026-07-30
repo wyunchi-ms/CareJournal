@@ -272,8 +272,36 @@ export class LocalRepository {
       })
       return
     }
-    await this.nativeDb!.run('DELETE FROM entities WHERE kind = ?', [kind])
-    for (const { id, payload } of entries) await this.put(kind, id, payload)
+    // Capacitor SQLite native path: batch the DELETE + N INSERTs (+ optional
+    // tombstone deletions) into a single transactional executeSet call so the
+    // whole rewrite crosses the JS↔Java bridge exactly once. The previous
+    // implementation issued one `put` per row (plus a second bridge call to
+    // remove the matching tombstone), which turned a LAN sync merge of a few
+    // hundred rows into ~1000 IPC round trips and stalled the receiver at
+    // "正在合并双方数据…" for over a minute even when only one record had
+    // actually changed. executeSet defaults to transaction=true, so the
+    // native side commits everything atomically or rolls back on failure.
+    const now = new Date().toISOString()
+    const set: { statement: string; values: unknown[] }[] = [
+      { statement: 'DELETE FROM entities WHERE kind = ?', values: [kind] },
+    ]
+    for (const { id, payload } of entries) {
+      const normalizedPayload = normalizeEntityPayload(kind, payload)
+      const updatedAt = (normalizedPayload as { updatedAt?: string }).updatedAt ?? now
+      set.push({
+        statement: 'INSERT OR REPLACE INTO entities (key, kind, entity_id, updated_at, payload) VALUES (?, ?, ?, ?, ?)',
+        values: [`${kind}:${id}`, kind, id, updatedAt, JSON.stringify(normalizedPayload)],
+      })
+    }
+    if (syncableKinds.has(kind)) {
+      for (const { id } of entries) {
+        set.push({
+          statement: 'DELETE FROM entities WHERE key = ?',
+          values: [`syncTombstone:${kind}:${id}`],
+        })
+      }
+    }
+    await this.nativeDb!.executeSet(set)
   }
 }
 
