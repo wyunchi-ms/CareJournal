@@ -364,14 +364,35 @@ export async function previewLanSyncSnapshot(incoming: LanSyncSnapshot): Promise
     repository.list<SyncTombstone>('syncTombstone'),
   ])
   const tombstones = new Map([...localTombstones, ...incoming.tombstones].map((item) => [item.id, item]))
+  // The preview must predict what mergeValues will actually do, otherwise the
+  // side that already holds the newer version (source of a local edit) still
+  // gets shown as "更新 1". Rerun the same tombstone gate + timestamped
+  // deepUnion here and only count as "updated" when the local row would
+  // actually change.
   function count<T extends { id: string }>(kind: LanSyncEntityKind, local: T[], remote: T[]) {
     const localById = new Map(local.map((item) => [item.id, item]))
     let added = 0
     let updated = 0
     for (const item of remote) {
       const existing = localById.get(item.id)
-      if (!existing) added += 1
-      else if (JSON.stringify(existing) !== JSON.stringify(item)) updated += 1
+      const tombstoneId = `${kind}:${item.id}`
+      const tombstone = tombstones.get(tombstoneId)
+      const newestEntityTime = Math.max(timestamp(existing), timestamp(item))
+      if (tombstone && Date.parse(tombstone.deletedAt) >= newestEntityTime) {
+        // Merge would discard this row, so it is not an add or an update.
+        continue
+      }
+      if (!existing) {
+        added += 1
+        continue
+      }
+      if (JSON.stringify(existing) === JSON.stringify(item)) continue
+      const incomingIsNewer = timestamp(item) >= timestamp(existing)
+      const merged = deepUnion(
+        incomingIsNewer ? existing : item,
+        incomingIsNewer ? item : existing,
+      )
+      if (JSON.stringify(merged) !== JSON.stringify(existing)) updated += 1
     }
     const deleted = local.filter((item) => {
       const tombstone = tombstones.get(`${kind}:${item.id}`)

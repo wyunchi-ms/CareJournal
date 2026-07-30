@@ -572,4 +572,60 @@ describe('LAN sync transport', () => {
     expect(merged.summary.updated).toBe(0)
     expect(merged.summary.conflictsMerged).toBe(0)
   })
+
+  it('does not count an incoming older row as "updated" on the device that already holds the newer edit', async () => {
+    // Local (this device) holds the newer edit. mergeValues would keep the
+    // local row unchanged, so the preview must not report "更新 1" here.
+    const localTemplate = {
+      id: 'template-shared',
+      name: '本机编辑后的方案',
+      cycleLengthDays: 21,
+      administrationDays: [1, 8],
+      defaultCycleCount: 6,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-30T12:00:00.000Z',
+    }
+    await repository.put('chemotherapyTemplate', localTemplate.id, localTemplate)
+
+    const olderRemote = {
+      ...localTemplate,
+      name: '对方还保留的旧名字',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    }
+    const peerSnapshot: LanSyncSnapshot = {
+      ...snapshot,
+      chemotherapyTemplates: [olderRemote],
+    }
+
+    const preview = await previewLanSyncSnapshot(peerSnapshot)
+    expect(preview.chemotherapyTemplates).toEqual({ added: 0, updated: 0, deleted: 0 })
+  })
+
+  it('still counts an incoming newer row as "updated" on the device that is about to receive the edit', async () => {
+    // Mirror scenario: the peer has the newer edit, so the local row will be
+    // overwritten by the merge. Preview must report exactly one update.
+    const staleLocal = {
+      id: 'template-shared',
+      name: '本机还是旧名字',
+      cycleLengthDays: 21,
+      administrationDays: [1, 8],
+      defaultCycleCount: 6,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    }
+    await repository.put('chemotherapyTemplate', staleLocal.id, staleLocal)
+
+    const newerRemote = {
+      ...staleLocal,
+      name: '对方刚刚改过的新名字',
+      updatedAt: '2026-07-30T12:00:00.000Z',
+    }
+    const peerSnapshot: LanSyncSnapshot = {
+      ...snapshot,
+      chemotherapyTemplates: [newerRemote],
+    }
+
+    const preview = await previewLanSyncSnapshot(peerSnapshot)
+    expect(preview.chemotherapyTemplates).toEqual({ added: 0, updated: 1, deleted: 0 })
+  })
 })

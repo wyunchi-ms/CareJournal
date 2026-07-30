@@ -2,8 +2,8 @@
   "app": {
     "bundleName": "com.carejournal.app",
     "vendor": "CareJournal",
-    "versionCode": 190007,
-    "versionName": "0.19.7",
+    "versionCode": 190008,
+    "versionName": "0.19.8",
     "icon": "$media:app_icon",
     "label": "$string:app_name"
   }
