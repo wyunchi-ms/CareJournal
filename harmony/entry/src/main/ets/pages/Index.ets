@@ -50,7 +50,7 @@ struct Index {
   build() {
     Column() {
       Web({
-        src: $rawfile('www/index.html'),
+        src: 'resource://rawfile/www/index.html',
         controller: this.controller
       })
         .width('100%')
@@ -59,6 +59,21 @@ struct Index {
         .domStorageAccess(true)
         .databaseAccess(true)
         .fileAccess(true)
+        .onConsole((event) => {
+          if (event) {
+            console.info(
+              `[ArkWeb] ${event.message.getSourceId()}:${event.message.getLineNumber()} ${event.message.getMessage()}`
+            );
+          }
+          return false;
+        })
+        .onErrorReceive((event) => {
+          if (event) {
+            console.error(
+              `[ArkWeb] ${event.request.getRequestUrl()} ${event.error.getErrorCode()} ${event.error.getErrorInfo()}`
+            );
+          }
+        })
         .javaScriptProxy({
           object: this.bridge,
           name: 'CareJournalHarmony',
