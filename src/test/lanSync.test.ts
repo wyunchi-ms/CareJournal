@@ -629,6 +629,104 @@ describe('LAN sync transport', () => {
     expect(preview.chemotherapyTemplates).toEqual({ added: 0, updated: 1, deleted: 0 })
   })
 
+  it('reports assetsReceived as 0 when the peer only re-advertises assets we already have', async () => {
+    // Common case after both devices are fully synced: the peer's metadata
+    // snapshot lists every asset it holds (say 3 rows) but the local device
+    // already has the same ids. The chunk phase will move zero bytes, so the
+    // summary must not claim the peer "sent" any assets.
+    const existing = (sha: string): MediaAsset => ({
+      id: `sha256:${sha}`,
+      name: `${sha}.jpg`,
+      mimeType: 'image/jpeg',
+      dataUrl: '',
+      sha256: sha,
+      storagePath: `files/${sha}.jpg`,
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    })
+    for (const sha of ['a', 'b', 'c']) {
+      await repository.put('asset', `sha256:${sha}`, existing(sha))
+    }
+    // Records reference the assets so pruneUnused keeps them alive.
+    await repository.put('record', 'r-refs', {
+      id: 'r-refs',
+      reportType: 'lab',
+      sampleDate: '2026-06-01',
+      indicators: [],
+      images: ['a', 'b', 'c'].map((sha) => ({
+        id: `img-${sha}`,
+        assetId: `sha256:${sha}`,
+        name: `${sha}.jpg`,
+        mimeType: 'image/jpeg',
+        dataUrl: '',
+        sha256: sha,
+      })),
+      linkedEventIds: [],
+      fingerprint: 'r-refs',
+      ocrStatus: 'completed',
+      ocrAttempts: 1,
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    })
+
+    const peerSnapshot: LanSyncSnapshot = {
+      ...snapshot,
+      assets: ['a', 'b', 'c'].map((sha) => ({ ...existing(sha), dataUrl: '' })),
+    }
+
+    const merged = await mergeLanSyncSnapshot(peerSnapshot)
+    expect(merged.summary.assetsReceived).toBe(0)
+    // No new asset ids means no chunk phase bytes to expect on this device.
+    expect(merged.assets.every((asset) => !asset.pendingSync)).toBe(true)
+  })
+
+  it('reports assetsReceived exactly matching the number of new asset ids that will need bytes', async () => {
+    // Local has one asset; peer sends three (one shared, two new). The chunk
+    // phase will move bytes for exactly two of them, so that is the number
+    // the summary must surface.
+    const shared: MediaAsset = {
+      id: 'sha256:shared',
+      name: 'shared.jpg',
+      mimeType: 'image/jpeg',
+      dataUrl: '',
+      sha256: 'shared',
+      storagePath: 'files/shared.jpg',
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    }
+    await repository.put('asset', shared.id, shared)
+
+    const peerAssets: MediaAsset[] = [
+      { ...shared, dataUrl: '' },
+      {
+        id: 'sha256:new-one',
+        name: 'new-one.jpg',
+        mimeType: 'image/jpeg',
+        dataUrl: '',
+        sha256: 'new-one',
+        createdAt: '2026-07-01T00:00:00.000Z',
+        updatedAt: '2026-07-01T00:00:00.000Z',
+      },
+      {
+        id: 'sha256:new-two',
+        name: 'new-two.jpg',
+        mimeType: 'image/jpeg',
+        dataUrl: '',
+        sha256: 'new-two',
+        createdAt: '2026-07-01T00:00:00.000Z',
+        updatedAt: '2026-07-01T00:00:00.000Z',
+      },
+    ]
+
+    const peerSnapshot: LanSyncSnapshot = {
+      ...snapshot,
+      assets: peerAssets,
+    }
+
+    const merged = await mergeLanSyncSnapshot(peerSnapshot)
+    expect(merged.summary.assetsReceived).toBe(2)
+  })
+
   it('does not resurrect a field the user cleared on the newer side', async () => {
     // Real scenario reported by users: they edit a template on their newer
     // device and clear an optional field (e.g. hospital). The peer still holds

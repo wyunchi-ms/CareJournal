@@ -248,6 +248,11 @@ function mergeAssetsById(
     if (incomingValue) {
       result.push(incomingValue)
       summary.added += 1
+      // Bytes for this asset will arrive in the chunk phase. Track the true
+      // "expected chunk receives" here so the sync status can report a
+      // number that matches what the user is actually going to see over the
+      // wire, not the entire peer inventory.
+      summary.assetsReceived += 1
     }
   }
   return result
@@ -613,7 +618,11 @@ export async function mergeLanSyncSnapshot(
     unchanged: 0,
     deleted: 0,
     conflictsMerged: 0,
-    assetsReceived: filtered.assets.length,
+    // mergeAssetsById increments this per newly-added asset row (i.e. per
+    // asset whose bytes still need to arrive in the chunk phase). Keeping
+    // it at 0 here means the value reflects "what actually needs to be
+    // streamed in", not the total incoming inventory.
+    assetsReceived: 0,
   }
   const tombstones = new Map<string, SyncTombstone>()
   for (const tombstone of [...localTombstones, ...filtered.tombstones]) {

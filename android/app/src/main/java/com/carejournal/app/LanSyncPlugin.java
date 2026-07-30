@@ -1,9 +1,11 @@
 package com.carejournal.app;
 
+import android.content.ContentResolver;
 import android.content.Context;
 import android.net.DhcpInfo;
 import android.net.wifi.WifiManager;
 import android.os.Build;
+import android.provider.Settings;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -406,7 +408,7 @@ public class LanSyncPlugin extends Plugin {
         }
     }
 
-    private static String resolvedAlias(String requested) {
+    private String resolvedAlias(String requested) {
         String value = requested == null ? "" : requested.trim();
         String normalized = value.toLowerCase(java.util.Locale.ROOT)
             .replace(" ", "")
@@ -417,6 +419,15 @@ public class LanSyncPlugin extends Plugin {
             || "carejournalandroid".equals(normalized);
         if (!generic) return value.length() > 48 ? value.substring(0, 48) : value;
 
+        // Prefer the user-configured device name (Android 7.1+, API 25). This is
+        // what appears in Settings → About phone → Device name, e.g. "小明的手机".
+        // Falls through to Bluetooth's user name on devices that do not expose
+        // Settings.Global.DEVICE_NAME, and finally to manufacturer + model.
+        String userDeviceName = readDeviceName();
+        if (!userDeviceName.isEmpty()) {
+            return userDeviceName.length() > 48 ? userDeviceName.substring(0, 48) : userDeviceName;
+        }
+
         String manufacturer = Build.MANUFACTURER == null ? "" : Build.MANUFACTURER.trim();
         String model = Build.MODEL == null ? "" : Build.MODEL.trim();
         String device = model;
@@ -426,6 +437,43 @@ public class LanSyncPlugin extends Plugin {
         }
         device = device.trim();
         return device.isEmpty() ? "CareJournal Android" : device;
+    }
+
+    private String readDeviceName() {
+        Context context = getContext();
+        if (context == null) return "";
+        ContentResolver resolver = context.getContentResolver();
+        if (resolver == null) return "";
+        String[] candidates;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+            candidates = new String[] { Settings.Global.DEVICE_NAME, "device_name", "bluetooth_name" };
+        } else {
+            // Pre-25: Settings.Global.DEVICE_NAME did not exist, but many OEMs
+            // still populate the same key; try it defensively along with the
+            // Bluetooth adapter name that reflects the user-configured label.
+            candidates = new String[] { "device_name", "bluetooth_name" };
+        }
+        for (String key : candidates) {
+            try {
+                String value = Settings.Global.getString(resolver, key);
+                if (value != null && !value.trim().isEmpty()) return value.trim();
+            } catch (Throwable ignored) {
+                // Any failure just falls through to the next candidate.
+            }
+            try {
+                String value = Settings.Secure.getString(resolver, key);
+                if (value != null && !value.trim().isEmpty()) return value.trim();
+            } catch (Throwable ignored) {
+                // Same as above.
+            }
+            try {
+                String value = Settings.System.getString(resolver, key);
+                if (value != null && !value.trim().isEmpty()) return value.trim();
+            } catch (Throwable ignored) {
+                // Same as above.
+            }
+        }
+        return "";
     }
 
     private void notifyPeers() {
