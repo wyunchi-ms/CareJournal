@@ -122,6 +122,8 @@ function valueKey(value: unknown) {
 
 function deepUnion(older: unknown, newer: unknown): unknown {
   if (Array.isArray(older) && Array.isArray(newer)) {
+    // Arrays keep union semantics: independent additions on either side (new
+    // tags, new linked ids, etc.) survive the merge.
     const values = new Map<string, unknown>()
     for (const item of older) values.set(valueKey(item), item)
     for (const item of newer) {
@@ -132,9 +134,16 @@ function deepUnion(older: unknown, newer: unknown): unknown {
     return [...values.values()]
   }
   if (isPlainObject(older) && isPlainObject(newer)) {
-    const result: Record<string, unknown> = { ...older }
+    // Objects are treated with "newer's shape is authoritative": keys the
+    // newer side has been rewritten without are considered cleared by the
+    // user, so we never resurrect them from the older snapshot. Shared keys
+    // still get merged, scalars fall through to newer's value, and nested
+    // structures recurse. This is what lets a user clear an optional field on
+    // one device without the peer's older row silently repopulating it during
+    // sync.
+    const result: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(newer)) {
-      const existing = result[key]
+      const existing = older[key]
       if (existing === undefined || existing === null || existing === '') result[key] = value
       else if (value === undefined || value === null || value === '') continue
       else if ((Array.isArray(existing) && Array.isArray(value)) || (isPlainObject(existing) && isPlainObject(value))) {

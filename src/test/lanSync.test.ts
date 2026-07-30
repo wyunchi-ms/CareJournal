@@ -628,4 +628,43 @@ describe('LAN sync transport', () => {
     const preview = await previewLanSyncSnapshot(peerSnapshot)
     expect(preview.chemotherapyTemplates).toEqual({ added: 0, updated: 1, deleted: 0 })
   })
+
+  it('does not resurrect a field the user cleared on the newer side', async () => {
+    // Real scenario reported by users: they edit a template on their newer
+    // device and clear an optional field (e.g. hospital). The peer still holds
+    // the old row with that field populated. Under the old deepUnion
+    // (`{ ...older }` seed) the merge would silently re-add the cleared field
+    // and the preview would show "更新 1" on the source-of-truth device.
+    const newerLocal = {
+      id: 'template-clear',
+      name: '本机改过后的方案',
+      cycleLengthDays: 21,
+      administrationDays: [1, 8],
+      defaultCycleCount: 6,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-30T12:00:00.000Z',
+      // hospital field is intentionally absent — user cleared it here.
+    }
+    await repository.put('chemotherapyTemplate', newerLocal.id, newerLocal)
+
+    const olderRemote = {
+      ...newerLocal,
+      hospital: '旧医院', // Peer still carries the field the user just cleared.
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    }
+    const peerSnapshot: LanSyncSnapshot = {
+      ...snapshot,
+      chemotherapyTemplates: [olderRemote],
+    }
+
+    const preview = await previewLanSyncSnapshot(peerSnapshot)
+    expect(preview.chemotherapyTemplates).toEqual({ added: 0, updated: 0, deleted: 0 })
+
+    const merged = await mergeLanSyncSnapshot(peerSnapshot)
+    const kept = merged.chemotherapyTemplates.find((template) => template.id === newerLocal.id)
+    expect(kept).toBeDefined()
+    expect(kept?.hospital).toBeUndefined()
+    expect(kept?.name).toBe('本机改过后的方案')
+    expect(kept?.updatedAt).toBe('2026-07-30T12:00:00.000Z')
+  })
 })
