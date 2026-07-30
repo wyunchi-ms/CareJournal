@@ -8,7 +8,7 @@ import { ConfirmSheet } from '../components/ConfirmSheet'
 import { HistoryCombobox } from '../components/HistoryCombobox'
 import { Modal } from '../components/Modal'
 import { SwipeableListItem } from '../components/SwipeableListItem'
-import { formatBodyMeasurements, selectCalendarEventLabels } from '../services/calendarEvents'
+import { selectCalendarEventLabels } from '../services/calendarEvents'
 import { buildChemotherapyCourseEvents, getChemotherapyTemplateDayPlans, rescheduleChemotherapyEvents, type ChemotherapyRescheduleScope } from '../services/chemotherapy'
 import { useApp } from '../store/AppContext'
 import { EVENT_TYPES, TREATMENT_PLAN_TYPES, newId, type BodyMeasurements, type EventType, type TreatmentEvent, type TreatmentPlanType } from '../types'
@@ -447,7 +447,7 @@ export function CalendarPage() {
               key={event.id}
             >
               {agendaEditMode && <label className="agenda-item-select" aria-label={`选择 ${event.title}`}><input type="checkbox" checked={selectedAgendaIds.includes(event.id)} onChange={() => setSelectedAgendaIds((current) => current.includes(event.id) ? current.filter((id) => id !== event.id) : [...current, event.id])} /></label>}
-              <button className="agenda-item" onClick={() => agendaEditMode ? setSelectedAgendaIds((current) => current.includes(event.id) ? current.filter((id) => id !== event.id) : [...current, event.id]) : openEvent(event)} style={{ '--event-color': EVENT_TYPES[event.type].color } as React.CSSProperties}><span className="agenda-marker" /><span><strong>{event.title}</strong><small>{EVENT_TYPES[event.type].label}{event.startDate !== event.endDate ? ` · ${event.startDate} 至 ${event.endDate}` : ''}</small>{event.regimen && <small>{event.regimen}</small>}{event.type === 'bodyMeasurement' && <small className="agenda-detail">{formatBodyMeasurements(event)}</small>}{event.type === 'treatmentDiary' && event.treatmentReaction && <small className="agenda-detail">{event.treatmentReaction}</small>}</span></button>
+              <button className="agenda-item" onClick={() => agendaEditMode ? setSelectedAgendaIds((current) => current.includes(event.id) ? current.filter((id) => id !== event.id) : [...current, event.id]) : openEvent(event)} style={{ '--event-color': EVENT_TYPES[event.type].color } as React.CSSProperties}><span className="agenda-marker" /><span className="agenda-item-copy"><strong>{event.title}</strong><small>{EVENT_TYPES[event.type].label}{event.startDate !== event.endDate ? ` · ${event.startDate} 至 ${event.endDate}` : ''}</small></span></button>
             </SwipeableListItem>)}
           </div>
         </section>

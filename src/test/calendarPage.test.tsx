@@ -104,6 +104,19 @@ describe('calendar event filter', () => {
     expect(screen.getByRole('button', { name: '7月21日，无事件' })).toHaveAttribute('data-label-count', '0')
   })
 
+  it('keeps selected-day agenda cards to a title and one metadata line', () => {
+    render(<MemoryRouter><CalendarPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: '7月22日，6 个事件' }))
+
+    const cards = screen.getByRole('region', { name: '选中日期的事件' }).querySelectorAll('.agenda-item')
+    expect(cards).toHaveLength(6)
+    for (const card of cards) {
+      expect(card.querySelectorAll('strong')).toHaveLength(1)
+      expect(card.querySelectorAll('small')).toHaveLength(1)
+      expect(card.querySelector('.agenda-marker')).toBeInTheDocument()
+    }
+  })
+
   it('opens the linked examination record from the agenda', () => {
     render(<MemoryRouter initialEntries={['/calendar']}>
       <Routes>
