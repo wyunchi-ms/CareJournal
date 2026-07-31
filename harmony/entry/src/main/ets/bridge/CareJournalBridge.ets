@@ -26,6 +26,11 @@ export class CareJournalBridge {
     this.eventSink = sink;
   }
 
+  shutdown(): Promise<void> {
+    this.eventSink = () => {};
+    return this.lan.stop();
+  }
+
   async getPlatformInfo(): Promise<string> {
     return JSON.stringify({
       platform: 'harmonyos',
@@ -124,6 +129,10 @@ export class CareJournalBridge {
 
   lanSendSync(host: string, port: number, envelope: string): Promise<string> {
     return this.lan.sendSync(host, port, envelope);
+  }
+
+  lanSetTransferActive(active: boolean): Promise<void> {
+    return this.lan.setTransferActive(active);
   }
 
   async lanCompleteSync(requestId: string, envelope: string): Promise<void> {
