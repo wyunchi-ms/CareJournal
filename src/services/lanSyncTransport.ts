@@ -76,23 +76,46 @@ class LanSyncTransport {
           })
         }
       })
-      const info = parseHarmonyResult<LanServiceInfo>(await getHarmonyBridge().lanStart(alias, publicKey))
-      this.pollTimer = window.setInterval(() => void this.pollNative(), 1500)
-      await this.refresh()
-      return info
+      try {
+        const info = parseHarmonyResult<LanServiceInfo>(await getHarmonyBridge().lanStart(alias, publicKey))
+        this.pollTimer = window.setInterval(() => void this.pollNative(), 1500)
+        await this.refresh()
+        return info
+      } catch (error) {
+        if (this.pollTimer !== undefined) window.clearInterval(this.pollTimer)
+        this.pollTimer = undefined
+        await getHarmonyBridge().lanStop().catch(() => undefined)
+        this.removeHarmonyListener?.()
+        this.removeHarmonyListener = undefined
+        this.active = false
+        throw error
+      }
     }
     if (Capacitor.isNativePlatform()) {
-      this.nativeHandles = [
-        await NativeLanSync.addListener('peersChanged', ({ peers }) => this.emitPeers(peers)),
-        await NativeLanSync.addListener('syncRequest', (request) => this.emitRequest({
-          ...request,
-          envelope: JSON.parse(request.envelope) as LanEncryptedEnvelope,
-        })),
-      ]
-      const info = await NativeLanSync.start({ alias, publicKey })
-      this.pollTimer = window.setInterval(() => void this.pollNative(), 1500)
-      await this.refresh()
-      return info
+      try {
+        this.nativeHandles = []
+        this.nativeHandles.push(
+          await NativeLanSync.addListener('peersChanged', ({ peers }) => this.emitPeers(peers)),
+        )
+        this.nativeHandles.push(
+          await NativeLanSync.addListener('syncRequest', (request) => this.emitRequest({
+            ...request,
+            envelope: JSON.parse(request.envelope) as LanEncryptedEnvelope,
+          })),
+        )
+        const info = await NativeLanSync.start({ alias, publicKey })
+        this.pollTimer = window.setInterval(() => void this.pollNative(), 1500)
+        await this.refresh()
+        return info
+      } catch (error) {
+        if (this.pollTimer !== undefined) window.clearInterval(this.pollTimer)
+        this.pollTimer = undefined
+        await NativeLanSync.stop().catch(() => undefined)
+        await Promise.all(this.nativeHandles.map((handle) => handle.remove().catch(() => undefined)))
+        this.nativeHandles = []
+        this.active = false
+        throw error
+      }
     }
 
     try {
@@ -165,7 +188,9 @@ class LanSyncTransport {
   }
 
   async setTransferActive(active: boolean) {
-    if (Capacitor.isNativePlatform() && !isHarmonyPlatform()) {
+    if (isHarmonyPlatform()) {
+      await getHarmonyBridge().lanSetTransferActive(active)
+    } else if (Capacitor.isNativePlatform()) {
       await NativeLanSync.setTransferActive({ active })
     }
   }

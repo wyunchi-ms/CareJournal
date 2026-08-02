@@ -17,6 +17,7 @@ export interface HarmonyBridgeApi {
   lanRefresh(): Promise<void>
   lanListPeers(): Promise<string>
   lanSendSync(host: string, port: number, envelope: string): Promise<string>
+  lanSetTransferActive(active: boolean): Promise<void>
   lanCompleteSync(requestId: string, envelope: string): Promise<void>
   lanRejectSync(requestId: string, error: string): Promise<void>
 }

@@ -29,11 +29,13 @@ struct Index {
     'lanRefresh',
     'lanListPeers',
     'lanSendSync',
+    'lanSetTransferActive',
     'lanCompleteSync',
     'lanRejectSync'
   ];
 
   aboutToDisappear(): void {
+    this.bridge.shutdown().catch(() => undefined);
     this.controller.runJavaScript(
       `window.dispatchEvent(new CustomEvent('carejournal:harmony',{detail:{type:'background'}}))`
     );

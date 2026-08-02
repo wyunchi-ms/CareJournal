@@ -1,5 +1,12 @@
 # ChangeLog
 
+## v0.19.16 (2026-07-31)
+
+- 补齐 HarmonyOS NEXT 原生局域网同步：与 Android/Web 统一使用协议 v4、端口 53318、UDP 组播 `224.0.0.167` + 全局/子网广播 + 单播回应，以及相同的 HTTP `POST /carejournal/v1/sync` / `GET /carejournal/v1/result/:id` 请求-轮询流程。
+- HarmonyOS HTTP 服务改为按原始字节累积和解析 `Content-Length`，避免中文 JSON 或 1 MiB 素材分块在 TCP 拆包时被 UTF-8 字符边界破坏；同时增加 32 KiB 请求头、300 MiB 请求体上限、CORS 头和过期 pending 请求清理。
+- HarmonyOS 收到同步 HTTP 握手时会根据请求头和来源 IP 自动补全设备列表，并向 React 层上报 `peerAddress`；即使某些路由器拦截广播，已经能互相发起 HTTP 请求的两台设备也不会继续显示“未发现设备”。
+- HarmonyOS 同步期间通过 `RUNNING_LOCK` 保持后台运行，并由共享 `setTransferActive` 流程自动申请/释放；结果轮询间隔与 Android 对齐为 25 ms。
+
 ## v0.19.15 (2026-07-30)
 
 - 补齐 0.19.9 只修一半的合并语义：数组现在也和对象一样"新的一方权威"——旧设备独有的数组元素（如被删掉的化疗天、被移除的标签、被解除的关联 id）不再在同步时被静默复活。之前用户在新设备上改一条方案（尤其是删除 `administrationDays` 或 `dayPlans` 中的一天）后同步，本机侧会误报"更新 1"，本机数据库实际上也会被覆盖回一个多带旧项的版本。
