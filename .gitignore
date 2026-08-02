@@ -30,6 +30,7 @@ local.properties
 /harmony/entry/build/
 /harmony/build/
 /harmony/entry/src/main/resources/rawfile/www/
+/harmony/build-profile.json5
 .env
 .env.local
 .env.*.local
