@@ -1,9 +1,10 @@
 import { Check, Copy, GripVertical, ListFilter, Pill, Plus, Search, Trash2, X } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { createPortal } from 'react-dom'
+import { useState } from 'react'
 import { getChemotherapyDayMedications, getChemotherapyTemplateDayPlans } from '../../services/chemotherapy'
 import { TREATMENT_PLAN_TYPES, type ChemotherapyTemplate, type TreatmentPlanType } from '../../types'
 import { ChoicePicker } from '../ChoicePicker'
+import { useSortableDragLift } from '../SortableDragLift'
+import { SortableDragOverlay } from '../SortableDragOverlay'
 import { SwipeableListItem } from '../SwipeableListItem'
 import { getTreatmentPlanType } from './templateUtils'
 
@@ -36,27 +37,9 @@ export function ChemotherapyTemplateList({
 }: ChemotherapyTemplateListProps) {
   const [reorderMode, setReorderMode] = useState(false)
   const [draftTemplates, setDraftTemplates] = useState<ChemotherapyTemplate[]>([])
-  const [draggingId, setDraggingId] = useState<string | null>(null)
-  const [dragPreview, setDragPreview] = useState<{
-    templateId: string
-    top: number
-    left: number
-    width: number
-  } | null>(null)
   const [reorderError, setReorderError] = useState('')
   const [selectedTypes, setSelectedTypes] = useState<TreatmentPlanType[]>([])
   const [query, setQuery] = useState('')
-  const draggingIdRef = useRef<string | null>(null)
-  const templateListRef = useRef<HTMLDivElement>(null)
-  const rowPositionsRef = useRef<Map<string, number>>(new Map())
-  const rowAnimationsRef = useRef<Map<string, Animation>>(new Map())
-  const dragPreviewElementRef = useRef<HTMLDivElement>(null)
-  const dragPointerIdRef = useRef<number | null>(null)
-  const dragPointerOffsetYRef = useRef(0)
-  const dragPreviewOriginTopRef = useRef(0)
-  const dragPreviewHeightRef = useRef(0)
-  const dragPreviewOffsetRef = useRef(0)
-  const dragPreviewFrameRef = useRef<number | null>(null)
   const typeOptions = (Object.keys(TREATMENT_PLAN_TYPES) as TreatmentPlanType[])
     .map((value) => {
       const type = TREATMENT_PLAN_TYPES[value]
@@ -91,8 +74,30 @@ export function ChemotherapyTemplateList({
     return searchableText.includes(normalizedQuery)
   })
   const displayedTemplates = reorderMode ? draftTemplates : filteredTemplates
-  const dragPreviewTemplate = dragPreview
-    ? draftTemplates.find((template) => template.id === dragPreview.templateId)
+  const { beginDrag, draggingId, finishDrag, listRef, positionerRef, preview } = useSortableDragLift({
+    enabled: reorderMode,
+    layoutKey: draftTemplates.map((template) => template.id).join('\u0000'),
+    onDragMove: ({ clientY, sourceId, listElement }) => {
+      const listBounds = listElement.getBoundingClientRect()
+      const boundedPointerY = Math.min(listBounds.bottom, Math.max(listBounds.top, clientY))
+      const targetIndex = Array.from(listElement.querySelectorAll<HTMLElement>('[data-list-item-id]'))
+        .filter((row) => row.dataset.listItemId !== sourceId)
+        .reduce((index, row) => {
+          const bounds = row.getBoundingClientRect()
+          return boundedPointerY > bounds.top + bounds.height / 2 ? index + 1 : index
+        }, 0)
+      setDraftTemplates((current) => {
+        const sourceIndex = current.findIndex((template) => template.id === sourceId)
+        if (sourceIndex < 0 || sourceIndex === targetIndex) return current
+        const next = [...current]
+        const [source] = next.splice(sourceIndex, 1)
+        next.splice(Math.min(targetIndex, next.length), 0, source)
+        return next
+      })
+    },
+  })
+  const dragPreviewTemplate = preview
+    ? draftTemplates.find((template) => template.id === preview.itemId)
     : undefined
   const dragPreviewDayPlans = dragPreviewTemplate ? getChemotherapyTemplateDayPlans(dragPreviewTemplate) : []
   const dragPreviewType = dragPreviewTemplate ? TREATMENT_PLAN_TYPES[getTreatmentPlanType(dragPreviewTemplate)] : undefined
@@ -100,111 +105,6 @@ export function ChemotherapyTemplateList({
     (count, plan) => count + getChemotherapyDayMedications(plan).filter((item) => item.name.trim()).length,
     0,
   )
-
-  const finishTemplateDrag = useCallback(() => {
-    if (dragPreviewFrameRef.current !== null) {
-      window.cancelAnimationFrame(dragPreviewFrameRef.current)
-      dragPreviewFrameRef.current = null
-    }
-    if (dragPreviewElementRef.current) dragPreviewElementRef.current.style.display = 'none'
-    draggingIdRef.current = null
-    dragPointerIdRef.current = null
-    dragPreviewOffsetRef.current = 0
-    setDraggingId(null)
-    setDragPreview(null)
-  }, [])
-
-  const updateTemplateDrag = useCallback((clientY: number) => {
-    const sourceId = draggingIdRef.current
-    const templateList = templateListRef.current
-    if (!sourceId || !templateList) return
-    const listBounds = templateList.getBoundingClientRect()
-    const minimumTop = listBounds.top + 2
-    const maximumTop = Math.max(minimumTop, listBounds.bottom - dragPreviewHeightRef.current - 2)
-    const requestedTop = clientY - dragPointerOffsetYRef.current
-    const boundedTop = Math.min(maximumTop, Math.max(minimumTop, requestedTop))
-    dragPreviewOffsetRef.current = boundedTop - dragPreviewOriginTopRef.current
-    if (dragPreviewFrameRef.current === null) {
-      dragPreviewFrameRef.current = window.requestAnimationFrame(() => {
-        dragPreviewFrameRef.current = null
-        if (dragPreviewElementRef.current) {
-          dragPreviewElementRef.current.style.transform = `translate3d(0, ${dragPreviewOffsetRef.current}px, 0)`
-        }
-      })
-    }
-    const boundedPointerY = Math.min(listBounds.bottom, Math.max(listBounds.top, clientY))
-    const targetIndex = Array.from(templateList.querySelectorAll<HTMLElement>('[data-list-item-id]'))
-      .filter((row) => row.dataset.listItemId !== sourceId)
-      .reduce((index, row) => {
-        const bounds = row.getBoundingClientRect()
-        return boundedPointerY > bounds.top + bounds.height / 2 ? index + 1 : index
-      }, 0)
-    setDraftTemplates((current) => {
-      const sourceIndex = current.findIndex((template) => template.id === sourceId)
-      if (sourceIndex < 0 || sourceIndex === targetIndex) return current
-      const next = [...current]
-      const [source] = next.splice(sourceIndex, 1)
-      next.splice(Math.min(targetIndex, next.length), 0, source)
-      return next
-    })
-  }, [])
-
-  useEffect(() => {
-    const moveFromWindow = (event: PointerEvent) => {
-      if (dragPointerIdRef.current === null || event.pointerId !== dragPointerIdRef.current) return
-      event.preventDefault()
-      updateTemplateDrag(event.clientY)
-    }
-    const finishFromWindow = (event: PointerEvent) => {
-      if (dragPointerIdRef.current === null || event.pointerId !== dragPointerIdRef.current) return
-      finishTemplateDrag()
-    }
-    window.addEventListener('pointermove', moveFromWindow, { capture: true, passive: false })
-    window.addEventListener('pointerup', finishFromWindow, true)
-    window.addEventListener('pointercancel', finishFromWindow, true)
-    return () => {
-      window.removeEventListener('pointermove', moveFromWindow, true)
-      window.removeEventListener('pointerup', finishFromWindow, true)
-      window.removeEventListener('pointercancel', finishFromWindow, true)
-    }
-  }, [finishTemplateDrag, updateTemplateDrag])
-
-  useLayoutEffect(() => {
-    if (!reorderMode || !templateListRef.current) {
-      rowAnimationsRef.current.forEach((animation) => animation.cancel())
-      rowAnimationsRef.current.clear()
-      rowPositionsRef.current.clear()
-      return
-    }
-    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
-    const nextPositions = new Map<string, number>()
-    templateListRef.current.querySelectorAll<HTMLElement>('[data-list-item-id]').forEach((row) => {
-      const templateId = row.dataset.listItemId
-      if (!templateId) return
-      const activeAnimation = rowAnimationsRef.current.get(templateId)
-      const visualTop = row.getBoundingClientRect().top
-      activeAnimation?.cancel()
-      const layoutTop = row.getBoundingClientRect().top
-      const previousTop = rowPositionsRef.current.get(templateId)
-      const offset = activeAnimation
-        ? visualTop - layoutTop
-        : previousTop === undefined ? 0 : previousTop - layoutTop
-      if (!reduceMotion && templateId !== draggingId && Math.abs(offset) > 1 && typeof row.animate === 'function') {
-        const animation = row.animate(
-          [{ transform: `translate3d(0, ${offset}px, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
-          { duration: 190, easing: 'cubic-bezier(.2, .8, .2, 1)' },
-        )
-        rowAnimationsRef.current.set(templateId, animation)
-        const removeCompletedAnimation = () => {
-          if (rowAnimationsRef.current.get(templateId) === animation) rowAnimationsRef.current.delete(templateId)
-        }
-        animation.onfinish = removeCompletedAnimation
-        animation.oncancel = removeCompletedAnimation
-      }
-      nextPositions.set(templateId, layoutTop)
-    })
-    rowPositionsRef.current = nextPositions
-  }, [draftTemplates, draggingId, reorderMode])
 
   function enterReorderMode() {
     if (reorderMode) return
@@ -217,27 +117,6 @@ export function ChemotherapyTemplateList({
     setDraftTemplates((current) => moveTemplate(current, sourceId, targetId))
   }
 
-  function beginTemplateDrag(event: ReactPointerEvent<HTMLButtonElement>, templateId: string) {
-    event.preventDefault()
-    const row = event.currentTarget.closest<HTMLElement>('[data-list-item-id]')
-    if (!row) return
-    const bounds = row.getBoundingClientRect()
-    draggingIdRef.current = templateId
-    dragPointerIdRef.current = event.pointerId
-    dragPointerOffsetYRef.current = event.clientY - bounds.top
-    dragPreviewOriginTopRef.current = bounds.top
-    dragPreviewHeightRef.current = bounds.height
-    dragPreviewOffsetRef.current = 0
-    setDraggingId(templateId)
-    setDragPreview({
-      templateId,
-      top: bounds.top,
-      left: bounds.left,
-      width: bounds.width,
-    })
-    navigator.vibrate?.(12)
-  }
-
   function moveDraftTemplateByOffset(templateId: string, offset: number) {
     const index = draftTemplates.findIndex((template) => template.id === templateId)
     const target = draftTemplates[index + offset]
@@ -248,7 +127,7 @@ export function ChemotherapyTemplateList({
     try {
       await onReorder(draftTemplates.map((template) => template.id))
       setReorderMode(false)
-      finishTemplateDrag()
+      finishDrag()
       setReorderError('')
     } catch (error) {
       setReorderError(error instanceof Error ? error.message : '保存顺序失败，请重试')
@@ -299,7 +178,7 @@ export function ChemotherapyTemplateList({
         <button type="button" className="text-button" onClick={() => setSelectedTypes([])}>清除全部</button>
       </div>}
       {reorderError && <p className="form-error" role="alert">{reorderError}</p>}
-      <div ref={templateListRef} className={`template-list${reorderMode ? ' reorder-mode' : ''}`}>
+      <div ref={listRef} className={`template-list${reorderMode ? ' reorder-mode' : ''}`}>
         {displayedTemplates.map((template) => {
           const dayPlans = getChemotherapyTemplateDayPlans(template)
           const templateType = TREATMENT_PLAN_TYPES[getTreatmentPlanType(template)]
@@ -309,7 +188,7 @@ export function ChemotherapyTemplateList({
             itemDataAttribute="data-template-id"
             as="article"
             label={template.name}
-            className={`template-row${draggingId === template.id ? ' dragging' : ''}`}
+            className={`template-row${draggingId === template.id ? ' sortable-drag-placeholder' : ''}`}
             surfaceClassName="template-row-surface"
             editMode={reorderMode}
             onLongPress={enterReorderMode}
@@ -339,7 +218,7 @@ export function ChemotherapyTemplateList({
               aria-label={`拖动排序 ${template.name}`}
               aria-pressed={draggingId === template.id}
               title="拖动排序"
-              onPointerDown={(event) => beginTemplateDrag(event, template.id)}
+              onPointerDown={(event) => beginDrag(event, template.id)}
               onKeyDown={(event) => {
                 if (event.key === 'ArrowUp') {
                   event.preventDefault()
@@ -375,23 +254,13 @@ export function ChemotherapyTemplateList({
         </div>}
       </div>
     </section>
-    {dragPreview && dragPreviewTemplate && dragPreviewType && createPortal(
-      <div
-        ref={dragPreviewElementRef}
-        className="template-drag-preview-positioner"
-        style={{ top: dragPreview.top, left: dragPreview.left, width: dragPreview.width }}
-        aria-hidden="true"
-      >
-        <div className="template-drag-preview">
-          <span className="template-drag-preview-handle"><GripVertical /></span>
-          <span className="template-drag-preview-content">
-            <span className="template-row-heading"><strong>{dragPreviewTemplate.name}</strong><span className="plan-type-tag" data-plan-type={getTreatmentPlanType(dragPreviewTemplate)}>{dragPreviewType.label}</span></span>
-            <small>{dragPreviewTemplate.cycleLengthDays} 天一周期 · {dragPreviewDayPlans.map((plan) => `D${plan.day}`).join('、')} · {dragPreviewType.usesMedication ? `共 ${dragPreviewMedicationCount} 条用药` : dragPreviewTemplate.templateType === 'radiotherapy' ? `共 ${dragPreviewDayPlans.length} 次放疗` : `共 ${dragPreviewDayPlans.length} 项安排`}</small>
-            {dragPreviewTemplate.regimen && <span className="template-row-regimen">{dragPreviewTemplate.regimen}</span>}
-          </span>
-        </div>
-      </div>,
-      document.body,
-    )}
+    {dragPreviewTemplate && dragPreviewType && <SortableDragOverlay preview={preview} positionerRef={positionerRef}>
+      <span className="sortable-drag-preview-handle"><GripVertical /></span>
+      <span className="sortable-drag-preview-content">
+        <span className="template-row-heading"><strong>{dragPreviewTemplate.name}</strong><span className="plan-type-tag" data-plan-type={getTreatmentPlanType(dragPreviewTemplate)}>{dragPreviewType.label}</span></span>
+        <small>{dragPreviewTemplate.cycleLengthDays} 天一周期 · {dragPreviewDayPlans.map((plan) => `D${plan.day}`).join('、')} · {dragPreviewType.usesMedication ? `共 ${dragPreviewMedicationCount} 条用药` : dragPreviewTemplate.templateType === 'radiotherapy' ? `共 ${dragPreviewDayPlans.length} 次放疗` : `共 ${dragPreviewDayPlans.length} 项安排`}</small>
+        {dragPreviewTemplate.regimen && <span className="template-row-regimen">{dragPreviewTemplate.regimen}</span>}
+      </span>
+    </SortableDragOverlay>}
   </>
 }

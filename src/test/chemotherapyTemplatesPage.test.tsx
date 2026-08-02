@@ -296,13 +296,13 @@ describe('chemotherapy template daily medication editor', () => {
     Object.defineProperty(handle, 'hasPointerCapture', { configurable: true, value: vi.fn(() => false) })
     fireEvent.pointerDown(handle, { pointerId: 7, clientX: 30, clientY: 110 })
 
-    expect(row).toHaveClass('dragging')
-    expect(document.querySelector('.template-drag-preview')).toHaveTextContent('浮空方案')
-    expect(document.querySelector('.template-drag-preview')).toHaveTextContent('共 2 次放疗')
+    expect(row).toHaveClass('sortable-drag-placeholder')
+    expect(document.querySelector('.sortable-drag-preview')).toHaveTextContent('浮空方案')
+    expect(document.querySelector('.sortable-drag-preview')).toHaveTextContent('共 2 次放疗')
 
     fireEvent.pointerUp(window, { pointerId: 7, clientX: 30, clientY: 110 })
-    expect(row).not.toHaveClass('dragging')
-    expect(document.querySelector('.template-drag-preview')).not.toBeInTheDocument()
+    expect(row).not.toHaveClass('sortable-drag-placeholder')
+    expect(document.querySelector('.sortable-drag-preview')).not.toBeInTheDocument()
   })
 
   it('reorders smoothly past the dragged placeholder and keeps the preview inside the list', () => {
@@ -361,7 +361,7 @@ describe('chemotherapy template daily medication editor', () => {
     Object.defineProperty(handle, 'hasPointerCapture', { configurable: true, value: vi.fn(() => false) })
     fireEvent.pointerDown(handle, { pointerId: 8, clientX: 30, clientY: 110 })
     fireEvent(handle, new Event('lostpointercapture', { bubbles: true }))
-    expect(document.querySelector('.template-drag-preview')).toBeInTheDocument()
+    expect(document.querySelector('.sortable-drag-preview')).toBeInTheDocument()
 
     fireEvent.pointerMove(window, { pointerId: 8, clientX: 30, clientY: 220 })
     act(() => scheduledFrame?.(0))
@@ -372,17 +372,17 @@ describe('chemotherapy template daily medication editor', () => {
     act(() => scheduledFrame?.(16))
     expect(Array.from(list.querySelectorAll<HTMLElement>('[data-template-id]')).map((row) => row.dataset.templateId))
       .toEqual(['template-b', 'template-c', 'template-a'])
-    expect(document.querySelector<HTMLElement>('.template-drag-preview-positioner')?.style.transform)
+    expect(document.querySelector<HTMLElement>('.sortable-drag-preview-positioner')?.style.transform)
       .toBe('translate3d(0, 138px, 0)')
 
     fireEvent.pointerMove(window, { pointerId: 8, clientX: 30, clientY: -100 })
     act(() => scheduledFrame?.(32))
     expect(Array.from(list.querySelectorAll<HTMLElement>('[data-template-id]')).map((row) => row.dataset.templateId))
       .toEqual(['template-a', 'template-b', 'template-c'])
-    expect(document.querySelector<HTMLElement>('.template-drag-preview-positioner')?.style.transform)
+    expect(document.querySelector<HTMLElement>('.sortable-drag-preview-positioner')?.style.transform)
       .toBe('translate3d(0, 2px, 0)')
 
     fireEvent.pointerUp(window, { pointerId: 8 })
-    expect(document.querySelector('.template-drag-preview')).not.toBeInTheDocument()
+    expect(document.querySelector('.sortable-drag-preview')).not.toBeInTheDocument()
   })
 })
