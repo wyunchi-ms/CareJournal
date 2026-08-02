@@ -66,4 +66,23 @@ describe('indicator picker', () => {
     expect(screen.getByRole('dialog', { name: '检查指标（单选）' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /拖动排序/ })).not.toBeInTheDocument()
   })
+
+  it('lifts a dragged indicator while keeping its row as a placeholder', () => {
+    vi.useFakeTimers()
+    render(<IndicatorPicker options={options} value="WBC" pinnedCodes={[]} onChange={vi.fn()} onPinnedChange={vi.fn()} onOrderChange={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: '检查指标：白细胞计数' }))
+    fireEvent.pointerDown(screen.getByRole('radio', { name: /血红蛋白/ }), { button: 0, pointerId: 1, clientX: 12, clientY: 12 })
+    act(() => vi.advanceTimersByTime(500))
+
+    const row = screen.getByRole('radio', { name: /血红蛋白/ }).closest<HTMLElement>('[data-indicator-code]')!
+    const handle = screen.getByRole('button', { name: '拖动排序：血红蛋白' })
+    vi.spyOn(row, 'getBoundingClientRect').mockReturnValue({ x: 16, y: 90, top: 90, left: 16, right: 336, bottom: 154, width: 320, height: 64, toJSON: () => ({}) })
+
+    fireEvent.pointerDown(handle, { pointerId: 9, clientX: 24, clientY: 110 })
+
+    expect(row).toHaveClass('sortable-drag-placeholder')
+    expect(document.querySelector('.sortable-drag-preview')).toHaveTextContent('血红蛋白')
+    fireEvent.pointerUp(window, { pointerId: 9, clientX: 24, clientY: 110 })
+    expect(document.querySelector('.sortable-drag-preview')).not.toBeInTheDocument()
+  })
 })

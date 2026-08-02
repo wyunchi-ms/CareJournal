@@ -1,8 +1,10 @@
 import { Check, ChevronDown, GripVertical, Pin, PinOff, Search } from 'lucide-react'
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { ChartIndicatorOption } from '../services/chartIndicators'
 import { moveChartIndicator } from '../services/chartIndicators'
 import { Modal } from './Modal'
+import { useSortableDragLift } from './SortableDragLift'
+import { SortableDragOverlay } from './SortableDragOverlay'
 import { SwipeableListItem } from './SwipeableListItem'
 
 interface IndicatorPickerProps {
@@ -19,11 +21,24 @@ export function IndicatorPicker({ options, value, pinnedCodes, onChange, onPinne
   const [query, setQuery] = useState('')
   const [editingOrder, setEditingOrder] = useState(false)
   const [draftOrder, setDraftOrder] = useState<string[]>([])
-  const [draggingCode, setDraggingCode] = useState<string | null>(null)
   const draftOrderRef = useRef(draftOrder)
   const pinnedSet = useMemo(() => new Set(pinnedCodes), [pinnedCodes])
   const optionByCode = useMemo(() => new Map(options.map((option) => [option.code, option])), [options])
   const selected = optionByCode.get(value)
+  const { beginDrag, draggingId: draggingCode, finishDrag, listRef, positionerRef, preview } = useSortableDragLift({
+    enabled: editingOrder,
+    layoutKey: draftOrder.join('\u0000'),
+    onDragMove: ({ clientX, clientY, sourceId }) => {
+      if (typeof document.elementFromPoint !== 'function') return
+      const target = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>('[data-indicator-code]')
+      const targetCode = target?.dataset.indicatorCode
+      if (!targetCode || targetCode === sourceId) return
+      const next = moveWithinPriority(sourceId, targetCode)
+      if (next !== draftOrderRef.current) setOrder(next)
+    },
+    onDragEnd: () => onOrderChange(draftOrderRef.current, draftOrderRef.current.filter((code) => pinnedSet.has(code))),
+  })
+  const previewOption = preview ? optionByCode.get(preview.itemId) : undefined
 
   const baseOrder = options.map((option) => option.code)
   const visibleOrder = editingOrder && draftOrder.length ? draftOrder : baseOrder
@@ -53,12 +68,12 @@ export function IndicatorPicker({ options, value, pinnedCodes, onChange, onPinne
     setOpen(false)
     setQuery('')
     setEditingOrder(false)
-    setDraggingCode(null)
+    finishDrag()
   }
 
   function finishOrderEditing() {
     setEditingOrder(false)
-    setDraggingCode(null)
+    finishDrag()
   }
 
   function selectOption(code: string) {
@@ -70,29 +85,6 @@ export function IndicatorPicker({ options, value, pinnedCodes, onChange, onPinne
   function moveWithinPriority(sourceCode: string, targetCode: string) {
     if (pinnedSet.has(sourceCode) !== pinnedSet.has(targetCode)) return draftOrderRef.current
     return moveChartIndicator(draftOrderRef.current, sourceCode, targetCode)
-  }
-
-  function startDrag(event: ReactPointerEvent<HTMLButtonElement>, code: string) {
-    event.preventDefault()
-    event.currentTarget.setPointerCapture?.(event.pointerId)
-    setDraggingCode(code)
-  }
-
-  function drag(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (!draggingCode || typeof document.elementFromPoint !== 'function') return
-    event.preventDefault()
-    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-indicator-code]')
-    const targetCode = target?.dataset.indicatorCode
-    if (!targetCode || targetCode === draggingCode) return
-    const next = moveWithinPriority(draggingCode, targetCode)
-    if (next !== draftOrderRef.current) setOrder(next)
-  }
-
-  function finishDrag(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (!draggingCode) return
-    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture?.(event.pointerId)
-    setDraggingCode(null)
-    onOrderChange(draftOrderRef.current, draftOrderRef.current.filter((code) => pinnedSet.has(code)))
   }
 
   function moveByKeyboard(code: string, direction: -1 | 1) {
@@ -126,7 +118,7 @@ export function IndicatorPicker({ options, value, pinnedCodes, onChange, onPinne
         </label>
         {editingOrder && <button type="button" className="button secondary indicator-order-done" onClick={finishOrderEditing}>完成</button>}
       </div>
-      <div className="indicator-priority-list" role="radiogroup" aria-label="检查指标">
+      <div ref={listRef} className="indicator-priority-list" role="radiogroup" aria-label="检查指标">
         {visibleOptions.map((option, index) => {
           const pinned = pinnedSet.has(option.code)
           const previous = visibleOptions[index - 1]
@@ -137,7 +129,7 @@ export function IndicatorPicker({ options, value, pinnedCodes, onChange, onPinne
               itemId={option.code}
               itemDataAttribute="data-indicator-code"
               label={option.name}
-              className={`indicator-priority-row${editingOrder ? ' editing' : ''}${value === option.code ? ' selected' : ''}${draggingCode === option.code ? ' dragging' : ''}`}
+              className={`indicator-priority-row${editingOrder ? ' editing' : ''}${value === option.code ? ' selected' : ''}${draggingCode === option.code ? ' sortable-drag-placeholder' : ''}`}
               surfaceClassName="indicator-priority-surface"
               editMode={editingOrder}
               onLongPress={enterOrderEditing}
@@ -155,10 +147,7 @@ export function IndicatorPicker({ options, value, pinnedCodes, onChange, onPinne
                 className="indicator-drag-handle"
                 aria-label={`拖动排序：${option.name}`}
                 title="拖动排序；键盘可用上下方向键"
-                onPointerDown={(event) => startDrag(event, option.code)}
-                onPointerMove={drag}
-                onPointerUp={finishDrag}
-                onPointerCancel={finishDrag}
+                onPointerDown={(event) => beginDrag(event, option.code)}
                 onKeyDown={(event) => {
                   if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
                   event.preventDefault()
@@ -181,6 +170,10 @@ export function IndicatorPicker({ options, value, pinnedCodes, onChange, onPinne
         })}
         {visibleOptions.length === 0 && <div className="empty-inline"><Search /><strong>没有匹配的指标</strong><p>换个名称、代码或单位试试。</p></div>}
       </div>
+      {previewOption && <SortableDragOverlay preview={preview} positionerRef={positionerRef}>
+        <span className="sortable-drag-preview-handle"><GripVertical /></span>
+        <span className="sortable-drag-preview-content"><strong>{previewOption.name}</strong><small>{previewOption.unit || '未记录单位'} · 出现 {previewOption.count} 次</small></span>
+      </SortableDragOverlay>}
     </Modal>}
   </div>
 }
