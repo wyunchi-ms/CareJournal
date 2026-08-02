@@ -2,13 +2,15 @@ import { differenceInCalendarDays, format, parseISO, subMonths } from 'date-fns'
 import type { EChartsType } from 'echarts'
 import ReactECharts from 'echarts-for-react'
 import { Bookmark, BookmarkCheck, BookmarkX, CalendarPlus, ChartNoAxesCombined, ChevronRight, Eye, EyeOff, FileUp, GripVertical, Plus, RotateCcw, Search, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { ChoicePicker } from '../components/ChoicePicker'
 import { ConfirmSheet } from '../components/ConfirmSheet'
 import { IndicatorPicker } from '../components/IndicatorPicker'
 import { Modal } from '../components/Modal'
 import { RecordSummaryContent } from '../components/RecordSummaryContent'
+import { useSortableDragLift } from '../components/SortableDragLift'
+import { SortableDragOverlay } from '../components/SortableDragOverlay'
 import { SwipeableListItem } from '../components/SwipeableListItem'
 import { sortChartIndicators } from '../services/chartIndicators'
 import { moveChartPin, sortChartPins } from '../services/chartPins'
@@ -228,7 +230,6 @@ export function ChartsPage() {
   const [savedQuery, setSavedQuery] = useState('')
   const [savedChartsReordering, setSavedChartsReordering] = useState(false)
   const [draftPinOrder, setDraftPinOrder] = useState<string[]>([])
-  const [draggingPinId, setDraggingPinId] = useState<string | null>(null)
   const [savedOrderError, setSavedOrderError] = useState('')
   const [deletingPin, setDeletingPin] = useState<ChartPin | null>(null)
   const [deletePinBusy, setDeletePinBusy] = useState(false)
@@ -242,6 +243,27 @@ export function ChartsPage() {
   const chartInstancesRef = useRef(new Set<EChartsType>())
   const draftPinOrderRef = useRef<string[]>([])
   const dragTargetPinIdRef = useRef<string | null>(null)
+  const { beginDrag: beginPinDrag, draggingId: draggingPinId, finishDrag: finishPinDragLift, listRef: savedChartListRef, positionerRef: savedChartPositionerRef, preview: savedChartPreview } = useSortableDragLift({
+    enabled: savedChartsReordering,
+    layoutKey: draftPinOrder.join('\u0000'),
+    onDragMove: ({ clientX, clientY, sourceId }) => {
+      if (typeof document.elementFromPoint !== 'function') return
+      const target = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>('[data-saved-chart-id]')
+      const targetId = target?.dataset.savedChartId
+      if (!targetId || targetId === sourceId) {
+        dragTargetPinIdRef.current = null
+        return
+      }
+      if (targetId === dragTargetPinIdRef.current) return
+      dragTargetPinIdRef.current = targetId
+      const next = moveChartPin(draftPinOrderRef.current, sourceId, targetId)
+      if (next !== draftPinOrderRef.current) setPinOrder(next)
+    },
+    onDragEnd: () => {
+      dragTargetPinIdRef.current = null
+      persistPinOrder(draftPinOrderRef.current)
+    },
+  })
 
   const currentCode = indicators.some((item) => item.code === selectedCode) ? selectedCode : indicators[0]?.code ?? ''
   const currentCycles = selectedCycles.length ? selectedCycles : chemotherapyCycles.map((cycle) => cycle.id)
@@ -423,7 +445,7 @@ export function ChartsPage() {
     setSavedChartsOpen(false)
     setSavedQuery('')
     setSavedChartsReordering(false)
-    setDraggingPinId(null)
+    finishPinDragLift()
     setSavedOrderError('')
   }
 
@@ -432,36 +454,6 @@ export function ChartsPage() {
     void reorderPins(next).catch((error) => {
       setSavedOrderError(error instanceof Error ? error.message : '保存排序失败，请重试')
     })
-  }
-
-  function startPinDrag(event: ReactPointerEvent<HTMLButtonElement>, pinId: string) {
-    event.preventDefault()
-    event.currentTarget.setPointerCapture?.(event.pointerId)
-    dragTargetPinIdRef.current = null
-    setDraggingPinId(pinId)
-  }
-
-  function dragPin(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (!draggingPinId || typeof document.elementFromPoint !== 'function') return
-    event.preventDefault()
-    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-saved-chart-id]')
-    const targetId = target?.dataset.savedChartId
-    if (!targetId || targetId === draggingPinId) {
-      dragTargetPinIdRef.current = null
-      return
-    }
-    if (targetId === dragTargetPinIdRef.current) return
-    dragTargetPinIdRef.current = targetId
-    const next = moveChartPin(draftPinOrderRef.current, draggingPinId, targetId)
-    if (next !== draftPinOrderRef.current) setPinOrder(next)
-  }
-
-  function finishPinDrag(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (!draggingPinId) return
-    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture?.(event.pointerId)
-    dragTargetPinIdRef.current = null
-    setDraggingPinId(null)
-    persistPinOrder(draftPinOrderRef.current)
   }
 
   function movePinByKeyboard(pinId: string, direction: -1 | 1) {
@@ -482,15 +474,15 @@ export function ChartsPage() {
               <span className="sr-only">搜索已保存图表</span>
               <input value={savedQuery} onChange={(event) => setSavedQuery(event.target.value)} placeholder={pins.length > 1 ? '搜索图表，长按条目排序' : '搜索指标或图表模式'} autoFocus />
             </label>}
-        {savedChartsReordering && <button type="button" className="button secondary saved-chart-order-done" onClick={() => { setSavedChartsReordering(false); setDraggingPinId(null) }}>完成</button>}
+        {savedChartsReordering && <button type="button" className="button secondary saved-chart-order-done" onClick={() => { setSavedChartsReordering(false); finishPinDragLift() }}>完成</button>}
       </div>
       {savedOrderError && <p className="form-error" role="alert">{savedOrderError}</p>}
-      <div className="saved-chart-list">
+      <div ref={savedChartListRef} className="saved-chart-list">
         {visiblePins.map((pin) => <SwipeableListItem
           itemId={pin.id}
           itemDataAttribute="data-saved-chart-id"
           label={pin.title}
-          className={`saved-chart-row${savedChartsReordering ? ' editing' : ''}${draggingPinId === pin.id ? ' dragging' : ''}`}
+          className={`saved-chart-row${savedChartsReordering ? ' editing' : ''}${draggingPinId === pin.id ? ' sortable-drag-placeholder' : ''}`}
           surfaceClassName="saved-chart-surface"
           editMode={savedChartsReordering}
           onLongPress={pins.length > 1 ? enterSavedChartsReordering : undefined}
@@ -509,10 +501,7 @@ export function ChartsPage() {
             className="saved-chart-drag-handle"
             aria-label={`拖动排序：${pin.title}`}
             title="拖动排序；键盘可用上下方向键"
-            onPointerDown={(event) => startPinDrag(event, pin.id)}
-            onPointerMove={dragPin}
-            onPointerUp={finishPinDrag}
-            onPointerCancel={finishPinDrag}
+            onPointerDown={(event) => beginPinDrag(event, pin.id)}
             onKeyDown={(event) => {
               if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
               event.preventDefault()
@@ -632,7 +621,35 @@ export function ChartsPage() {
           </button>
         </div>
       </div>
-      <div className="saved-chart-grid">
+      {(() => {
+        const previewPin = savedChartPreview ? pinById.get(savedChartPreview.itemId) : undefined
+        if (!previewPin) return null
+        return <SortableDragOverlay preview={savedChartPreview} positionerRef={savedChartPositionerRef}>
+          <span className="sortable-drag-preview-handle"><GripVertical /></span>
+          <span className="sortable-drag-preview-content"><strong>{previewPin.title}</strong><small>{previewPin.mode === 'trend' ? '实际日期趋势' : `化疗周期叠加 · ${previewPin.cycleEventIds.length} 个周期`}</small></span>
+        </SortableDragOverlay>
+      })()}
+      {addingChart && indicators.length > 0 && <section className="chart-controls card" aria-label="添加图表设置">
+        <div className="chart-explorer-heading"><strong>添加图表</strong><small>选择模式、指标和默认范围</small></div>
+        <div className="chart-controls-toolbar">
+          <div className="segmented" role="tablist" aria-label="图表模式">
+            <button type="button" role="tab" aria-selected={mode === 'trend'} className={mode === 'trend' ? 'active' : ''} onClick={() => setMode('trend')}>实际日期趋势</button>
+            <button type="button" role="tab" aria-selected={mode === 'cycle'} className={mode === 'cycle' ? 'active' : ''} onClick={() => setMode('cycle')}>化疗周期叠加</button>
+          </div>
+        </div>
+        <div className="control-groups">
+          <IndicatorPicker
+            options={indicators}
+            value={currentCode}
+            pinnedCodes={pinnedIndicatorCodes}
+            onChange={setSelectedCode}
+            onPinnedChange={(nextPinned) => persistIndicatorLayout(indicatorOrder, nextPinned)}
+            onOrderChange={persistIndicatorLayout}
+          />
+          {mode === 'cycle' && <ChoicePicker label="叠加周期" multiple allLabel="全部周期" orderByRecent={false} options={cyclesNewestFirst.map((cycle) => ({ value: cycle.id, label: cycle.title, description: `Day 1：${cycle.dayOne}${cycle.events.length > 1 ? ` · ${cycle.events.length} 次给药` : ''}` }))} value={currentCycles} onChange={(value) => setSelectedCycles(value as string[])} emptyText="暂无化疗周期" />}
+        </div>
+      </section>}
+      {!addingChart && <div className="saved-chart-grid">
         {savedChartItems.map(({ pin, option, unavailable }) => <article
           className="saved-chart-overview-card card"
           role="button"
@@ -657,14 +674,14 @@ export function ChartsPage() {
             ? <div className="saved-chart-unavailable"><ChartNoAxesCombined /><strong>暂时无法绘制</strong><small>相关指标或化疗周期当前不可用</small></div>
             : <TimeSeriesChart option={option} compact onReady={registerChartInstance} />}
         </article>)}
-      </div>
+      </div>}
     </section>}
-    {showChartBuilder && indicators.length > 0 && <section className="chart-controls card">
+    {savedChartItems.length === 0 && showChartBuilder && indicators.length > 0 && <section className="chart-controls card" aria-label="添加图表设置">
       <div className="chart-explorer-heading"><strong>添加图表</strong><small>选择模式、指标和默认范围</small></div>
       <div className="chart-controls-toolbar">
-        <div className="segmented" role="group" aria-label="图表模式">
-          <button className={mode === 'trend' ? 'active' : ''} onClick={() => setMode('trend')}>实际日期趋势</button>
-          <button className={mode === 'cycle' ? 'active' : ''} onClick={() => setMode('cycle')}>化疗周期叠加</button>
+        <div className="segmented" role="tablist" aria-label="图表模式">
+          <button type="button" role="tab" aria-selected={mode === 'trend'} className={mode === 'trend' ? 'active' : ''} onClick={() => setMode('trend')}>实际日期趋势</button>
+          <button type="button" role="tab" aria-selected={mode === 'cycle'} className={mode === 'cycle' ? 'active' : ''} onClick={() => setMode('cycle')}>化疗周期叠加</button>
         </div>
       </div>
       <div className="control-groups">

@@ -204,13 +204,22 @@ describe('charts page indicator selection', () => {
     expect(screen.queryByRole('button', { name: '检查指标：白细胞计数' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '添加图表' }))
+    const dashboard = screen.getByRole('region', { name: '收藏图表' })
+    const modeTabs = screen.getByRole('tablist', { name: '图表模式' })
+    expect(within(modeTabs).getByRole('tab', { name: '实际日期趋势' })).toHaveAttribute('aria-selected', 'true')
+    expect(dashboard.querySelector('.saved-chart-dashboard-header')!.compareDocumentPosition(modeTabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(dashboard.querySelector('.saved-chart-grid')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '查看图表详情：白细胞计数趋势' })).not.toBeInTheDocument()
     const activeBookmark = screen.getByRole('button', { name: '当前图表已收藏' })
     expect(activeBookmark).toHaveAttribute('aria-pressed', 'true')
     expect(activeBookmark).toBeDisabled()
 
     expect(screen.getByRole('region', { name: '收藏图表' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '收藏图表' })).not.toBeInTheDocument()
-    expect(screen.getAllByTestId('chart')).toHaveLength(2)
+    expect(screen.getAllByTestId('chart')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: '收起' }))
+    expect(screen.queryByRole('tablist', { name: '图表模式' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '查看图表详情：白细胞计数趋势' })).toBeInTheDocument()
     const savedChartsTrigger = screen.getByRole('button', { name: '管理已保存图表，共 2 个' })
     expect(savedChartsTrigger.closest('.saved-chart-dashboard-header')).not.toBeNull()
     fireEvent.click(savedChartsTrigger)
@@ -305,18 +314,22 @@ describe('charts page indicator selection', () => {
 
     const dialog = screen.getByRole('dialog', { name: '已保存图表（排序）' })
     const cycleHandle = within(dialog).getByRole('button', { name: '拖动排序：血红蛋白周期对比' })
+    const cycleRow = within(dialog).getByText('血红蛋白周期对比').closest<HTMLElement>('[data-saved-chart-id]')!
     const trendRow = within(dialog).getByText('白细胞计数趋势').closest<HTMLElement>('[data-saved-chart-id]')!
     const originalElementFromPoint = document.elementFromPoint
     Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => trendRow) })
     try {
       fireEvent.pointerDown(cycleHandle, { pointerId: 7, clientX: 10, clientY: 10 })
-      fireEvent.pointerMove(cycleHandle, { pointerId: 7, clientX: 10, clientY: 100 })
-      fireEvent.pointerUp(cycleHandle, { pointerId: 7, clientX: 10, clientY: 100 })
+      expect(cycleRow).toHaveClass('sortable-drag-placeholder')
+      expect(document.querySelector('.sortable-drag-preview')).toHaveTextContent('血红蛋白周期对比')
+      fireEvent.pointerMove(window, { pointerId: 7, clientX: 10, clientY: 100 })
+      fireEvent.pointerUp(window, { pointerId: 7, clientX: 10, clientY: 100 })
     } finally {
       Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: originalElementFromPoint })
     }
 
     await waitFor(() => expect(reorderPins).toHaveBeenCalledWith(['trend-pin', 'cycle-pin']))
+    expect(document.querySelector('.sortable-drag-preview')).not.toBeInTheDocument()
   })
 
   it('starts chemotherapy cycle series at Day 1 and excludes earlier results', () => {
@@ -335,7 +348,7 @@ describe('charts page indicator selection', () => {
     }]
     render(<ChartsPage />)
 
-    fireEvent.click(screen.getByRole('button', { name: '化疗周期叠加' }))
+    fireEvent.click(screen.getByRole('tab', { name: '化疗周期叠加' }))
     expect(screen.getByTestId('chart')).toHaveAttribute('data-x-axis-min', '0')
     expect(screen.getByTestId('chart')).toHaveAttribute('data-zoom-filter-modes', '["filter"]')
     expect(screen.getByTestId('chart')).toHaveAttribute('data-x-axis-name', '')
@@ -362,7 +375,7 @@ describe('charts page indicator selection', () => {
     ]
     render(<ChartsPage />)
 
-    fireEvent.click(screen.getByRole('button', { name: '化疗周期叠加' }))
+    fireEvent.click(screen.getByRole('tab', { name: '化疗周期叠加' }))
     expect(screen.getByTestId('chart')).toHaveAttribute('data-series-count', '1')
     expect(screen.getByTestId('chart')).toHaveAttribute('data-series-names', '["C1"]')
     expect(screen.getByTestId('chart')).toHaveAttribute('data-legend-type', 'plain')
@@ -387,7 +400,7 @@ describe('charts page indicator selection', () => {
     ]
     render(<ChartsPage />)
 
-    fireEvent.click(screen.getByRole('button', { name: '化疗周期叠加' }))
+    fireEvent.click(screen.getByRole('tab', { name: '化疗周期叠加' }))
     expect(screen.getByTestId('chart')).toHaveAttribute('data-series-names', '["C1·260224","C2","C1·240711"]')
     expect(screen.getByTestId('chart')).toHaveAttribute('data-legend-labels', '["C1","C2","C1"]')
     fireEvent.click(screen.getByRole('button', { name: /叠加周期：已选 3 项/ }))
@@ -419,7 +432,7 @@ describe('charts page indicator selection', () => {
     })
     render(<ChartsPage />)
 
-    fireEvent.click(screen.getByRole('button', { name: '化疗周期叠加' }))
+    fireEvent.click(screen.getByRole('tab', { name: '化疗周期叠加' }))
     const colors = JSON.parse(screen.getByTestId('chart').getAttribute('data-colors') ?? '[]') as string[]
 
     expect(colors).toHaveLength(14)
