@@ -4,6 +4,7 @@ import { getChemotherapyDayMedications, summarizeChemotherapyMedications } from 
 import { useApp } from '../../store/AppContext'
 import {
   CHEMOTHERAPY_DOSE_UNITS,
+  MEDICATION_ADMINISTRATION_ROUTES,
   TREATMENT_PLAN_TYPES,
   newId,
   type ChemotherapyMedication,
@@ -21,6 +22,8 @@ import {
   getTreatmentPlanType,
   treatmentPlanTypeOptions,
 } from './templateUtils'
+
+const administrationRouteOptions = MEDICATION_ADMINISTRATION_ROUTES.map((route) => ({ ...route }))
 
 interface ChemotherapyTemplateFormProps {
   template?: ChemotherapyTemplate
@@ -237,7 +240,7 @@ export function ChemotherapyTemplateForm({ template, onClose }: ChemotherapyTemp
               </div>}
               {planType.usesMedication && <div className="medication-table" role="table" aria-label={`D${plan.day} 用药表`}>
                 <div className="medication-table-header" role="row">
-                  <span role="columnheader">药物名称</span><span role="columnheader">剂量 / 单位</span><span role="columnheader">用法/途径</span><span role="columnheader">备注</span><span aria-hidden="true" />
+                  <span role="columnheader">药物名称</span><span role="columnheader">剂量 / 单位</span><span role="columnheader">给药途径</span><span role="columnheader">备注</span><span aria-hidden="true" />
                 </div>
                 <div className="medication-table-body" role="rowgroup">
                   {medicationItems.map((item, medicationIndex) => <div className={`medication-row${expandedMedicationIds.has(item.id) ? ' expanded' : ''}`} role="row" key={item.id}>
@@ -260,7 +263,21 @@ export function ChemotherapyTemplateForm({ template, onClose }: ChemotherapyTemp
                         />
                       </div>
                     </div>
-                    <label className="medication-optional-field" role="cell"><span className="medication-field-label">用法/途径</span><input aria-label={`D${plan.day} 第${medicationIndex + 1}种药物用法或给药途径`} value={item.administration ?? ''} onChange={(event) => updateMedication(plan.id, item.id, { administration: event.target.value })} placeholder="静滴、口服等" /></label>
+                    <div className="medication-optional-field" role="cell">
+                      <span className="medication-field-label">给药途径</span>
+                      <ChoicePicker
+                        compact
+                        label={`D${plan.day} 第${medicationIndex + 1}种药物给药途径`}
+                        historyKey="medication-administration-route"
+                        value={item.administration ?? ''}
+                        onChange={(value) => updateMedication(plan.id, item.id, { administration: String(value) })}
+                        options={item.administration && !MEDICATION_ADMINISTRATION_ROUTES.some((route) => route.value === item.administration)
+                          ? [{ value: item.administration, label: item.administration, description: '原记录用法' }, ...administrationRouteOptions]
+                          : administrationRouteOptions}
+                        placeholder="选择途径"
+                        allLabel="清除途径"
+                      />
+                    </div>
                     <label className="medication-optional-field" role="cell"><span className="medication-field-label">备注</span><input aria-label={`D${plan.day} 第${medicationIndex + 1}种药物备注`} value={item.notes ?? ''} onChange={(event) => updateMedication(plan.id, item.id, { notes: event.target.value })} /></label>
                     <button type="button" className="text-button medication-expand-button" aria-expanded={expandedMedicationIds.has(item.id)} aria-label={`${expandedMedicationIds.has(item.id) ? '收起' : '展开'} D${plan.day} 第${medicationIndex + 1}种药物的用法和备注`} onClick={() => toggleMedicationDetails(item.id)}>{expandedMedicationIds.has(item.id) ? <ChevronUp /> : <ChevronDown />}用法/备注</button>
                     <button type="button" className="icon-button danger medication-remove-button" aria-label={`删除 D${plan.day} 第${medicationIndex + 1}种药物`} title="删除药物" onClick={() => removeMedication(plan.id, item.id)}><Trash2 /></button>

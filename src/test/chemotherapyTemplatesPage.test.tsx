@@ -115,7 +115,8 @@ describe('chemotherapy template daily medication editor', () => {
     fireEvent.click(screen.getByRole('radio', { name: /mg\/m².*按体表面积/ }))
     fireEvent.click(screen.getByRole('button', { name: '展开 D2 每日用药' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'D2 第1种药物名称' }), { target: { value: '依托泊苷' } })
-    fireEvent.change(screen.getByRole('textbox', { name: 'D2 第1种药物用法或给药途径' }), { target: { value: '静滴' } })
+    fireEvent.click(screen.getByRole('button', { name: 'D2 第1种药物给药途径：选择途径' }))
+    fireEvent.click(screen.getByRole('radio', { name: '静脉滴注' }))
     fireEvent.click(screen.getByRole('button', { name: '保存模板' }))
 
     await waitFor(() => expect(saveChemotherapyTemplate).toHaveBeenCalledWith(expect.objectContaining({
@@ -128,7 +129,7 @@ describe('chemotherapy template daily medication editor', () => {
         }),
         expect.objectContaining({
           day: 2,
-          medicationItems: [expect.objectContaining({ name: '依托泊苷', administration: '静滴' })],
+          medicationItems: [expect.objectContaining({ name: '依托泊苷', administration: '静脉滴注' })],
           medications: '依托泊苷',
         }),
       ],
