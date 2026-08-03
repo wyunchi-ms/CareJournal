@@ -3,6 +3,7 @@ export const EVENT_TYPES = {
   hospitalization: { label: '住院', calendarLabel: '住院', color: '#4c78a8' },
   chemotherapy: { label: '化疗', calendarLabel: '化疗', color: '#7a5af8' },
   radiotherapy: { label: '放疗', calendarLabel: '放疗', color: '#f59e0b' },
+  maintenance: { label: '维持治疗', calendarLabel: '维持', color: '#2f7552' },
   targeted: { label: '靶向治疗', calendarLabel: '靶向', color: '#0f9d8a' },
   immunotherapy: { label: '免疫治疗', calendarLabel: '免疫', color: '#0891b2' },
   medication: { label: '用药', calendarLabel: '用药', color: '#64748b' },
@@ -39,6 +40,9 @@ export interface TreatmentEvent {
   regimen?: string
   medications?: string
   dosage?: string
+  medicationItems?: ChemotherapyMedication[]
+  radiotherapySite?: string
+  radiotherapyDoseGy?: string
   cycleNumber?: number
   cycleDayOne?: string
   chemotherapyTemplateId?: string
@@ -302,6 +306,23 @@ export const LLM_PROVIDER_IDS = [
   'glm',
   'openrouter',
   'openai-compatible',
+] as const
+
+/** Common medicine administration routes, kept intentionally concise for patient-entered records. */
+export const MEDICATION_ADMINISTRATION_ROUTES = [
+  { value: '静脉滴注', label: '静脉滴注' },
+  { value: '静脉注射', label: '静脉注射' },
+  { value: '静脉泵入', label: '静脉泵入' },
+  { value: '口服', label: '口服' },
+  { value: '皮下注射', label: '皮下注射' },
+  { value: '肌内注射', label: '肌内注射' },
+  { value: '鞘内注射', label: '鞘内注射' },
+  { value: '吸入', label: '吸入' },
+  { value: '局部用药', label: '局部用药' },
+  { value: '外用', label: '外用' },
+  { value: '舌下含服', label: '舌下含服' },
+  { value: '直肠给药', label: '直肠给药' },
+  { value: '其他', label: '其他' },
 ] as const
 
 export type LlmProviderId = typeof LLM_PROVIDER_IDS[number]

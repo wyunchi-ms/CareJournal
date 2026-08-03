@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildChemotherapyCourseEvents, getChemotherapyTemplateDayPlans, groupChemotherapyCycles, rescheduleChemotherapyEvents } from '../services/chemotherapy'
+import { buildChemotherapyCourseEvents, buildTreatmentCourseEvents, getChemotherapyTemplateDayPlans, groupChemotherapyCycles, rescheduleChemotherapyEvents } from '../services/chemotherapy'
 import type { ChemotherapyTemplate, TreatmentEvent } from '../types'
 
 const template: ChemotherapyTemplate = {
@@ -55,6 +55,44 @@ describe('chemotherapy templates and flexible schedules', () => {
       expect.objectContaining({ day: 1, medicationItems: [expect.objectContaining({ name: '旧模板共用药物', administration: '旧模板共用剂量' })] }),
       expect.objectContaining({ day: 8, medicationItems: [expect.objectContaining({ name: '旧模板共用药物', administration: '旧模板共用剂量' })] }),
     ])
+  })
+
+  it('creates maintenance events with an editable copy of the planned medicine and dose', () => {
+    const maintenance: ChemotherapyTemplate = {
+      ...template,
+      id: 'maintenance-1',
+      templateType: 'maintenance',
+      name: '维持治疗方案',
+      administrationDays: [1],
+      dayPlans: [{ id: 'maintenance-day-1', day: 1, medicationItems: [{ id: 'planned-med', name: '维持药', dose: '10', unit: 'mg', administration: '口服' }] }],
+    }
+    const events = buildTreatmentCourseEvents(maintenance, { firstDayOne: '2026-08-01', cycleCount: 1, now: '2026-08-01T00:00:00.000Z' })
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      type: 'maintenance',
+      medications: '维持药',
+      dosage: '维持药：10 mg · 口服',
+      medicationItems: [expect.objectContaining({ name: '维持药', dose: '10', unit: 'mg', administration: '口服' })],
+    })
+    expect(events[0].medicationItems?.[0].id).not.toBe('planned-med')
+  })
+
+  it('creates radiotherapy events with site and Gy dose but no medicine fields', () => {
+    const radiotherapy: ChemotherapyTemplate = {
+      ...template,
+      id: 'radiotherapy-1',
+      templateType: 'radiotherapy',
+      name: '胸部放疗',
+      administrationDays: [1],
+      dayPlans: [{ id: 'radiotherapy-day-1', day: 1, radiotherapySite: '左肺原发灶', radiotherapyDoseGy: '2' }],
+    }
+    const events = buildTreatmentCourseEvents(radiotherapy, { firstDayOne: '2026-08-01', cycleCount: 1, now: '2026-08-01T00:00:00.000Z' })
+
+    expect(events[0]).toMatchObject({ type: 'radiotherapy', radiotherapySite: '左肺原发灶', radiotherapyDoseGy: '2' })
+    expect(events[0].medicationItems).toBeUndefined()
+    expect(events[0].medications).toBeUndefined()
+    expect(events[0].dosage).toBeUndefined()
   })
 
   it('generates every administration day while grouping them into treatment cycles', () => {

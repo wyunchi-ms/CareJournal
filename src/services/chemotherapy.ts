@@ -1,5 +1,5 @@
 import { addDays, differenceInCalendarDays, format, parseISO } from 'date-fns'
-import { newId, type ChemotherapyMedication, type ChemotherapyTemplate, type ChemotherapyTemplateDayPlan, type TreatmentEvent } from '../types'
+import { TREATMENT_PLAN_TYPES, newId, type ChemotherapyMedication, type ChemotherapyTemplate, type ChemotherapyTemplateDayPlan, type EventType, type TreatmentEvent, type TreatmentPlanType } from '../types'
 
 export type ChemotherapyRescheduleScope = 'single' | 'cycle' | 'future'
 
@@ -95,12 +95,25 @@ export function getChemotherapyTemplateDayPlans(template: ChemotherapyTemplate):
   }))
 }
 
-export function buildChemotherapyCourseEvents(template: ChemotherapyTemplate, options: CourseGenerationOptions): TreatmentEvent[] {
+const eventTypeByPlanType: Record<TreatmentPlanType, EventType> = {
+  chemotherapy: 'chemotherapy',
+  radiotherapy: 'radiotherapy',
+  maintenance: 'maintenance',
+  targeted: 'targeted',
+  immunotherapy: 'immunotherapy',
+  supportive: 'medication',
+  other: 'other',
+}
+
+export function buildTreatmentCourseEvents(template: ChemotherapyTemplate, options: CourseGenerationOptions): TreatmentEvent[] {
   const now = options.now ?? new Date().toISOString()
   const courseId = newId()
   const firstCycleNumber = options.firstCycleNumber ?? 1
   const cycleCount = Math.max(1, Math.floor(options.cycleCount))
   const dayPlans = getChemotherapyTemplateDayPlans(template)
+  const planType = template.templateType ?? 'chemotherapy'
+  const eventType = eventTypeByPlanType[planType]
+  const planTypeLabel = TREATMENT_PLAN_TYPES[planType].label
   const events: TreatmentEvent[] = []
 
   for (let cycleIndex = 0; cycleIndex < cycleCount; cycleIndex += 1) {
@@ -111,10 +124,13 @@ export function buildChemotherapyCourseEvents(template: ChemotherapyTemplate, op
       const administrationDay = dayPlan.day
       const eventDate = shiftDate(cycleDayOne, administrationDay - 1)
       const medicationSummary = summarizeChemotherapyMedications(getChemotherapyDayMedications(dayPlan))
+      const medicationItems = TREATMENT_PLAN_TYPES[planType].usesMedication
+        ? getChemotherapyDayMedications(dayPlan).map((item) => ({ ...item, id: newId() }))
+        : undefined
       events.push({
         id: newId(),
-        type: 'chemotherapy',
-        title: `第 ${cycleNumber} 周期 D${administrationDay} 化疗`,
+        type: eventType,
+        title: `第 ${cycleNumber} ${planType === 'radiotherapy' ? '疗程' : '周期'} D${administrationDay} ${planTypeLabel}`,
         startDate: eventDate,
         endDate: eventDate,
         plannedStartDate: eventDate,
@@ -122,8 +138,11 @@ export function buildChemotherapyCourseEvents(template: ChemotherapyTemplate, op
         hospital: template.hospital,
         department: template.department,
         regimen: template.regimen || template.name,
-        medications: medicationSummary.medications || undefined,
-        dosage: medicationSummary.dosage || undefined,
+        medications: medicationItems?.length ? medicationSummary.medications || undefined : undefined,
+        dosage: medicationItems?.length ? medicationSummary.dosage || undefined : undefined,
+        medicationItems,
+        radiotherapySite: planType === 'radiotherapy' ? dayPlan.radiotherapySite : undefined,
+        radiotherapyDoseGy: planType === 'radiotherapy' ? dayPlan.radiotherapyDoseGy : undefined,
         cycleNumber,
         cycleDayOne,
         chemotherapyTemplateId: template.id,
@@ -140,6 +159,9 @@ export function buildChemotherapyCourseEvents(template: ChemotherapyTemplate, op
   }
   return events
 }
+
+/** Kept for existing callers and migrated data; new UI uses the plan-type-aware builder above. */
+export const buildChemotherapyCourseEvents = buildTreatmentCourseEvents
 
 export function groupChemotherapyCycles(events: TreatmentEvent[]): ChemotherapyCycle[] {
   const groups = new Map<string, TreatmentEvent[]>()
