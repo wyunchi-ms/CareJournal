@@ -14,6 +14,7 @@ export class CareJournalBridge {
   private readonly assets: AssetStore;
   private readonly lan: LanSyncService;
   private eventSink: (detail: object) => void = () => {};
+  private appReadySink: () => void = () => {};
 
   constructor(context: common.UIAbilityContext) {
     this.context = context;
@@ -24,6 +25,10 @@ export class CareJournalBridge {
 
   setEventSink(sink: (detail: object) => void): void {
     this.eventSink = sink;
+  }
+
+  setAppReadySink(sink: () => void): void {
+    this.appReadySink = sink;
   }
 
   shutdown(): Promise<void> {
@@ -37,6 +42,10 @@ export class CareJournalBridge {
       version: deviceInfo.osFullName,
       model: deviceInfo.productModel
     });
+  }
+
+  async appReady(): Promise<void> {
+    this.appReadySink();
   }
 
   exitApp(): Promise<void> {
