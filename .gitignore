@@ -20,6 +20,10 @@
 *.log
 *.jks
 *.keystore
+*.p12
+*.p7b
+*.cer
+*.csr
 *.tsbuildinfo
 local.properties
 /harmony/.hvigor/
@@ -31,6 +35,8 @@ local.properties
 /harmony/build/
 /harmony/entry/src/main/resources/rawfile/www/
 /harmony/build-profile.json5
+/signing-release/
+/release/
 .env
 .env.local
 .env.*.local
