@@ -1,4 +1,4 @@
-import { addDays, addMonths, differenceInCalendarDays, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameDay, isSameMonth, parseISO, startOfMonth, startOfWeek, subMonths } from 'date-fns'
+import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameDay, isSameMonth, parseISO, startOfMonth, startOfWeek, subMonths } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { CalendarDays, ChevronLeft, ChevronRight, Filter, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useRef, useState, type MouseEvent, type TouchEvent } from 'react'
@@ -9,9 +9,9 @@ import { HistoryCombobox } from '../components/HistoryCombobox'
 import { Modal } from '../components/Modal'
 import { SwipeableListItem } from '../components/SwipeableListItem'
 import { selectCalendarEventLabels } from '../services/calendarEvents'
-import { buildChemotherapyCourseEvents, getChemotherapyTemplateDayPlans, rescheduleChemotherapyEvents, type ChemotherapyRescheduleScope } from '../services/chemotherapy'
+import { buildTreatmentCourseEvents, getChemotherapyDayMedications, getChemotherapyTemplateDayPlans, summarizeChemotherapyMedications } from '../services/chemotherapy'
 import { useApp } from '../store/AppContext'
-import { EVENT_TYPES, TREATMENT_PLAN_TYPES, newId, type BodyMeasurements, type EventType, type TreatmentEvent, type TreatmentPlanType } from '../types'
+import { CHEMOTHERAPY_DOSE_UNITS, EVENT_TYPES, MEDICATION_ADMINISTRATION_ROUTES, TREATMENT_PLAN_TYPES, newId, type BodyMeasurements, type ChemotherapyMedication, type EventType, type TreatmentEvent, type TreatmentPlanType } from '../types'
 
 const todayString = () => format(new Date(), 'yyyy-MM-dd')
 const calendarMonth = (value: string | null) => value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value)
@@ -25,6 +25,7 @@ const eventTypeOptions: ChoiceOption[] = Object.entries(EVENT_TYPES).map(([value
 const treatmentPlanTypesByEvent: Partial<Record<EventType, TreatmentPlanType[]>> = {
   chemotherapy: ['chemotherapy'],
   radiotherapy: ['radiotherapy'],
+  maintenance: ['maintenance'],
   targeted: ['targeted'],
   immunotherapy: ['immunotherapy'],
   medication: ['maintenance', 'supportive'],
@@ -36,16 +37,15 @@ function optionalNumber(value: string) {
 }
 
 function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onClose }: { initialDate: string; event?: TreatmentEvent; hospitalHistory: string[]; departmentHistory: string[]; onClose: () => void }) {
-  const { events, chemotherapyTemplates: treatmentTemplates = [], saveEvent, saveEvents, deleteEvent } = useApp()
-  const chemotherapyTemplates = treatmentTemplates.filter((template) => (template.templateType ?? 'chemotherapy') === 'chemotherapy')
-  const [creationMode, setCreationMode] = useState<'single' | 'template'>(() => !event && chemotherapyTemplates.length ? 'template' : 'single')
-  const [selectedTemplateId, setSelectedTemplateId] = useState(chemotherapyTemplates[0]?.id ?? '')
+  const { chemotherapyTemplates: treatmentTemplates = [], saveEvent, saveEvents, deleteEvent } = useApp()
+  const initialTemplates = treatmentTemplates.filter((template) => (template.templateType ?? 'chemotherapy') === (event?.type ?? 'chemotherapy'))
+  const [creationMode, setCreationMode] = useState<'single' | 'template'>(() => !event && initialTemplates.length ? 'template' : 'single')
+  const [selectedTemplateId, setSelectedTemplateId] = useState(initialTemplates[0]?.id ?? '')
   const [templateSchedule, setTemplateSchedule] = useState(() => ({
     firstDayOne: initialDate,
     firstCycleNumber: '1',
     cycleCount: '1',
   }))
-  const [rescheduleScope, setRescheduleScope] = useState<ChemotherapyRescheduleScope>('single')
   const [form, setForm] = useState(() => ({
     type: event?.type ?? 'chemotherapy' as EventType,
     title: event?.title ?? '',
@@ -54,8 +54,8 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
     hospital: event?.hospital ?? '',
     department: event?.department ?? '',
     regimen: event?.regimen ?? '',
-    medications: event?.medications ?? '',
-    dosage: event?.dosage ?? '',
+    radiotherapySite: event?.radiotherapySite ?? '',
+    radiotherapyDoseGy: event?.radiotherapyDoseGy ?? '',
     cycleNumber: event?.cycleNumber?.toString() ?? '',
     cycleDayOne: event?.cycleDayOne ?? initialDate,
     heightCm: event?.bodyMeasurements?.heightCm?.toString() ?? '',
@@ -68,16 +68,20 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
     treatmentReaction: event?.treatmentReaction ?? '',
     notes: event?.notes ?? '',
   }))
+  const [medicationItems, setMedicationItems] = useState<ChemotherapyMedication[]>(() => event?.medicationItems?.length
+    ? event.medicationItems.map((item) => ({ ...item }))
+    : event?.medications || event?.dosage
+      ? [{ id: newId(), name: event.medications ?? '', notes: event.dosage ?? '' }]
+      : [{ id: newId(), name: '', dose: '', unit: '', administration: '', notes: '' }])
   const [error, setError] = useState('')
   const [deleteConfirming, setDeleteConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const set = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }))
-  const selectedTemplate = chemotherapyTemplates.find((template) => template.id === selectedTemplateId)
-  const isTemplateCreation = !event && form.type === 'chemotherapy' && creationMode === 'template'
-  const dateDelta = event ? differenceInCalendarDays(parseISO(form.startDate), parseISO(event.startDate)) : 0
+  const selectedTemplate = treatmentTemplates.find((template) => template.id === selectedTemplateId)
   const compatiblePlanTypes = treatmentPlanTypesByEvent[form.type] ?? []
   const compatibleTemplates = treatmentTemplates.filter((template) => compatiblePlanTypes.includes(template.templateType ?? 'chemotherapy'))
+  const isTemplateCreation = !event && compatibleTemplates.length > 0 && creationMode === 'template'
   const regimenOptions = compatibleTemplates.map((template) => template.regimen?.trim() || template.name)
   const regimenDescriptions = Object.fromEntries(compatibleTemplates.map((template) => {
     const templateType = TREATMENT_PLAN_TYPES[template.templateType ?? 'chemotherapy']
@@ -86,6 +90,8 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
     return [value, `${templateName}${templateType.label} · ${template.cycleLengthDays} 天一周期`]
   }))
   const isTreatmentEvent = compatiblePlanTypes.length > 0
+  const treatmentUsesMedication = compatiblePlanTypes.some((type) => TREATMENT_PLAN_TYPES[type].usesMedication)
+  const isRadiotherapy = form.type === 'radiotherapy'
   const isBodyMeasurement = form.type === 'bodyMeasurement'
   const isTreatmentDiary = form.type === 'treatmentDiary'
 
@@ -93,23 +99,49 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
     setSelectedTemplateId(id)
   }
 
-  function shiftEvent(days: number) {
+  function initializeFromTemplate(templateId: string) {
+    const template = compatibleTemplates.find((item) => item.id === templateId)
+    if (!template) return
+    const firstDay = getChemotherapyTemplateDayPlans(template)[0]
+    setSelectedTemplateId(template.id)
     setForm((current) => ({
       ...current,
-      startDate: format(addDays(parseISO(current.startDate), days), 'yyyy-MM-dd'),
-      endDate: format(addDays(parseISO(current.endDate), days), 'yyyy-MM-dd'),
+      title: current.title || `${template.name}${firstDay ? ` D${firstDay.day}` : ''}`,
+      regimen: template.regimen?.trim() || template.name,
+      hospital: current.hospital || template.hospital || '',
+      department: current.department || template.department || '',
+      radiotherapySite: firstDay?.radiotherapySite ?? '',
+      radiotherapyDoseGy: firstDay?.radiotherapyDoseGy ?? '',
+      cycleNumber: current.cycleNumber || '1',
+      cycleDayOne: current.cycleDayOne || current.startDate,
     }))
+    const templateMedications = firstDay ? getChemotherapyDayMedications(firstDay) : []
+    setMedicationItems(templateMedications.length
+      ? templateMedications.map((item) => ({ ...item, id: newId() }))
+      : [{ id: newId(), name: '', dose: '', unit: '', administration: '', notes: '' }])
+  }
+
+  function changeEventType(type: EventType) {
+    const planTypes = treatmentPlanTypesByEvent[type] ?? []
+    const firstTemplate = treatmentTemplates.find((template) => planTypes.includes(template.templateType ?? 'chemotherapy'))
+    set('type', type)
+    setSelectedTemplateId(firstTemplate?.id ?? '')
+    setCreationMode(!event && firstTemplate ? 'template' : 'single')
+  }
+
+  function updateMedication(id: string, changes: Partial<ChemotherapyMedication>) {
+    setMedicationItems((current) => current.map((item) => item.id === id ? { ...item, ...changes } : item))
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (isTemplateCreation) {
-      if (!selectedTemplate) return setError('请选择化疗模板')
+      if (!selectedTemplate) return setError('请选择治疗方案')
       const cycleCount = Number(templateSchedule.cycleCount)
       const firstCycleNumber = Number(templateSchedule.firstCycleNumber)
       if (!Number.isInteger(cycleCount) || cycleCount < 1) return setError('周期数必须是大于 0 的整数')
       if (!Number.isInteger(firstCycleNumber) || firstCycleNumber < 1) return setError('起始周期编号必须是大于 0 的整数')
-      await saveEvents(buildChemotherapyCourseEvents(selectedTemplate, {
+      await saveEvents(buildTreatmentCourseEvents(selectedTemplate, {
         firstDayOne: templateSchedule.firstDayOne,
         cycleCount,
         firstCycleNumber,
@@ -133,7 +165,21 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
     if (isBodyMeasurement && !Object.values(bodyMeasurements ?? {}).some((value) => value !== undefined)) return setError('请至少填写一项身体指标')
     if (isBodyMeasurement && ((bodyMeasurements?.systolicBp === undefined) !== (bodyMeasurements?.diastolicBp === undefined))) return setError('请同时填写收缩压和舒张压')
     if (isTreatmentDiary && !form.treatmentReaction.trim()) return setError('请记录这一阶段的治疗反应')
+    if (isRadiotherapy && !form.radiotherapySite.trim()) return setError('请填写本次放疗部位')
+    if (isRadiotherapy && (!Number.isFinite(Number(form.radiotherapyDoseGy)) || Number(form.radiotherapyDoseGy) <= 0)) return setError('请填写有效的本次放疗剂量（Gy）')
+    if (treatmentUsesMedication && !medicationItems.some((item) => item.name.trim())) return setError('请至少填写一种本次用药')
     const now = new Date().toISOString()
+    const normalizedMedications = treatmentUsesMedication
+      ? medicationItems.filter((item) => item.name.trim()).map((item) => ({
+        ...item,
+        name: item.name.trim(),
+        dose: item.dose?.trim() || undefined,
+        unit: item.unit?.trim() || undefined,
+        administration: item.administration?.trim() || undefined,
+        notes: item.notes?.trim() || undefined,
+      }))
+      : []
+    const medicationSummary = summarizeChemotherapyMedications(normalizedMedications)
     const updatedEvent: TreatmentEvent = {
       id: event?.id ?? newId(),
       type: form.type,
@@ -144,15 +190,18 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
       hospital: form.hospital.trim() || undefined,
       department: form.department.trim() || undefined,
       regimen: form.regimen.trim() || undefined,
-      medications: form.medications.trim() || undefined,
-      dosage: form.dosage.trim() || undefined,
-      cycleNumber: form.cycleNumber ? Number(form.cycleNumber) : undefined,
-      cycleDayOne: form.type === 'chemotherapy' ? form.cycleDayOne : undefined,
-      chemotherapyTemplateId: form.type === 'chemotherapy' ? event?.chemotherapyTemplateId : undefined,
-      chemotherapyCourseId: form.type === 'chemotherapy' ? event?.chemotherapyCourseId : undefined,
-      chemotherapyCycleId: form.type === 'chemotherapy' ? event?.chemotherapyCycleId : undefined,
-      administrationDay: form.type === 'chemotherapy' ? event?.administrationDay : undefined,
-      plannedStartDate: form.type === 'chemotherapy' ? event?.plannedStartDate : undefined,
+      medications: treatmentUsesMedication ? medicationSummary.medications || undefined : undefined,
+      dosage: treatmentUsesMedication ? medicationSummary.dosage || undefined : undefined,
+      medicationItems: treatmentUsesMedication ? normalizedMedications : undefined,
+      radiotherapySite: isRadiotherapy ? form.radiotherapySite.trim() || undefined : undefined,
+      radiotherapyDoseGy: isRadiotherapy ? form.radiotherapyDoseGy.trim() || undefined : undefined,
+      cycleNumber: isTreatmentEvent && form.cycleNumber ? Number(form.cycleNumber) : undefined,
+      cycleDayOne: isTreatmentEvent ? form.cycleDayOne : undefined,
+      chemotherapyTemplateId: isTreatmentEvent ? event?.chemotherapyTemplateId ?? selectedTemplate?.id : undefined,
+      chemotherapyCourseId: isTreatmentEvent ? event?.chemotherapyCourseId : undefined,
+      chemotherapyCycleId: isTreatmentEvent ? event?.chemotherapyCycleId : undefined,
+      administrationDay: isTreatmentEvent ? event?.administrationDay : undefined,
+      plannedStartDate: isTreatmentEvent ? event?.plannedStartDate : undefined,
       bodyMeasurements,
       treatmentReaction: isTreatmentDiary ? form.treatmentReaction.trim() : undefined,
       notes: form.notes.trim() || undefined,
@@ -161,11 +210,7 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
       createdAt: event?.createdAt ?? now,
       updatedAt: now,
     }
-    if (event?.chemotherapyCourseId && form.type === 'chemotherapy') {
-      await saveEvents(rescheduleChemotherapyEvents(events, event, updatedEvent, rescheduleScope))
-    } else {
-      await saveEvent(updatedEvent)
-    }
+    await saveEvent(updatedEvent)
     onClose()
   }
 
@@ -185,11 +230,11 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
   return (
     <>
       <form className="form-grid" onSubmit={submit}>
-      <ChoicePicker label="事件类型" options={eventTypeOptions} value={form.type} onChange={(value) => set('type', value as EventType)} />
-      {!event && form.type === 'chemotherapy' && chemotherapyTemplates.length > 0 && <ChoicePicker label="创建方式" options={[{ value: 'template', label: '按模板创建', description: '一次生成多个周期和给药日' }, { value: 'single', label: '单次记录', description: '只创建一个事件' }]} value={creationMode} onChange={(value) => setCreationMode(value as 'single' | 'template')} />}
+      <ChoicePicker label="事件类型" options={eventTypeOptions} value={form.type} onChange={(value) => changeEventType(value as EventType)} />
+      {!event && isTreatmentEvent && compatibleTemplates.length > 0 && <ChoicePicker label="创建方式" options={[{ value: 'template', label: '按方案创建', description: '根据方案生成每个治疗日，并带入剂量' }, { value: 'single', label: '单次记录', description: '从方案带入初始内容后单独调整' }]} value={creationMode} onChange={(value) => setCreationMode(value as 'single' | 'template')} />}
       {isTemplateCreation ? <>
         <div className="full-width template-course-builder">
-          <ChoicePicker label="化疗模板" options={chemotherapyTemplates.map((template) => ({ value: template.id, label: template.name, description: `${template.cycleLengthDays} 天 · ${getChemotherapyTemplateDayPlans(template).map((plan) => `D${plan.day}`).join('、')}` }))} value={selectedTemplateId} onChange={(value) => selectTemplate(value as string)} />
+          <ChoicePicker label="治疗方案" options={compatibleTemplates.map((template) => ({ value: template.id, label: template.name, description: `${TREATMENT_PLAN_TYPES[template.templateType ?? 'chemotherapy'].label} · ${template.cycleLengthDays} 天 · ${getChemotherapyTemplateDayPlans(template).map((plan) => `D${plan.day}`).join('、')}` }))} value={selectedTemplateId} onChange={(value) => selectTemplate(value as string)} />
         </div>
         <label>首周期 Day 1<input type="date" value={templateSchedule.firstDayOne} onChange={(e) => setTemplateSchedule((current) => ({ ...current, firstDayOne: e.target.value }))} /></label>
         <label>起始周期编号<input type="number" min="1" value={templateSchedule.firstCycleNumber} onChange={(e) => setTemplateSchedule((current) => ({ ...current, firstCycleNumber: e.target.value }))} /></label>
@@ -198,15 +243,6 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
         {!isBodyMeasurement && <label>{isTreatmentDiary ? '治疗阶段 / 标题' : '标题'}<input value={form.title} onChange={(e) => set('title', e.target.value)} placeholder={isTreatmentDiary ? '例如：化疗后第 1 周' : '例如：第 3 周期化疗'} autoFocus /></label>}
         <label>{isBodyMeasurement ? '记录日期' : '开始日期'}<input type="date" value={form.startDate} onChange={(e) => set('startDate', e.target.value)} /></label>
         {!isBodyMeasurement && <label>结束日期<input type="date" value={form.endDate} min={form.startDate} onChange={(e) => set('endDate', e.target.value)} /></label>}
-        {event?.chemotherapyCourseId && <div className="schedule-adjustment full-width">
-          <div className="schedule-adjustment-copy"><strong>{dateDelta === 0 ? '调整实际给药日期' : dateDelta > 0 ? `较原日期推后 ${dateDelta} 天` : `较原日期提前 ${Math.abs(dateDelta)} 天`}</strong><span>计划日期：{event.plannedStartDate || event.startDate}</span></div>
-          <div className="schedule-delay-buttons" aria-label="快速调整日期">{[1, 3, 7].map((days) => <button type="button" className="button secondary" key={days} onClick={() => shiftEvent(days)}>+{days} 天</button>)}</div>
-          <ChoicePicker label="日期变化范围" options={[
-            { value: 'single', label: '仅本次给药', description: '不改变同周期其他给药日' },
-            { value: 'cycle', label: '本周期从本次起', description: '同周期本次及之后的给药日一起移动' },
-            { value: 'future', label: '本次及后续周期', description: '后续计划整体按相同天数顺延' },
-          ]} value={rescheduleScope} onChange={(value) => setRescheduleScope(value as ChemotherapyRescheduleScope)} />
-        </div>}
         {!isBodyMeasurement && !isTreatmentDiary && <HistoryCombobox label="医院" value={form.hospital} onChange={(value) => set('hospital', value)} options={hospitalHistory} placeholder="输入或选择历史医院" />}
         {!isBodyMeasurement && !isTreatmentDiary && <HistoryCombobox label="科室" value={form.department} onChange={(value) => set('department', value)} options={departmentHistory} placeholder="输入或选择历史科室" />}
         {isTreatmentEvent && <>
@@ -215,18 +251,46 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
             historyKey="treatment-regimen"
             restrictToOptions
             value={form.regimen}
-            onChange={(value) => set('regimen', value)}
+            onChange={(value) => {
+              set('regimen', value)
+              const template = compatibleTemplates.find((item) => (item.regimen?.trim() || item.name) === value)
+              if (template) initializeFromTemplate(template.id)
+            }}
             options={regimenOptions}
             placeholder={regimenOptions.length ? '输入或选择方案模板' : '输入方案名称'}
             suggestionsHeading="方案模板"
             suggestionsLabel="治疗方案模板"
             optionDescriptions={regimenDescriptions}
           />
-          <label>药物与剂量<input value={form.medications} onChange={(e) => set('medications', e.target.value)} placeholder="药物名称" /></label>
-          <label>剂量备注<input value={form.dosage} onChange={(e) => set('dosage', e.target.value)} placeholder="如 100 mg/m²" /></label>
         </>}
-        {form.type === 'chemotherapy' && <>
-          <label>周期编号<input type="number" min="1" value={form.cycleNumber} onChange={(e) => set('cycleNumber', e.target.value)} /></label>
+        {isRadiotherapy && <fieldset className="treatment-event-fields full-width">
+          <legend>本次放疗</legend>
+          <div className="radiotherapy-day-fields">
+            <label>放疗部位<input value={form.radiotherapySite} onChange={(e) => set('radiotherapySite', e.target.value)} /></label>
+            <label>单次剂量<span className="dose-with-fixed-unit"><input value={form.radiotherapyDoseGy} onChange={(e) => set('radiotherapyDoseGy', e.target.value)} inputMode="decimal" placeholder="如 2" /><span aria-hidden="true">Gy</span></span></label>
+          </div>
+        </fieldset>}
+        {treatmentUsesMedication && <fieldset className="treatment-event-fields full-width">
+          <legend>本次用药</legend>
+          <div className="medication-table event-medication-table" role="table" aria-label="本次用药">
+            <div className="medication-table-body" role="rowgroup">
+              {medicationItems.map((item, index) => <div className="medication-row expanded" role="row" key={item.id}>
+                <label role="cell"><span className="medication-field-label">药物名称</span><input aria-label={`第${index + 1}种药物名称`} value={item.name} onChange={(e) => updateMedication(item.id, { name: e.target.value })} /></label>
+                <div className="medication-dose-field" role="cell">
+                  <span className="medication-field-label">剂量</span>
+                  <input aria-label={`第${index + 1}种药物剂量`} value={item.dose ?? ''} onChange={(e) => updateMedication(item.id, { dose: e.target.value })} inputMode="decimal" />
+                  <div className="medication-unit-picker"><ChoicePicker compact label={`第${index + 1}种药物单位`} historyKey="medication-unit" value={item.unit ?? ''} onChange={(value) => updateMedication(item.id, { unit: String(value) })} options={CHEMOTHERAPY_DOSE_UNITS.map((unit) => ({ value: unit.value, label: unit.label }))} placeholder="选择单位" allLabel="清除单位" /></div>
+                </div>
+                <div className="medication-optional-field" role="cell"><span className="medication-field-label">给药途径</span><ChoicePicker compact label={`第${index + 1}种药物给药途径`} historyKey="medication-administration-route" value={item.administration ?? ''} onChange={(value) => updateMedication(item.id, { administration: String(value) })} options={MEDICATION_ADMINISTRATION_ROUTES.map((route) => ({ ...route }))} placeholder="选择途径" allLabel="清除途径" /></div>
+                <label className="medication-optional-field" role="cell"><span className="medication-field-label">本次备注</span><input aria-label={`第${index + 1}种药物备注`} value={item.notes ?? ''} onChange={(e) => updateMedication(item.id, { notes: e.target.value })} /></label>
+                <button type="button" className="icon-button danger medication-remove-button" aria-label={`删除第${index + 1}种药物`} onClick={() => setMedicationItems((current) => current.length > 1 ? current.filter((candidate) => candidate.id !== item.id) : [{ id: newId(), name: '', dose: '', unit: '', administration: '', notes: '' }])}><Trash2 /></button>
+              </div>)}
+            </div>
+            <button type="button" className="button secondary medication-add-button" onClick={() => setMedicationItems((current) => [...current, { id: newId(), name: '', dose: '', unit: '', administration: '', notes: '' }])}><Plus />添加药物</button>
+          </div>
+        </fieldset>}
+        {isTreatmentEvent && <>
+          <label>{isRadiotherapy ? '疗程编号' : '周期编号'}<input type="number" min="1" value={form.cycleNumber} onChange={(e) => set('cycleNumber', e.target.value)} /></label>
           <label>{event?.chemotherapyCourseId ? '周期 Day 1（自动）' : 'Day 1'}<input type="date" value={form.cycleDayOne} readOnly={Boolean(event?.chemotherapyCourseId)} onChange={(e) => set('cycleDayOne', e.target.value)} /></label>
         </>}
         {isBodyMeasurement && <fieldset className="body-measurement-fields full-width">
@@ -249,7 +313,7 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
       <div className="form-actions full-width">
         {event && <button type="button" className="button danger ghost" onClick={() => { setDeleteError(''); setDeleteConfirming(true) }}><Trash2 />删除</button>}
         <span className="spacer" />
-        <button className="button primary" type="submit">{isTemplateCreation ? '创建周期事件' : '保存事件'}</button>
+        <button className="button primary" type="submit">{isTemplateCreation ? '创建治疗事件' : '保存事件'}</button>
       </div>
       </form>
       {event && deleteConfirming && <ConfirmSheet

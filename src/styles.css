@@ -223,15 +223,16 @@ label { display: grid; gap: 7px; color: var(--text); font-size: .9rem; font-weig
 .form-error { margin: 0; color: var(--danger); }
 .field-hint { color: var(--muted); font-size: .72rem; font-weight: 600; line-height: 1.4; }
 .template-course-builder { padding-top: 4px; }
-.schedule-adjustment { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 13px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-alt); }
-.schedule-adjustment-copy strong, .schedule-adjustment-copy span { display: block; }
-.schedule-adjustment-copy span { margin-top: 4px; color: var(--muted); font-size: .75rem; }
-.schedule-delay-buttons { display: flex; align-items: start; gap: 6px; }
-.schedule-delay-buttons .button { min-height: 44px; padding-inline: 10px; font-size: .76rem; }
-.schedule-adjustment > .choice-picker { grid-column: 1 / -1; }
 .body-measurement-fields { padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-alt); }
 .body-measurement-fields legend { margin: 0; padding: 0 5px; color: var(--text); font-size: .84rem; }
 .body-measurement-fields > p { margin: 0 0 12px; color: var(--muted); font-size: .74rem; font-weight: 600; }
+.treatment-event-fields { padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-alt); }
+.treatment-event-fields legend { padding: 0 5px; color: var(--text); font-size: .84rem; font-weight: 750; }
+.treatment-event-fields > p { margin: 0 0 12px; color: var(--muted); font-size: .74rem; font-weight: 600; }
+.event-medication-table .medication-row { background: var(--surface); }
+.event-medication-table .choice-picker-summary small { display: none; }
+.event-medication-table .choice-picker.compact { width: 100%; }
+.event-medication-table .medication-dose-field > input { width: 100%; }
 .body-measurement-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .records-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) 46px 44px; justify-content: stretch; gap: 9px; }
 .records-import-button { color: white; background: var(--primary-strong); }
@@ -1026,10 +1027,6 @@ legend { margin-bottom: 8px; color: var(--muted); font-size: .78rem; font-weight
   .form-grid { grid-template-columns: 1fr; }
   .full-width { grid-column: auto; }
   .body-measurement-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .schedule-adjustment { grid-template-columns: 1fr; }
-  .schedule-adjustment > .choice-picker { grid-column: auto; }
-  .schedule-delay-buttons { width: 100%; }
-  .schedule-delay-buttons .button { flex: 1; }
   .records-toolbar { grid-template-columns: minmax(0, 1fr) 46px 44px; }
   .records-toolbar > .choice-picker.compact { width: 46px; }
   .active-filter-row { flex-wrap: nowrap; margin-right: -14px; padding-right: 14px; overflow-x: auto; }
@@ -1127,6 +1124,7 @@ legend { margin-bottom: 8px; color: var(--muted); font-size: .78rem; font-weight
   .medication-row { position: relative; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 7px; padding: 9px 44px 9px 9px; background: var(--surface); }
   .medication-row > label:first-child { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center; gap: 7px; }
   .medication-dose-field { display: grid; grid-template-columns: 72px minmax(66px, .7fr) minmax(116px, 1.3fr); align-items: center; gap: 7px; }
+  .event-medication-table .medication-dose-field { grid-template-columns: 72px minmax(0, 1fr) minmax(0, 1fr); }
   .medication-unit-picker .choice-picker-trigger { min-height: 44px; padding-block: 5px; }
   .medication-field-label { display: block; margin: 0; color: var(--muted); font-size: .7rem; font-weight: 800; }
   .medication-optional-field { display: none; }

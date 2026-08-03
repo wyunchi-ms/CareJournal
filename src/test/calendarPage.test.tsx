@@ -42,6 +42,10 @@ vi.mock('../store/AppContext', () => ({
       name: '21 天测试方案',
       cycleLengthDays: 21,
       administrationDays: [1, 8],
+      dayPlans: [
+        { id: 'chemo-day-1', day: 1, medicationItems: [{ id: 'chemo-med-1', name: '卡铂', dose: '5', unit: 'AUC', administration: '静脉滴注' }] },
+        { id: 'chemo-day-8', day: 8, medicationItems: [{ id: 'chemo-med-8', name: '长春新碱', dose: '1.5', unit: 'mg/m²', administration: '静脉注射' }] },
+      ],
       defaultCycleCount: 2,
       createdAt: '2026-07-01T00:00:00.000Z',
       updatedAt: '2026-07-01T00:00:00.000Z',
@@ -51,6 +55,17 @@ vi.mock('../store/AppContext', () => ({
       name: '放疗模板',
       cycleLengthDays: 7,
       administrationDays: [1, 2, 3, 4, 5],
+      dayPlans: [{ id: 'rt-day-1', day: 1, radiotherapySite: '胸部', radiotherapyDoseGy: '2' }],
+      defaultCycleCount: 1,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+    }, {
+      id: 'template-3',
+      templateType: 'maintenance',
+      name: '维持方案',
+      cycleLengthDays: 28,
+      administrationDays: [1],
+      dayPlans: [{ id: 'maintenance-day-1', day: 1, medicationItems: [{ id: 'maintenance-med-1', name: '维持药', dose: '10', unit: 'mg', administration: '口服' }] }],
       defaultCycleCount: 1,
       createdAt: '2026-07-01T00:00:00.000Z',
       updatedAt: '2026-07-01T00:00:00.000Z',
@@ -94,7 +109,7 @@ describe('calendar event filter', () => {
   })
 
   it('shows at most four compact labels and prioritizes distinct event types', () => {
-    render(<MemoryRouter><CalendarPage /></MemoryRouter>)
+    render(<MemoryRouter initialEntries={['/?month=2026-07&date=2026-07-22']}><CalendarPage /></MemoryRouter>)
     const eventDay = screen.getByRole('button', { name: '7月22日，6 个事件' })
     const labels = Array.from(eventDay.querySelectorAll('.event-chip')).map((label) => label.textContent)
 
@@ -105,7 +120,7 @@ describe('calendar event filter', () => {
   })
 
   it('keeps selected-day agenda cards to a title and one metadata line', () => {
-    render(<MemoryRouter><CalendarPage /></MemoryRouter>)
+    render(<MemoryRouter initialEntries={['/?month=2026-07&date=2026-07-22']}><CalendarPage /></MemoryRouter>)
     fireEvent.click(screen.getByRole('button', { name: '7月22日，6 个事件' }))
 
     const cards = screen.getByRole('region', { name: '选中日期的事件' }).querySelectorAll('.agenda-item')
@@ -200,14 +215,14 @@ describe('calendar event filter', () => {
     render(<MemoryRouter><CalendarPage /></MemoryRouter>)
     fireEvent.click(screen.getByRole('button', { name: '新建事件' }))
 
-    expect(screen.getByRole('button', { name: /创建方式：按模板创建/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /创建方式：按方案创建/ })).toBeInTheDocument()
     expect(screen.getByRole('spinbutton', { name: '创建周期数' })).toHaveValue(1)
     expect(screen.queryByText(/将创建 \d+ 个给药事件/)).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /化疗模板：21 天测试方案/ }))
+    fireEvent.click(screen.getByRole('button', { name: /治疗方案：21 天测试方案/ }))
     expect(screen.queryByRole('radio', { name: /放疗模板/ })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('radio', { name: /21 天测试方案/ }))
     expect(screen.getByRole('spinbutton', { name: '创建周期数' })).toHaveValue(1)
-    fireEvent.click(screen.getByRole('button', { name: '创建周期事件' }))
+    fireEvent.click(screen.getByRole('button', { name: '创建治疗事件' }))
 
     await waitFor(() => expect(saveEvents).toHaveBeenCalled())
     const createdEvents = (saveEvents.mock.calls[0] as unknown as [TreatmentEvent[]])[0]
@@ -221,7 +236,7 @@ describe('calendar event filter', () => {
   it('selects a matching treatment plan template while keeping free text input', async () => {
     render(<MemoryRouter><CalendarPage /></MemoryRouter>)
     fireEvent.click(screen.getByRole('button', { name: '新建事件' }))
-    fireEvent.click(screen.getByRole('button', { name: /创建方式：按模板创建/ }))
+    fireEvent.click(screen.getByRole('button', { name: /创建方式：按方案创建/ }))
     fireEvent.click(screen.getByRole('radio', { name: /单次记录/ }))
 
     const regimenInput = screen.getByRole('combobox', { name: '治疗方案' })
@@ -241,18 +256,34 @@ describe('calendar event filter', () => {
     })))
   })
 
-  it('shows radiotherapy plans only for a radiotherapy event', () => {
+  it('creates radiotherapy from its plan without showing medicine fields', async () => {
     render(<MemoryRouter><CalendarPage /></MemoryRouter>)
     fireEvent.click(screen.getByRole('button', { name: '新建事件' }))
     fireEvent.click(screen.getByRole('button', { name: /事件类型：化疗/ }))
     fireEvent.click(screen.getByRole('radio', { name: '放疗' }))
 
-    const regimenInput = screen.getByRole('combobox', { name: '治疗方案' })
-    fireEvent.focus(regimenInput)
-    expect(screen.getByRole('option', { name: /放疗模板.*放疗.*7 天一周期/ })).toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: /21 天测试方案/ })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('option', { name: /放疗模板/ }))
-    expect(regimenInput).toHaveValue('放疗模板')
+    expect(screen.getByRole('button', { name: /治疗方案：放疗模板/ })).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: '本次用药' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '创建治疗事件' }))
+    await waitFor(() => expect(saveEvents).toHaveBeenCalled())
+    expect((saveEvents.mock.calls[0] as unknown as [TreatmentEvent[]])[0][0]).toMatchObject({
+      type: 'radiotherapy', radiotherapySite: '胸部', radiotherapyDoseGy: '2', medications: undefined,
+    })
+  })
+
+  it('offers maintenance as an event and initializes its planned medicine and dose', async () => {
+    render(<MemoryRouter><CalendarPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: '新建事件' }))
+    fireEvent.click(screen.getByRole('button', { name: /事件类型：化疗/ }))
+    fireEvent.click(screen.getByRole('radio', { name: '维持治疗' }))
+
+    expect(screen.getByRole('button', { name: /治疗方案：维持方案/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '创建治疗事件' }))
+    await waitFor(() => expect(saveEvents).toHaveBeenCalled())
+    expect((saveEvents.mock.calls[0] as unknown as [TreatmentEvent[]])[0][0]).toMatchObject({
+      type: 'maintenance',
+      medicationItems: [expect.objectContaining({ name: '维持药', dose: '10', unit: 'mg', administration: '口服' })],
+    })
   })
 
   it('creates a structured body measurement record', async () => {
@@ -300,7 +331,7 @@ describe('calendar event filter', () => {
   })
 
   it('confirms event deletion with the shared bottom sheet', async () => {
-    render(<MemoryRouter><CalendarPage /></MemoryRouter>)
+    render(<MemoryRouter initialEntries={['/?month=2026-07&date=2026-07-22']}><CalendarPage /></MemoryRouter>)
     const calendar = screen.getByRole('region', { name: '月历' })
     const eventDay = Array.from(calendar.querySelectorAll<HTMLButtonElement>('.day-cell:not(.muted)'))
       .find((day) => day.querySelector('.day-number')?.textContent === '22')
