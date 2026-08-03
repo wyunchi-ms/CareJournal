@@ -9,7 +9,7 @@
 - 多服务商 LLM OCR：支持 Azure OpenAI、OpenAI、DeepSeek、Kimi、豆包、Qwen、Gemini、MiniMax、GLM、OpenRouter 及自定义 OpenAI 兼容服务；文件数量不限，每张图片一个独立请求，成功后直接入库。
 - 指标图表：多指标日期趋势、治疗事件标记、化疗周期 Day 1 对齐叠加、图表固定。
 - 本地数据：Web 使用 IndexedDB，Android 使用 SQLite，HarmonyOS 使用 ArkData RDB 与应用私有素材目录。
-- 局域网同步：同一网络下的手机与网页端可直接发现并加密同步数据；LLM 配置不会同步。
+- 局域网同步：同一可信 Wi-Fi 下的手机与网页端可直接发现并同步数据；传输不经过开发者服务器，但应用层不额外加密，LLM 配置不会同步。
 
 本应用只做资料记录、整理和可视化，不提供诊断、治疗建议或预测。
 
@@ -24,6 +24,12 @@ CareJournal 不提供账号、广告或开发者运营的云端服务，病程�
 ## 设计规范
 
 页面标题、新建入口、Card、列表交互、弹层、图表和移动端布局统一遵循 [CareJournal 设计报告](design-system/carejournal/MASTER.md)。
+
+## 文档
+
+- [中文用户手册](docs/USER_GUIDE.zh-CN.md)
+- [iOS 原生接入规划](docs/IOS_NATIVE.md)
+- [GitHub/Gitee 双远端与发布维护方案](docs/RELEASE_MAINTENANCE.md)
 
 ## 本地运行
 
