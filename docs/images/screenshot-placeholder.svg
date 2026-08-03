@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720">
+  <rect width="1200" height="720" fill="#f6fafb"/>
+  <rect x="80" y="70" width="1040" height="580" rx="28" fill="#ffffff" stroke="#cfd8d7" stroke-width="4" stroke-dasharray="16 12"/>
+  <text x="600" y="335" text-anchor="middle" font-family="sans-serif" font-size="42" fill="#35524f">CareJournal 截图占位</text>
+  <text x="600" y="395" text-anchor="middle" font-family="sans-serif" font-size="25" fill="#6f8481">请替换为对应章节的真实应用截图</text>
+</svg>
