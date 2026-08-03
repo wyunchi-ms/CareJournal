@@ -1,5 +1,14 @@
 # ChangeLog
 
+## v0.19.18 (2026-08-03)
+
+- Android/Harmony 系统强制启动窗改为同色纯背景并隐藏默认图标，视觉上只保留一个原生开屏。开屏中显示 App 图标和两行矢量 slogan，至少停留 2 秒，且本地数据未读取完时会继续保持；就绪后才淡出，不再露出 Web loading 页。
+- 新增中文图文用户手册、iOS 原生接入规划和 GitHub/Gitee 双远端发布维护文档。
+- 新增本地一键 Release 工具：从 Azure 私有 Storage/Key Vault 获取并校验 Android release 签名，构建 Android APK 与 Harmony HAP/APP，生成 SHA-256 清单，并向 GitHub/Gitee 创建同版本 Release 和上传附件。
+- 创建独立 Azure 发布资源并生成 Android 正式签名；发布脚本支持在新机器登录同一 Azure 后复用固定 keystore，避免换机后无法覆盖升级。
+- Harmony 正式签名支持 DevEco JBR 生成 `.p12 + CSR`，由 AppGallery Connect 签发 `.cer + .p7b/profile` 后上传 Azure；材料未齐时仅允许显式构建 unsigned 包，正式发布会中止。
+- 修正文档中的局域网安全说明：数据不经过开发者服务器，但当前应用层不额外加密，必须只在可信 Wi-Fi 下使用。
+
 ## v0.19.17 (2026-08-03)
 
 - 病程事件新增独立的“维持治疗”类型；化疗、放疗、维持、靶向和免疫等治疗均可按方案创建，并把方案中每个治疗日的剂量带入事件，后续可对单条事件按实际情况修改。
