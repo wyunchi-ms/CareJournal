@@ -1,5 +1,6 @@
 export interface HarmonyBridgeApi {
   getPlatformInfo(): Promise<string>
+  appReady(): Promise<void>
   exitApp(): Promise<void>
   listEntities(kind: string): Promise<string>
   putEntity(kind: string, id: string, updatedAt: string, payload: string): Promise<void>

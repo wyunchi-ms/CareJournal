@@ -11,6 +11,7 @@ import { lanSyncTransport } from '../services/lanSyncTransport'
 function mockBridge(): HarmonyBridgeApi {
   return {
     getPlatformInfo: vi.fn(),
+    appReady: vi.fn(async () => undefined),
     exitApp: vi.fn(async () => undefined),
     listEntities: vi.fn(async () => '[]'),
     putEntity: vi.fn(async () => undefined),

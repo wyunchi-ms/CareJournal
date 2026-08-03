@@ -13,6 +13,7 @@ const nativeApp = vi.hoisted(() => ({
 
 vi.mock('@capacitor/core', () => ({
   Capacitor: { isNativePlatform: () => true },
+  registerPlugin: () => ({ ready: vi.fn(async () => undefined) }),
 }))
 
 vi.mock('@capacitor/app', () => ({

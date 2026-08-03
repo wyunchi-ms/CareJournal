@@ -908,6 +908,8 @@ legend { margin-bottom: 8px; color: var(--muted); font-size: .78rem; font-weight
 .privacy-contact p + p { margin-top: 8px; }
 .legal-note p { margin-bottom: 0; }
 .loading-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; gap: 12px; color: var(--muted); background: var(--surface-alt); }
+.startup-wait-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--surface-alt); }
+.startup-wait-screen p { margin: -52px 0 0; color: var(--text); font-size: clamp(1.35rem, 5vw, 1.65rem); font-weight: 650; letter-spacing: .06em; line-height: 1.9; text-align: center; }
 .storage-error-screen { padding: 24px; text-align: left; flex-wrap: wrap; }
 .storage-error-screen > svg { color: var(--danger); }
 .storage-error-screen strong { color: var(--text); }

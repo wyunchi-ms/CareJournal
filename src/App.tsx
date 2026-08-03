@@ -1,6 +1,6 @@
 import { Activity, AlertTriangle, CalendarDays, ChartNoAxesCombined, ListChecks, Pill, Settings, WalletCards } from 'lucide-react'
 import { App as CapacitorApp } from '@capacitor/app'
-import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
+import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType } from 'react-router-dom'
 import { closeTopModal } from './components/modalStack'
@@ -23,6 +23,8 @@ const navItems = [
   { path: '/reimbursement', label: '报销', icon: WalletCards },
   { path: '/settings', label: '设置', icon: Settings },
 ]
+
+const NativeStartup = registerPlugin<{ ready: () => Promise<void> }>('Startup')
 
 type PageTransitionDirection = 'forward' | 'backward'
 
@@ -74,7 +76,7 @@ function OcrBackgroundStatus() {
 }
 
 export default function App({ lanSyncPanel }: { lanSyncPanel?: ReactNode }) {
-  const { ready, startupMessage, storageError } = useApp()
+  const { ready, storageError } = useApp()
   const location = useLocation()
   const navigate = useNavigate()
   const navigationType = useNavigationType()
@@ -83,6 +85,17 @@ export default function App({ lanSyncPanel }: { lanSyncPanel?: ReactNode }) {
   const currentRouteRef = useRef(currentRoute)
   const routeTrailRef = useRef<string[]>([])
   const navigatingBackRef = useRef(false)
+
+  useEffect(() => {
+    if (!ready && !storageError) return
+    if (isHarmonyPlatform()) {
+      void getHarmonyBridge().appReady()
+      return
+    }
+    if (Capacitor.isNativePlatform()) {
+      void NativeStartup.ready().catch((error) => console.warn('Unable to dismiss native startup screen', error))
+    }
+  }, [ready, storageError])
 
   useEffect(() => {
     if (currentRouteRef.current === currentRoute) return
@@ -153,7 +166,7 @@ export default function App({ lanSyncPanel }: { lanSyncPanel?: ReactNode }) {
       <button className="button primary" onClick={() => window.location.reload()}>重新打开</button>
     </div>
   )
-  if (!ready) return <div className="loading-screen"><span className="spinner" />{startupMessage}</div>
+  if (!ready) return <div className="startup-wait-screen" role="status" aria-label="正在读取本地病程记录"><p>放化疗只是一时<br />愿康复如期而至</p></div>
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">跳到主要内容</a>
