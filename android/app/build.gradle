@@ -10,13 +10,25 @@ android {
             keyAlias 'AndroidDebugKey'
             keyPassword 'android'
         }
+        release {
+            def releaseStore = System.getenv('CAREJOURNAL_ANDROID_KEYSTORE')
+            def releaseStorePassword = System.getenv('CAREJOURNAL_ANDROID_STORE_PASSWORD')
+            def releaseKeyAlias = System.getenv('CAREJOURNAL_ANDROID_KEY_ALIAS')
+            def releaseKeyPassword = System.getenv('CAREJOURNAL_ANDROID_KEY_PASSWORD')
+            if (releaseStore && releaseStorePassword && releaseKeyAlias && releaseKeyPassword) {
+                storeFile file(releaseStore)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
     }
     defaultConfig {
         applicationId "com.carejournal.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 96
-        versionName "0.19.17"
+        versionCode 97
+        versionName "0.19.18"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -29,6 +41,9 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
+            if (System.getenv('CAREJOURNAL_ANDROID_KEYSTORE')) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
