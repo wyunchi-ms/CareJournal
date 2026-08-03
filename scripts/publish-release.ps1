@@ -82,7 +82,21 @@ try {
   $giteeForm = @{ access_token=$giteeToken; tag_name=$tag; target_commitish='main'; name="CareJournal $tag"; body=$notes; prerelease=([bool]$Prerelease).ToString().ToLowerInvariant(); draft='true' }
   $giteeRelease = Invoke-RestMethod -Method Post -Uri 'https://gitee.com/api/v5/repos/wyunchi/care-journal/releases' -Body $giteeForm -ContentType 'application/x-www-form-urlencoded'
   foreach ($file in $artifacts) {
-    $uploaded = Invoke-RestMethod -Method Post -Uri "https://gitee.com/api/v5/repos/wyunchi/care-journal/releases/$($giteeRelease.id)/attach_files" -Form @{ access_token=$giteeToken; file=Get-Item -LiteralPath $file }
+    $curlConfig = Join-Path $releaseDirectory '.gitee-upload.curlrc'
+    $escapedFile = $file.Replace('\','/').Replace('"','\"')
+    @(
+      'silent', 'show-error', 'fail-with-body', 'retry = 3', 'retry-all-errors',
+      ('url = "{0}"' -f "https://gitee.com/api/v5/repos/wyunchi/care-journal/releases/$($giteeRelease.id)/attach_files"),
+      ('form = "access_token={0}"' -f $giteeToken), ('form = "file=@{0}"' -f $escapedFile)
+    ) | Set-Content -LiteralPath $curlConfig -Encoding utf8NoBOM
+    & icacls.exe $curlConfig /inheritance:r /grant:r "$($env:USERNAME):(R,W)" | Out-Null
+    try {
+      $responseText = & curl.exe --config $curlConfig
+      if ($LASTEXITCODE -ne 0) { throw "Gitee upload failed for $file`n$responseText" }
+      $uploaded = $responseText | ConvertFrom-Json
+    } finally {
+      if (Test-Path -LiteralPath $curlConfig) { Remove-Item -LiteralPath $curlConfig -Force }
+    }
     if ($null -eq $uploaded.size -or [long]$uploaded.size -le 0 -or $uploaded.name -ne (Split-Path -Leaf $file) -or [long]$uploaded.size -ne (Get-Item -LiteralPath $file).Length) { throw "Gitee upload verification failed for $file" }
   }
 
