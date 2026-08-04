@@ -37,7 +37,7 @@ interface NativeImageStoragePlugin {
 const NativeImageStorage = registerPlugin<NativeImageStoragePlugin>('NativeImageStorage')
 
 export function usesNativeImageStorage() {
-  return (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android') || isHarmonyPlatform()
+  return Capacitor.isNativePlatform() || isHarmonyPlatform()
 }
 
 export function storedImageSource(image: StoredImage) {
