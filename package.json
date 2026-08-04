@@ -16,7 +16,6 @@
     "android:release": "pwsh -NoProfile -File scripts/build-android-release.ps1",
     "harmony:sync": "node scripts/build-harmony-web.mjs && node scripts/sync-harmony-assets.mjs",
     "harmony:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-harmony.ps1",
-    "harmony:release": "pwsh -NoProfile -File scripts/build-harmony-release.ps1",
     "release": "pwsh -NoProfile -File scripts/publish-release.ps1"
   },
   "dependencies": {

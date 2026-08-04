@@ -13,12 +13,6 @@ $script:CareJournalReleaseConfig = @{
   AndroidStorePasswordSecret = 'android-keystore-store-password'
   AndroidKeyPasswordSecret = 'android-keystore-key-password'
   AndroidHashSecret = 'android-keystore-sha256'
-  HarmonyP12Blob = 'harmony/carejournal-release.p12'
-  HarmonyCerBlob = 'harmony/carejournal-release.cer'
-  HarmonyProfileBlob = 'harmony/carejournal-release.p7b'
-  HarmonyAliasSecret = 'harmony-keystore-alias'
-  HarmonyStorePasswordSecret = 'harmony-keystore-store-password'
-  HarmonyKeyPasswordSecret = 'harmony-keystore-key-password'
 }
 
 function Get-CareJournalVersion {
@@ -54,11 +48,6 @@ function Get-CareJournalStorageContext {
   return New-AzStorageContext -StorageAccountName $script:CareJournalReleaseConfig.StorageAccount -UseConnectedAccount
 }
 
-function Get-CareJournalDevEcoRoot {
-  if ($env:DEVECO_STUDIO_HOME) { return $env:DEVECO_STUDIO_HOME }
-  return 'C:\Program Files\Huawei\DevEco Studio'
-}
-
 function Get-CareJournalAndroidSdk {
   foreach ($candidate in @($env:ANDROID_SDK_ROOT, $env:ANDROID_HOME, "$env:LOCALAPPDATA\Android\Sdk")) {
     if ($candidate -and (Test-Path -LiteralPath $candidate)) { return $candidate }
@@ -70,9 +59,8 @@ function Assert-CareJournalVersions {
   param([Parameter(Mandatory)] [string] $ProjectRoot, [Parameter(Mandatory)] [string] $Version)
   $android = Get-Content -LiteralPath (Join-Path $ProjectRoot 'android\app\build.gradle') -Raw
   $androidVersion = [regex]::Match($android, 'versionName\s+"([^"]+)"').Groups[1].Value
-  $harmony = Get-Content -LiteralPath (Join-Path $ProjectRoot 'harmony\AppScope\app.json5') -Raw | ConvertFrom-Json
-  if ($androidVersion -ne $Version -or [string]$harmony.app.versionName -ne $Version) {
-    throw "Version mismatch: package=$Version android=$androidVersion harmony=$($harmony.app.versionName)"
+  if ($androidVersion -ne $Version) {
+    throw "Version mismatch: package=$Version android=$androidVersion"
   }
 }
 

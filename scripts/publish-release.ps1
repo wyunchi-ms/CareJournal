@@ -1,7 +1,6 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
   [switch] $BuildOnly,
-  [switch] $AllowUnsignedHarmony,
   [switch] $Prerelease
 )
 
@@ -10,7 +9,6 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $version = Get-CareJournalVersion -ProjectRoot $projectRoot
 $tag = "v$version"
 $releaseDirectory = Join-Path $projectRoot 'release'
-if ($AllowUnsignedHarmony -and -not $BuildOnly) { throw '-AllowUnsignedHarmony is only valid with -BuildOnly' }
 Assert-CareJournalVersions -ProjectRoot $projectRoot -Version $version
 Assert-CareJournalRemotes -ProjectRoot $projectRoot
 
@@ -19,7 +17,6 @@ if (-not $BuildOnly) { Assert-CareJournalCleanTree -ProjectRoot $projectRoot }
 New-Item -ItemType Directory -Force -Path $releaseDirectory | Out-Null
 $artifacts = @()
 $artifacts += & (Join-Path $PSScriptRoot 'build-android-release.ps1') -ProjectRoot $projectRoot -OutputDirectory $releaseDirectory
-$artifacts += & (Join-Path $PSScriptRoot 'build-harmony-release.ps1') -ProjectRoot $projectRoot -OutputDirectory $releaseDirectory -AllowUnsigned:$AllowUnsignedHarmony
 $artifacts = @($artifacts | ForEach-Object {
   if ($_ -is [System.IO.FileInfo]) { $_.FullName }
   elseif ($_ -is [string] -and $_ -and (Test-Path -LiteralPath $_ -PathType Leaf)) { (Resolve-Path -LiteralPath $_).Path }
@@ -43,8 +40,6 @@ if (-not $githubToken) {
 if (-not $githubToken) { throw 'GITHUB_TOKEN is not configured and gh auth token is unavailable' }
 $giteeToken = Get-CareJournalGiteeToken
 if (-not $giteeToken) { throw 'GITEE_TOKEN is not configured' }
-if ($artifacts | Where-Object { (Split-Path -Leaf $_) -match 'unsigned' }) { throw 'Unsigned artifacts cannot be published' }
-
 $notes = Get-CareJournalReleaseNotes -ProjectRoot $projectRoot -Version $version
 $notesPath = Join-Path $releaseDirectory 'RELEASE_NOTES.md'
 Set-Content -LiteralPath $notesPath -Value $notes -Encoding utf8NoBOM
@@ -79,29 +74,48 @@ try {
     if ($uploaded.name -ne (Split-Path -Leaf $file) -or [long]$uploaded.size -ne (Get-Item -LiteralPath $file).Length) { throw "GitHub upload verification failed for $file" }
   }
 
-  $giteeForm = @{ access_token=$giteeToken; tag_name=$tag; target_commitish='main'; name="CareJournal $tag"; body=$notes; prerelease=([bool]$Prerelease).ToString().ToLowerInvariant(); draft='true' }
-  $giteeRelease = Invoke-RestMethod -Method Post -Uri 'https://gitee.com/api/v5/repos/wyunchi/care-journal/releases' -Body $giteeForm -ContentType 'application/x-www-form-urlencoded'
+  $giteeClient = [System.Net.Http.HttpClient]::new()
+  $giteeClient.Timeout = [TimeSpan]::FromMinutes(5)
+  try {
+    $pairs = [System.Collections.Generic.List[System.Collections.Generic.KeyValuePair[string,string]]]::new()
+    $giteeFields = [ordered]@{
+      access_token=$giteeToken; tag_name=$tag; target_commitish='main'; name="CareJournal $tag";
+      body=$notes; prerelease=([bool]$Prerelease).ToString().ToLowerInvariant(); draft='true'
+    }
+    foreach ($entry in $giteeFields.GetEnumerator()) {
+      $pairs.Add([System.Collections.Generic.KeyValuePair[string,string]]::new([string]$entry.Key, [string]$entry.Value))
+    }
+    $requestContent = [System.Net.Http.FormUrlEncodedContent]::new($pairs)
+    $response = $giteeClient.PostAsync('https://gitee.com/api/v5/repos/wyunchi/care-journal/releases', $requestContent).GetAwaiter().GetResult()
+    $responseText = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+    if (-not $response.IsSuccessStatusCode) { throw "Gitee release creation failed`n$responseText" }
+    $giteeRelease = $responseText | ConvertFrom-Json
+  } finally {
+    $giteeClient.Dispose()
+  }
   foreach ($file in $artifacts) {
-    $curlConfig = Join-Path $releaseDirectory '.gitee-upload.curlrc'
-    $escapedFile = $file.Replace('\','/').Replace('"','\"')
-    @(
-      'silent', 'show-error', 'fail-with-body', 'retry = 3', 'retry-all-errors',
-      ('url = "{0}"' -f "https://gitee.com/api/v5/repos/wyunchi/care-journal/releases/$($giteeRelease.id)/attach_files"),
-      ('form = "access_token={0}"' -f $giteeToken), ('form = "file=@{0}"' -f $escapedFile)
-    ) | Set-Content -LiteralPath $curlConfig -Encoding utf8NoBOM
-    & icacls.exe $curlConfig /inheritance:r /grant:r "$($env:USERNAME):(R,W)" | Out-Null
+    $client = [System.Net.Http.HttpClient]::new()
+    $client.Timeout = [TimeSpan]::FromMinutes(30)
+    $form = [System.Net.Http.MultipartFormDataContent]::new()
     try {
-      $responseText = & curl.exe --config $curlConfig
-      if ($LASTEXITCODE -ne 0) { throw "Gitee upload failed for $file`n$responseText" }
+      $form.Add([System.Net.Http.StringContent]::new($giteeToken, [System.Text.Encoding]::UTF8), 'access_token')
+      $stream = [System.IO.File]::OpenRead($file)
+      $content = [System.Net.Http.StreamContent]::new($stream)
+      $form.Add($content, 'file', (Split-Path -Leaf $file))
+      $uploadUri = "https://gitee.com/api/v5/repos/wyunchi/care-journal/releases/$($giteeRelease.id)/attach_files"
+      $response = $client.PostAsync($uploadUri, $form).GetAwaiter().GetResult()
+      $responseText = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+      if (-not $response.IsSuccessStatusCode) { throw "Gitee upload failed for $file`n$responseText" }
       $uploaded = $responseText | ConvertFrom-Json
     } finally {
-      if (Test-Path -LiteralPath $curlConfig) { Remove-Item -LiteralPath $curlConfig -Force }
+      $form.Dispose()
+      $client.Dispose()
     }
     if ($null -eq $uploaded.size -or [long]$uploaded.size -le 0 -or $uploaded.name -ne (Split-Path -Leaf $file) -or [long]$uploaded.size -ne (Get-Item -LiteralPath $file).Length) { throw "Gitee upload verification failed for $file" }
   }
 
   $githubRelease = Invoke-RestMethod -Method Patch -Uri "https://api.github.com/repos/wyunchi-ms/CareJournal/releases/$($githubRelease.id)" -Headers $headers -ContentType 'application/json' -Body (@{ draft=$false } | ConvertTo-Json)
-  $giteeRelease = Invoke-RestMethod -Method Patch -Uri "https://gitee.com/api/v5/repos/wyunchi/care-journal/releases/$($giteeRelease.id)" -Body @{ access_token=$giteeToken; draft='false' } -ContentType 'application/x-www-form-urlencoded'
+  $giteeRelease = Invoke-RestMethod -Method Patch -Uri "https://gitee.com/api/v5/repos/wyunchi/care-journal/releases/$($giteeRelease.id)" -Body @{ access_token=$giteeToken; tag_name=$tag; name="CareJournal $tag"; draft='false' } -ContentType 'application/x-www-form-urlencoded'
 } catch {
   if ($githubRelease) { Invoke-RestMethod -Method Delete -Uri "https://api.github.com/repos/wyunchi-ms/CareJournal/releases/$($githubRelease.id)" -Headers $headers -ErrorAction SilentlyContinue }
   if ($giteeRelease) { Invoke-RestMethod -Method Delete -Uri "https://gitee.com/api/v5/repos/wyunchi/care-journal/releases/$($giteeRelease.id)" -Body @{ access_token=$giteeToken } -ContentType 'application/x-www-form-urlencoded' -ErrorAction SilentlyContinue }
