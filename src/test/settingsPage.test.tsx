@@ -1,10 +1,27 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsPage } from '../pages/SettingsPage'
+import { BackupPasswordRequiredError, exportBackup, importBackup, downloadBlob } from '../services/backup'
 
-const { savePreferences } = vi.hoisted(() => ({
+const { savePreferences, restoreBackup } = vi.hoisted(() => ({
   savePreferences: vi.fn(async () => undefined),
+  restoreBackup: vi.fn(async () => undefined),
 }))
+
+vi.mock('../services/backup', () => {
+  class BackupPasswordRequiredError extends Error {
+    constructor() {
+      super('Password required')
+      this.name = 'BackupPasswordRequiredError'
+    }
+  }
+  return {
+    BackupPasswordRequiredError,
+    exportBackup: vi.fn(async () => new Blob(['dummy'], { type: 'application/zip' })),
+    importBackup: vi.fn(),
+    downloadBlob: vi.fn(async () => 'Documents/CareJournal/test.zip'),
+  }
+})
 
 vi.mock('../store/AppContext', () => ({
   useApp: () => ({
@@ -25,7 +42,13 @@ vi.mock('../store/AppContext', () => ({
       chartIndicatorOrder: [],
       chartPinnedIndicatorCodes: [],
     },
+    events: [],
+    chemotherapyTemplates: [],
+    records: [],
+    pins: [],
+    reimbursementPlans: [],
     savePreferences,
+    restoreBackup,
   }),
 }))
 
@@ -100,12 +123,65 @@ describe('SettingsPage', () => {
     expect(screen.queryByLabelText(/配对码/)).not.toBeInTheDocument()
   })
 
-  it('removes the local-data family-sharing and encrypted-backup entry', () => {
+  it('restores the unencrypted zip backup entry and allows export', async () => {
     render(<SettingsPage />)
 
     expect(screen.queryByRole('heading', { name: '本地数据与家属共享' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '导入备份' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '导出加密备份' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '全局素材去重' })).not.toBeInTheDocument()
+
+    const trigger = screen.getByRole('button', { name: /备份与恢复/ })
+    fireEvent.click(trigger)
+
+    expect(screen.getByText(/当前版本导出为未加密的 ZIP 文件/)).toBeInTheDocument()
+
+    const exportBtn = screen.getByRole('button', { name: '导出备份' })
+    fireEvent.click(exportBtn)
+
+    await waitFor(() => expect(exportBackup).toHaveBeenCalled())
+    await waitFor(() => expect(downloadBlob).toHaveBeenCalled())
+    expect(screen.getByText(/备份已保存至/)).toBeInTheDocument()
+  })
+
+  it('shows password prompt if importing an encrypted backup', async () => {
+    vi.mocked(importBackup).mockRejectedValueOnce(new BackupPasswordRequiredError())
+    render(<SettingsPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: /备份与恢复/ }))
+
+    // Simulate file input change
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['dummy'], 'backup.json', { type: 'application/json' })
+    Object.defineProperty(fileInput, 'files', { value: [file] })
+    fireEvent.change(fileInput)
+
+    await waitFor(() => expect(screen.getByText(/该旧版备份文件需要密码才能解密/)).toBeInTheDocument())
+
+    const passwordInput = screen.getByPlaceholderText('请输入密码')
+    fireEvent.change(passwordInput, { target: { value: 'mypassword' } })
+
+    vi.mocked(importBackup).mockResolvedValueOnce({
+      version: 2,
+      exportedAt: '2023-01-01',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      events: [{ id: '1' } as any],
+      chemotherapyTemplates: [],
+      records: [],
+      pins: [],
+      reimbursementPlans: [],
+      assets: [],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      preferences: {} as any
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '重试导入' }))
+
+    await waitFor(() => expect(importBackup).toHaveBeenCalledWith(file, { password: 'mypassword' }))
+
+    // Should show confirm sheet
+    await waitFor(() => expect(screen.getByText('确认覆盖本地数据？')).toBeInTheDocument())
+    expect(screen.getByText(/即将导入 1 个事件/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '确认覆盖' }))
+    await waitFor(() => expect(restoreBackup).toHaveBeenCalled())
+    expect(screen.getByText('已成功恢复备份数据')).toBeInTheDocument()
   })
 })

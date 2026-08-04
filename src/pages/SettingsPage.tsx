@@ -1,19 +1,32 @@
-import { AlertTriangle, Check, CheckCircle2, ChevronRight, Eye, EyeOff, KeyRound, Moon, ScanText, ShieldCheck, Sun } from 'lucide-react'
-import { useState } from 'react'
+import { AlertTriangle, Archive, Check, CheckCircle2, ChevronRight, Download, Eye, EyeOff, KeyRound, Moon, ScanText, ShieldCheck, Sun, Upload } from 'lucide-react'
+import { useRef, useState } from 'react'
 import { ChoicePicker } from '../components/ChoicePicker'
+import { ConfirmSheet } from '../components/ConfirmSheet'
 import { LanSyncPanel } from '../components/LanSyncPanel'
 import { SettingsCollapsibleCard } from '../components/SettingsCollapsibleCard'
+import { BackupPasswordRequiredError, downloadBlob, exportBackup, importBackup } from '../services/backup'
 import { createProviderSettings, getLlmProvider, LLM_PROVIDERS } from '../services/llmProviders'
 import { testLlmConnection } from '../services/ocr'
 import { useApp } from '../store/AppContext'
-import type { LlmProviderId, LlmProviderSettings } from '../types'
+import type { BackupPayload, LlmProviderId, LlmProviderSettings } from '../types'
+import { isTauriPlatform, tauriInvoke } from '../platform/tauriBridge'
 
 export function SettingsPage({ lanSyncManagedGlobally = false }: { lanSyncManagedGlobally?: boolean }) {
-  const { preferences, savePreferences } = useApp()
+  const { preferences, savePreferences, events, chemotherapyTemplates, records, pins, reimbursementPlans, restoreBackup } = useApp()
   const [form, setForm] = useState(preferences)
   const [llmExpanded, setLlmExpanded] = useState(() => window.location.hash.endsWith('#llm-settings'))
   const [privacyExpanded, setPrivacyExpanded] = useState(false)
   const [displayExpanded, setDisplayExpanded] = useState(false)
+  const [backupExpanded, setBackupExpanded] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
+  const [backupError, setBackupError] = useState('')
+  const [backupSuccess, setBackupSuccess] = useState('')
+  const [showPasswordPrompt, setShowPasswordPrompt] = useState(false)
+  const [importPassword, setImportPassword] = useState('')
+  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null)
+  const [confirmImportData, setConfirmImportData] = useState<BackupPayload | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [showKey, setShowKey] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle')
   const [connectionMessage, setConnectionMessage] = useState('')
@@ -51,6 +64,94 @@ export function SettingsPage({ lanSyncManagedGlobally = false }: { lanSyncManage
 
   async function save() { await savePreferences(form); setConnectionMessage('配置已保存在本设备'); setConnectionStatus('success') }
   async function test() { setConnectionStatus('testing'); setConnectionMessage('正在测试连接…'); try { await testLlmConnection(form.llm); setConnectionStatus('success'); setConnectionMessage(`${activeProvider.label} 连接成功`) } catch (error) { setConnectionStatus('failed'); setConnectionMessage(error instanceof Error ? error.message : '连接失败') } }
+
+  const handleExport = async () => {
+    setIsExporting(true)
+    setBackupError('')
+    setBackupSuccess('')
+    try {
+      const blob = await exportBackup(events, chemotherapyTemplates, records, pins, reimbursementPlans, form)
+      const now = new Date()
+      const pad = (n: number) => n.toString().padStart(2, '0')
+      const filename = `carejournal-backup-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.zip`
+      const path = await downloadBlob(blob, filename)
+      setBackupSuccess(`备份已保存至：${path}`)
+    } catch (error) {
+      setBackupError(error instanceof Error ? error.message : '导出备份失败')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const performImport = async (file: File, password?: string) => {
+    setIsImporting(true)
+    setBackupError('')
+    setBackupSuccess('')
+    try {
+      const payload = await importBackup(file, { password })
+      setConfirmImportData(payload)
+      setShowPasswordPrompt(false)
+    } catch (error) {
+      if (error instanceof BackupPasswordRequiredError) {
+        setShowPasswordPrompt(true)
+        setPendingImportFile(file)
+        setBackupError('')
+      } else {
+        setBackupError(error instanceof Error ? error.message : '读取备份失败')
+        setPendingImportFile(null)
+      }
+    } finally {
+      setIsImporting(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    void performImport(file)
+  }
+
+  const handleImportClick = async () => {
+    if (!isTauriPlatform()) {
+      fileInputRef.current?.click()
+      return
+    }
+    setBackupError('')
+    try {
+      const opened = await tauriInvoke<{ filename: string; mimeType: string; base64: string } | null>('desktop_open_file')
+      if (!opened) return
+      const bytes = Uint8Array.from(atob(opened.base64), (character) => character.charCodeAt(0))
+      await performImport(new File([bytes], opened.filename, { type: opened.mimeType }))
+    } catch (error) {
+      setBackupError(error instanceof Error ? error.message : '打开备份失败')
+    }
+  }
+
+  const handlePasswordSubmit = () => {
+    if (pendingImportFile) {
+      void performImport(pendingImportFile, importPassword)
+    }
+  }
+
+  const handleConfirmImport = async () => {
+    if (!confirmImportData) return
+    setIsImporting(true)
+    setBackupError('')
+    try {
+      await restoreBackup(confirmImportData)
+      setBackupSuccess('已成功恢复备份数据')
+      setConfirmImportData(null)
+      setPendingImportFile(null)
+      setImportPassword('')
+    } catch (error) {
+      setBackupError(error instanceof Error ? error.message : '恢复备份失败')
+    } finally {
+      setIsImporting(false)
+    }
+  }
 
   return <>
     <div className="settings-layout">
@@ -110,6 +211,72 @@ export function SettingsPage({ lanSyncManagedGlobally = false }: { lanSyncManage
         <label className="privacy-ocr-setting"><span className="settings-icon"><ScanText /></span><span><strong>PaddleOCR 本地脱敏</strong><small>先在设备上提取文字并删除患者姓名、病案号、住院号、身份证号和电话等信息；医院与科室会保留。开启后，原始图片不会发送给 LLM。</small></span><input type="checkbox" aria-label="PaddleOCR 本地脱敏" checked={form.localPrivacyOcrEnabled} onChange={(e) => setForm((current) => ({ ...current, localPrivacyOcrEnabled: e.target.checked }))} /></label>
       </SettingsCollapsibleCard>
       {!lanSyncManagedGlobally && <LanSyncPanel />}
+      <SettingsCollapsibleCard
+        className="backup-entry-card"
+        icon={<Archive />}
+        title="备份与恢复"
+        summary="导出未加密的 ZIP 备份或导入旧版备份"
+        expanded={backupExpanded}
+        onToggle={() => setBackupExpanded((value) => !value)}
+      >
+        <div className="callout warning">
+          <AlertTriangle />
+          <span>
+            <strong>当前版本导出为未加密的 ZIP 文件</strong>
+            <small>导出的备份包含原始图片、病程和可迁移设置，但排除了智能识别服务的 API Key。请妥善保管导出的文件，不要分享给他人。</small>
+          </span>
+        </div>
+        <div className="form-actions backup-actions">
+          <button className="button secondary" onClick={() => void handleExport()} disabled={isExporting || isImporting}>
+            <Download aria-hidden="true" /> {isExporting ? '正在导出…' : '导出备份'}
+          </button>
+          <button className="button secondary" onClick={() => void handleImportClick()} disabled={isExporting || isImporting}>
+            <Upload aria-hidden="true" /> {isImporting ? '正在读取…' : '导入备份'}
+          </button>
+          <input
+            type="file"
+            ref={fileInputRef}
+            style={{ display: 'none' }}
+            accept=".zip,application/zip,.json,application/json,application/x-carejournal+json"
+            onChange={handleFileSelected}
+          />
+        </div>
+        {backupError && <p className="connection-status failed" role="alert">{backupError}</p>}
+        {backupSuccess && <p className="connection-status success" role="status"><CheckCircle2 />{backupSuccess}</p>}
+
+        {showPasswordPrompt && (
+          <div className="password-prompt">
+            <p>该旧版备份文件需要密码才能解密：</p>
+            <label>
+              备份密码
+              <input
+                type="password"
+                value={importPassword}
+                onChange={(e) => setImportPassword(e.target.value)}
+                placeholder="请输入密码"
+              />
+            </label>
+            <div className="form-actions">
+              <button className="button secondary" onClick={() => { setShowPasswordPrompt(false); setPendingImportFile(null); setImportPassword(''); setBackupError('') }}>取消</button>
+              <button className="button primary" onClick={() => void handlePasswordSubmit()} disabled={!importPassword}>重试导入</button>
+            </div>
+          </div>
+        )}
+      </SettingsCollapsibleCard>
+
+      {confirmImportData && (
+        <ConfirmSheet
+          title="确认覆盖本地数据？"
+          message="当前设备上的所有现有数据将被永久覆盖且无法恢复。"
+          description={`即将导入 ${confirmImportData.events?.length ?? 0} 个事件、${confirmImportData.chemotherapyTemplates?.length ?? 0} 个方案、${confirmImportData.records?.length ?? 0} 份检查、${confirmImportData.reimbursementPlans?.length ?? 0} 个报销记录和 ${confirmImportData.assets?.length ?? 0} 个素材。`}
+          confirmLabel="确认覆盖"
+          busyLabel="恢复中…"
+          busy={isImporting}
+          error={backupError || undefined}
+          onConfirm={() => void handleConfirmImport()}
+          onCancel={() => { setConfirmImportData(null); setPendingImportFile(null) }}
+        />
+      )}
       <SettingsCollapsibleCard
         className="privacy-entry-card"
         icon={<ShieldCheck />}
