@@ -98,24 +98,20 @@ try {
     $giteeClient.Dispose()
   }
   foreach ($file in $artifacts) {
-    $client = [System.Net.Http.HttpClient]::new()
-    $client.Timeout = [TimeSpan]::FromMinutes(30)
-    $form = [System.Net.Http.MultipartFormDataContent]::new()
+    $curlConfig = Join-Path $releaseDirectory '.gitee-upload.curlrc'
+    $escapedFile = $file.Replace('\','/').Replace('"','\"')
+    @(
+      'silent', 'show-error', 'fail-with-body', 'retry = 3', 'retry-all-errors',
+      ('url = "{0}"' -f "https://gitee.com/api/v5/repos/wyunchi/care-journal/releases/$($giteeRelease.id)/attach_files"),
+      ('form = "access_token={0}"' -f $giteeToken), ('form = "file=@{0}"' -f $escapedFile)
+    ) | Set-Content -LiteralPath $curlConfig -Encoding utf8NoBOM
+    & icacls.exe $curlConfig /inheritance:r /grant:r "$($env:USERNAME):(R,W)" | Out-Null
     try {
-      $tokenContent = [System.Net.Http.StringContent]::new($giteeToken, [System.Text.Encoding]::UTF8)
-      $tokenContent.Headers.ContentType = $null
-      $form.Add($tokenContent, 'access_token')
-      $stream = [System.IO.File]::OpenRead($file)
-      $content = [System.Net.Http.StreamContent]::new($stream)
-      $form.Add($content, 'file', (Split-Path -Leaf $file))
-      $uploadUri = "https://gitee.com/api/v5/repos/wyunchi/care-journal/releases/$($giteeRelease.id)/attach_files"
-      $response = $client.PostAsync($uploadUri, $form).GetAwaiter().GetResult()
-      $responseText = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-      if (-not $response.IsSuccessStatusCode) { throw "Gitee upload failed for $file`n$responseText" }
+      $responseText = & curl.exe --config $curlConfig
+      if ($LASTEXITCODE -ne 0) { throw "Gitee upload failed for $file`n$responseText" }
       $uploaded = $responseText | ConvertFrom-Json
     } finally {
-      $form.Dispose()
-      $client.Dispose()
+      if (Test-Path -LiteralPath $curlConfig) { Remove-Item -LiteralPath $curlConfig -Force }
     }
     if ($null -eq $uploaded.size -or [long]$uploaded.size -le 0 -or $uploaded.name -ne (Split-Path -Leaf $file) -or [long]$uploaded.size -ne (Get-Item -LiteralPath $file).Length) { throw "Gitee upload verification failed for $file" }
   }
