@@ -29,7 +29,7 @@ CareJournal 不提供账号、广告或开发者运营的云端服务，病程�
 
 - [中文用户手册](docs/USER_GUIDE.zh-CN.md)
 - [HarmonyOS NEXT 自行构建与安装指南](docs/HARMONY_SELF_BUILD.zh-CN.md)
-- [iOS 原生接入规划](docs/IOS_NATIVE.md)
+- [iOS 原生支持与 Mac 验证说明](docs/IOS_NATIVE.md)
 - [GitHub/Gitee 双远端与发布维护方案](docs/RELEASE_MAINTENANCE.md)
 
 ## 本地运行
@@ -74,6 +74,10 @@ npm run harmony:build
 DevEco Studio 工具链生成开发构建；普通用户不能像安装 APK 一样直接安装公开 HAP。
 自行安装需使用 DevEco Studio 为自己的设备生成调试签名，详见
 [HarmonyOS 自行安装指南](docs/HARMONY_SELF_BUILD.zh-CN.md)和[HarmonyOS README](harmony/README.md)。
+
+## iOS
+
+仓库已包含 Capacitor iOS 工程、SQLite 和私有素材存储 Swift 桥接。由于当前尚未在 macOS/Xcode 中编译和真机验证，iOS 仍属于开发候选，不进入公开 Release；详情见 [iOS 原生支持说明](docs/IOS_NATIVE.md)。
 
 ## 验证
 
