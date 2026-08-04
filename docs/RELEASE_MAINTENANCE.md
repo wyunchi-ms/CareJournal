@@ -19,7 +19,7 @@ pwsh scripts/push-all.ps1
 
 ## 发布前检查
 
-1. `package.json` 与 Android 版本一致；
+1. `package.json`、Android、Harmony、iOS 和 Tauri 版本一致；
 2. ChangeLog 有对应版本；
 3. 工作树干净；
 4. `main` 已通过 `push-all.ps1` 同步两个远端；
@@ -39,10 +39,11 @@ pwsh scripts/publish-release.ps1
 输出目录 `release/` 不提交 Git，包括：
 
 - Android signed APK；
+- Windows x64 portable ZIP；
 - `SHA256SUMS.txt`；
 - Release notes 临时文件。
 
-公开 Release 只提供 Android APK。HarmonyOS NEXT 不支持未知用户像安装 APK 一样直接侧载公开 HAP；需要 Harmony 版本的用户按 [HarmonyOS NEXT 自行安装指南](HARMONY_SELF_BUILD.zh-CN.md)，使用 DevEco Studio 为自己的设备生成调试签名并安装。
+公开 Release 提供 Android APK 和 Windows x64 绿色 ZIP。HarmonyOS NEXT 不支持未知用户像安装 APK 一样直接侧载公开 HAP；需要 Harmony 版本的用户按 [HarmonyOS NEXT 自行安装指南](HARMONY_SELF_BUILD.zh-CN.md)，使用 DevEco Studio 为自己的设备生成调试签名并安装。
 
 ## Token
 

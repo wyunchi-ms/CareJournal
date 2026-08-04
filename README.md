@@ -30,6 +30,7 @@ CareJournal 不提供账号、广告或开发者运营的云端服务，病程�
 - [中文用户手册](docs/USER_GUIDE.zh-CN.md)
 - [HarmonyOS NEXT 自行构建与安装指南](docs/HARMONY_SELF_BUILD.zh-CN.md)
 - [iOS 原生支持与 Mac 验证说明](docs/IOS_NATIVE.md)
+- [Windows 绿色桌面版说明](docs/WINDOWS_DESKTOP.md)
 - [GitHub/Gitee 双远端与发布维护方案](docs/RELEASE_MAINTENANCE.md)
 
 ## 本地运行
@@ -54,7 +55,11 @@ Vite 会把 `/api/llm` 转发到本地兼容层。
 
 设置页先选择服务商，再为该服务商填写一个 API Key、API 地址和模型。每个服务商只绑定一个模型，切换服务商时会保留各自的本机配置。
 
-Azure OpenAI 使用 v1 API，API 地址填写 `https://<resource>.services.ai.azure.com/openai/v1` 或 `https://<resource>.openai.azure.com/openai/v1`，模型字段填写 Deployment Name，不再需要 API Version。Android 使用原生 HTTP 直连服务商；Web 请求通过应用同源接口即时转发，同源接口不写入日志或数据库。
+Azure OpenAI 使用 v1 API，API 地址填写 `https://<resource>.services.ai.azure.com/openai/v1` 或 `https://<resource>.openai.azure.com/openai/v1`，模型字段填写 Deployment Name，不再需要 API Version。Android/iOS/Harmony/Windows 桌面版使用原生 HTTP 直连服务商；浏览器开发版请求通过本地同源接口即时转发，同源接口不写入日志或数据库。
+
+## Windows 绿色桌面版
+
+Release 提供 Windows x64 绿色 ZIP。解压后运行 `CareJournal.exe`，无需部署公共 Web 服务或安装 Node.js；数据保存在 EXE 同级 `CareJournalData/`。详细说明见 [Windows 绿色桌面版说明](docs/WINDOWS_DESKTOP.md)。
 
 ## Android
 
