@@ -2,6 +2,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core'
 import type { ExamRecord, OcrQueueItem, ReimbursementPlan, StoredImage } from '../types'
 import { ensureStoredImageVisualFingerprint, storedImageIdentity } from './images'
 import { getHarmonyBridge, isHarmonyPlatform, parseHarmonyResult } from '../platform/harmonyBridge'
+import { isTauriPlatform, tauriConvertFileSrc, tauriInvoke } from '../platform/tauriBridge'
 
 interface PersistedImageResult {
   mimeType: string
@@ -37,12 +38,13 @@ interface NativeImageStoragePlugin {
 const NativeImageStorage = registerPlugin<NativeImageStoragePlugin>('NativeImageStorage')
 
 export function usesNativeImageStorage() {
-  return Capacitor.isNativePlatform() || isHarmonyPlatform()
+  return Capacitor.isNativePlatform() || isHarmonyPlatform() || isTauriPlatform()
 }
 
 export function storedImageSource(image: StoredImage) {
   if (image.dataUrl) return image.dataUrl
   if (image.localUri && isHarmonyPlatform()) return image.localUri
+  if (image.localUri && isTauriPlatform()) return tauriConvertFileSrc(image.localUri)
   if (image.localUri && usesNativeImageStorage()) return Capacitor.convertFileSrc(image.localUri)
   return ''
 }
@@ -57,6 +59,13 @@ export async function persistStoredImage(image: StoredImage): Promise<StoredImag
       image.dataUrl,
       image.sha256,
     ))
+    : isTauriPlatform()
+    ? await tauriInvoke<PersistedImageResult>('desktop_persist_image', {
+        id: image.id,
+        mimeType: image.mimeType,
+        dataUrl: image.dataUrl,
+        sha256: image.sha256 || undefined,
+      })
     : await NativeImageStorage.persistImage({
       id: image.id,
       mimeType: image.mimeType,
@@ -70,6 +79,8 @@ export async function materializeNativeStoredImage(image: StoredImage): Promise<
   if (image.dataUrl || !usesNativeImageStorage() || !image.storagePath) return image
   const loaded = isHarmonyPlatform()
     ? parseHarmonyResult<LoadedImageResult>(await getHarmonyBridge().readImage(image.storagePath))
+    : isTauriPlatform()
+    ? await tauriInvoke<LoadedImageResult>('desktop_read_image', { storagePath: image.storagePath })
     : await NativeImageStorage.readImage({ storagePath: image.storagePath })
   return { ...image, ...loaded }
 }
@@ -131,7 +142,7 @@ export async function migrateLegacyNativeImages(): Promise<ImageMigrationResult>
   if (!usesNativeImageStorage()) {
     return { migratedEntities: 0, migratedImages: 0, failedEntities: 0, compacted: false }
   }
-  if (isHarmonyPlatform()) {
+  if (isHarmonyPlatform() || isTauriPlatform()) {
     return { migratedEntities: 0, migratedImages: 0, failedEntities: 0, compacted: false }
   }
   return NativeImageStorage.migrateLegacyImages()
@@ -157,6 +168,12 @@ export async function garbageCollectNativeImages(records: ExamRecord[], jobs: Oc
   }
   if (isHarmonyPlatform()) {
     return getHarmonyBridge().garbageCollectImages(JSON.stringify([...storagePaths]))
+  }
+  if (isTauriPlatform()) {
+    const result = await tauriInvoke<{ deleted: number }>('desktop_garbage_collect_images', {
+      storagePaths: [...storagePaths],
+    })
+    return result.deleted
   }
   const result = await NativeImageStorage.garbageCollect({ storagePaths: [...storagePaths] })
   return result.deleted

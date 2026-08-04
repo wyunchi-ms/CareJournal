@@ -8,6 +8,7 @@ import { sha256 } from './images'
 import { chatCompletionsUrl, getActiveLlmSettings, isLlmConfigured } from './llmProviders'
 import { chooseKnownValue } from './vocabulary'
 import { getHarmonyBridge, isHarmonyPlatform, parseHarmonyResult } from '../platform/harmonyBridge'
+import { isTauriPlatform, tauriInvoke } from '../platform/tauriBridge'
 
 const nullableNumber = z.number().nullable()
 const aiIndicatorSchema = z.object({
@@ -136,6 +137,17 @@ async function llmPost(provider: LlmProviderId, url: string, apiKey: string, bod
       30000,
       120000,
     ))
+  }
+  if (isTauriPlatform()) {
+    const authorization: Record<string, string> = provider === 'azure-openai'
+      ? { 'api-key': apiKey }
+      : { Authorization: `Bearer ${apiKey}` }
+    return tauriInvoke<LlmHttpResult>('desktop_llm_post', {
+      url,
+      headers: { 'Content-Type': 'application/json', ...authorization },
+      body: JSON.stringify(body),
+      provider,
+    })
   }
   if (Capacitor.isNativePlatform()) {
     const authorization: Record<string, string> = provider === 'azure-openai'

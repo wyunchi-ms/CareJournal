@@ -1,6 +1,7 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 import type { LanEncryptedEnvelope } from './lanSync'
 import { addHarmonyEventListener, getHarmonyBridge, isHarmonyPlatform, parseHarmonyResult } from '../platform/harmonyBridge'
+import { isTauriPlatform, tauriInvoke, tauriListen } from '../platform/tauriBridge'
 
 export interface LanPeer {
   fingerprint: string
@@ -58,6 +59,7 @@ class LanSyncTransport {
   private peerListeners = new Set<(peers: LanPeer[]) => void>()
   private requestListeners = new Set<(request: IncomingLanRequest) => void>()
   private nativeHandles: PluginListenerHandle[] = []
+  private tauriUnlisteners: Array<() => void> = []
   private pollTimer: number | undefined
   private active = false
   private removeHarmonyListener?: () => void
@@ -117,6 +119,36 @@ class LanSyncTransport {
         throw error
       }
     }
+    if (isTauriPlatform()) {
+      try {
+        this.tauriUnlisteners = []
+        this.tauriUnlisteners.push(
+          await tauriListen<{ peers: LanPeer[] }>('desktop://peers-changed', ({ peers }) => this.emitPeers(peers)),
+        )
+        this.tauriUnlisteners.push(
+          await tauriListen<{ requestId: string; envelope: string; peerAddress?: string }>(
+            'desktop://sync-request',
+            (request) => this.emitRequest({
+              requestId: request.requestId,
+              envelope: JSON.parse(request.envelope) as LanEncryptedEnvelope,
+              peerAddress: request.peerAddress,
+            }),
+          ),
+        )
+        const info = await tauriInvoke<LanServiceInfo>('desktop_lan_start', { alias, publicKey })
+        this.pollTimer = window.setInterval(() => void this.pollNative(), 1500)
+        await this.refresh()
+        return info
+      } catch (error) {
+        if (this.pollTimer !== undefined) window.clearInterval(this.pollTimer)
+        this.pollTimer = undefined
+        await tauriInvoke('desktop_lan_stop').catch(() => undefined)
+        await Promise.all(this.tauriUnlisteners.map((fn) => Promise.resolve().then(() => fn()).catch(() => undefined)))
+        this.tauriUnlisteners = []
+        this.active = false
+        throw error
+      }
+    }
 
     try {
       const info = await fetchJson<LanServiceInfo>('/api/lan/start', {
@@ -144,6 +176,10 @@ class LanSyncTransport {
       await NativeLanSync.stop().catch(() => undefined)
       await Promise.all(this.nativeHandles.map((handle) => handle.remove().catch(() => undefined)))
       this.nativeHandles = []
+    } else if (isTauriPlatform()) {
+      await tauriInvoke('desktop_lan_stop').catch(() => undefined)
+      await Promise.all(this.tauriUnlisteners.map((fn) => Promise.resolve().then(() => fn()).catch(() => undefined)))
+      this.tauriUnlisteners = []
     } else {
       await fetchJson('/api/lan/stop', { method: 'POST', body: '{}' }).catch(() => undefined)
     }
@@ -157,6 +193,10 @@ class LanSyncTransport {
       await NativeLanSync.refresh()
       const { peers } = await NativeLanSync.listPeers()
       this.emitPeers(peers)
+    } else if (isTauriPlatform()) {
+      await tauriInvoke('desktop_lan_refresh')
+      const { peers } = await tauriInvoke<{ peers: LanPeer[] }>('desktop_lan_list')
+      this.emitPeers(peers)
     } else {
       await fetchJson('/api/lan/refresh', { method: 'POST', body: '{}' })
       await this.pollWeb()
@@ -169,6 +209,8 @@ class LanSyncTransport {
       ? { envelope: await getHarmonyBridge().lanSendSync(payload.host, payload.port, payload.envelope) }
       : Capacitor.isNativePlatform()
       ? await NativeLanSync.sendSync(payload)
+      : isTauriPlatform()
+      ? await tauriInvoke<{ envelope: string }>('desktop_lan_send', payload)
       : await fetchJson<{ envelope: string }>('/api/lan/send', { method: 'POST', body: JSON.stringify(payload) })
     return JSON.parse(result.envelope) as LanEncryptedEnvelope
   }
@@ -177,6 +219,7 @@ class LanSyncTransport {
     const payload = { requestId, envelope: JSON.stringify(envelope) }
     if (isHarmonyPlatform()) await getHarmonyBridge().lanCompleteSync(payload.requestId, payload.envelope)
     else if (Capacitor.isNativePlatform()) await NativeLanSync.completeSync(payload)
+    else if (isTauriPlatform()) await tauriInvoke('desktop_lan_complete', payload)
     else await fetchJson('/api/lan/complete', { method: 'POST', body: JSON.stringify(payload) })
   }
 
@@ -184,6 +227,7 @@ class LanSyncTransport {
     const payload = { requestId, error }
     if (isHarmonyPlatform()) await getHarmonyBridge().lanRejectSync(payload.requestId, payload.error)
     else if (Capacitor.isNativePlatform()) await NativeLanSync.rejectSync(payload)
+    else if (isTauriPlatform()) await tauriInvoke('desktop_lan_reject', payload)
     else await fetchJson('/api/lan/reject', { method: 'POST', body: JSON.stringify(payload) })
   }
 
@@ -192,6 +236,8 @@ class LanSyncTransport {
       await getHarmonyBridge().lanSetTransferActive(active)
     } else if (Capacitor.isNativePlatform()) {
       await NativeLanSync.setTransferActive({ active })
+    } else if (isTauriPlatform()) {
+      await tauriInvoke('desktop_lan_set_transfer_active', { active })
     }
   }
 
@@ -227,6 +273,9 @@ class LanSyncTransport {
         this.emitPeers(peers)
       } else if (Capacitor.isNativePlatform()) {
         const { peers } = await NativeLanSync.listPeers()
+        this.emitPeers(peers)
+      } else if (isTauriPlatform()) {
+        const { peers } = await tauriInvoke<{ peers: LanPeer[] }>('desktop_lan_list')
         this.emitPeers(peers)
       }
     } catch {
