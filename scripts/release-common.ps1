@@ -59,8 +59,12 @@ function Assert-CareJournalVersions {
   param([Parameter(Mandatory)] [string] $ProjectRoot, [Parameter(Mandatory)] [string] $Version)
   $android = Get-Content -LiteralPath (Join-Path $ProjectRoot 'android\app\build.gradle') -Raw
   $androidVersion = [regex]::Match($android, 'versionName\s+"([^"]+)"').Groups[1].Value
-  if ($androidVersion -ne $Version) {
-    throw "Version mismatch: package=$Version android=$androidVersion"
+  $harmony = Get-Content -LiteralPath (Join-Path $ProjectRoot 'harmony\AppScope\app.json5') -Raw | ConvertFrom-Json
+  $tauri = Get-Content -LiteralPath (Join-Path $ProjectRoot 'src-tauri\tauri.conf.json') -Raw | ConvertFrom-Json
+  $iosProject = Get-Content -LiteralPath (Join-Path $ProjectRoot 'ios\App\App.xcodeproj\project.pbxproj') -Raw
+  $iosVersion = [regex]::Match($iosProject, 'MARKETING_VERSION\s*=\s*([^;]+);').Groups[1].Value.Trim()
+  if ($androidVersion -ne $Version -or [string]$harmony.app.versionName -ne $Version -or [string]$tauri.version -ne $Version -or $iosVersion -ne $Version) {
+    throw "Version mismatch: package=$Version android=$androidVersion harmony=$($harmony.app.versionName) ios=$iosVersion tauri=$($tauri.version)"
   }
 }
 

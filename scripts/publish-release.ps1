@@ -17,6 +17,10 @@ if (-not $BuildOnly) { Assert-CareJournalCleanTree -ProjectRoot $projectRoot }
 New-Item -ItemType Directory -Force -Path $releaseDirectory | Out-Null
 $artifacts = @()
 $artifacts += & (Join-Path $PSScriptRoot 'build-android-release.ps1') -ProjectRoot $projectRoot -OutputDirectory $releaseDirectory
+$desktopArchive = Join-Path $releaseDirectory "carejournal-v$version-windows-x64-portable.zip"
+& (Join-Path $PSScriptRoot 'build-tauri-portable.ps1') -OutputPath $desktopArchive
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $desktopArchive -PathType Leaf)) { throw 'Windows portable build failed' }
+$artifacts += $desktopArchive
 $artifacts = @($artifacts | ForEach-Object {
   if ($_ -is [System.IO.FileInfo]) { $_.FullName }
   elseif ($_ -is [string] -and $_ -and (Test-Path -LiteralPath $_ -PathType Leaf)) { (Resolve-Path -LiteralPath $_).Path }
