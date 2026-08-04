@@ -1,5 +1,12 @@
 # ChangeLog
 
+## v0.19.20 (2026-08-04)
+
+- 新增 Tauri 2 Windows x64 绿色桌面版：解压后直接运行 `CareJournal.exe`，数据与素材保存在 EXE 同级 `CareJournalData/`，无需公共 Web 服务或本地 Node server。
+- 桌面版使用 Rust 后端直接请求用户配置的 LLM，并实现 UDP v4、mDNS/Bonjour 与现有 HTTP 协议兼容的完整局域网同步节点；程序关闭后停止监听。
+- 恢复设置页“备份与恢复”入口；新备份导出为未加密 ZIP，`backup.json` 与去重后的图片/PDF 分开保存并校验 SHA-256，旧版 AES-GCM 加密备份仍可通过原密码导入。
+- 强化 ZIP 恢复校验：限制压缩包、索引、单素材和总解压大小，校验安全路径、MIME 魔数、清单一一对应及素材引用；恢复时彻底清空旧 OCR 队列和未引用素材。
+
 ## v0.19.19 (2026-08-04)
 
 - 新增 Capacitor iOS 工程、原生 SQLite 配置和 Swift `NativeImageStorage` 插件，图片/PDF 可写入启用文件保护的应用私有目录，并支持素材读取和垃圾清理。
