@@ -531,12 +531,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const persisted = await persistStoredImage(asset)
       restoredAssets.push({ ...asset, ...persisted, id: asset.id, createdAt: asset.createdAt, updatedAt: asset.updatedAt })
     }
-    const assetSeeds = new Map([...mediaAssetsRef.current, ...restoredAssets].map((asset) => [asset.id, asset]))
-    const hydratedCatalog = reconcileMediaCatalog(restoredRecords, ocrJobsRef.current, restoredReimbursementPlans, [...assetSeeds.values()])
+    const hydratedCatalog = reconcileMediaCatalog(restoredRecords, [], restoredReimbursementPlans, restoredAssets)
     const fingerprinted = await addMissingVisualFingerprints(hydratedCatalog.records, hydratedCatalog.reimbursementPlans)
     const catalog = reconcileMediaCatalog(
       fingerprinted.records,
-      hydratedCatalog.jobs,
+      [],
       fingerprinted.reimbursementPlans,
       hydratedCatalog.assets,
       { pruneUnused: true },
@@ -547,7 +546,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await repository.replaceKind('record', catalog.records.map((item) => ({ id: item.id, payload: compactRecordMedia(item) })))
     await repository.replaceKind('pin', payload.pins.map((item) => ({ id: item.id, payload: item })))
     await repository.replaceKind('reimbursementPlan', catalog.reimbursementPlans.map((item) => ({ id: item.id, payload: compactReimbursementMedia(item) })))
-    await Promise.all(catalog.changedJobs.map((job) => repository.put('ocrJob', job.id, compactOcrJobMedia(job))))
+    await repository.replaceKind('ocrJob', [])
     const portableLlm = payload.preferences.llm ?? (payload.preferences.azure
       ? normalizeAppPreferences({ azure: payload.preferences.azure }).llm
       : preferences.llm)
@@ -565,13 +564,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const restoredPins = sortChartPins(payload.pins)
     pinsRef.current = restoredPins
     setPins(restoredPins)
-    ocrJobsRef.current = catalog.jobs
-    setOcrJobs(catalog.jobs)
+    ocrJobsRef.current = []
+    setOcrJobs([])
     const sortedReimbursementPlans = byDateDescending(catalog.reimbursementPlans)
     reimbursementPlansRef.current = sortedReimbursementPlans
     setReimbursementPlans(sortedReimbursementPlans)
     setPreferences(nextPreferences)
-    void garbageCollectNativeImages(sortedRecords, ocrJobsRef.current, sortedReimbursementPlans).catch(console.warn)
+    void garbageCollectNativeImages(sortedRecords, [], sortedReimbursementPlans).catch(console.warn)
   }, [preferences.llm])
 
   const deduplicateImagesGlobally = useCallback(async (): Promise<ImageDeduplicationResult> => {
@@ -652,8 +651,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     )
     recordsRef.current = catalog.records
     setRecords(catalog.records)
-    ocrJobsRef.current = catalog.jobs
-    setOcrJobs(catalog.jobs)
+    ocrJobsRef.current = []
+    setOcrJobs([])
     reimbursementPlansRef.current = catalog.reimbursementPlans
     setReimbursementPlans(catalog.reimbursementPlans)
     await garbageCollectNativeImages(catalog.records, catalog.jobs, catalog.reimbursementPlans)
