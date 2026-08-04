@@ -102,7 +102,9 @@ try {
     $client.Timeout = [TimeSpan]::FromMinutes(30)
     $form = [System.Net.Http.MultipartFormDataContent]::new()
     try {
-      $form.Add([System.Net.Http.StringContent]::new($giteeToken, [System.Text.Encoding]::UTF8), 'access_token')
+      $tokenContent = [System.Net.Http.StringContent]::new($giteeToken, [System.Text.Encoding]::UTF8)
+      $tokenContent.Headers.ContentType = $null
+      $form.Add($tokenContent, 'access_token')
       $stream = [System.IO.File]::OpenRead($file)
       $content = [System.Net.Http.StreamContent]::new($stream)
       $form.Add($content, 'file', (Split-Path -Leaf $file))
