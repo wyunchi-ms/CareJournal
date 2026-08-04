@@ -19,13 +19,12 @@ pwsh scripts/push-all.ps1
 
 ## 发布前检查
 
-1. `package.json`、Android、Harmony 版本一致；
+1. `package.json` 与 Android 版本一致；
 2. ChangeLog 有对应版本；
 3. 工作树干净；
 4. `main` 已通过 `push-all.ps1` 同步两个远端；
 5. GitHub CLI 已登录，Gitee Token 已存入 Azure Key Vault（或临时环境变量）；
-6. Azure 登录和签名材料可读；
-7. Harmony 正式签名材料齐全，否则只能 `-AllowUnsignedHarmony -BuildOnly`。
+6. Azure 登录且 Android 正式签名材料可读。
 
 ## 本地一键构建
 
@@ -33,16 +32,17 @@ pwsh scripts/push-all.ps1
 # 只构建，不创建 tag/release
 pwsh scripts/publish-release.ps1 -BuildOnly
 
-# 正式双站发布（Harmony 必须已配置正式签名）
+# 正式双站发布
 pwsh scripts/publish-release.ps1
 ```
 
 输出目录 `release/` 不提交 Git，包括：
 
 - Android signed APK；
-- Harmony signed HAP（unsigned 调试模式会明确标注）；
 - `SHA256SUMS.txt`；
 - Release notes 临时文件。
+
+公开 Release 只提供 Android APK。HarmonyOS NEXT 不支持未知用户像安装 APK 一样直接侧载公开 HAP；需要 Harmony 版本的用户按 [HarmonyOS NEXT 自行安装指南](HARMONY_SELF_BUILD.zh-CN.md)，使用 DevEco Studio 为自己的设备生成调试签名并安装。
 
 ## Token
 
@@ -58,11 +58,14 @@ Gitee 推荐存入 Azure Key Vault：
 pwsh scripts/init-release-infra.ps1 -StoreGiteeToken
 ```
 
-也可以使用临时环境变量，不写进仓库：
+也可以只为当前 PowerShell 进程设置临时环境变量，不写进仓库或 Windows 用户配置：
 
 ```powershell
-[Environment]::SetEnvironmentVariable('GITHUB_TOKEN', '...', 'User')
-[Environment]::SetEnvironmentVariable('GITEE_TOKEN', '...', 'User')
+$env:GITHUB_TOKEN = '...'
+$env:GITEE_TOKEN = '...'
+
+# 发布完成后从当前进程清除
+Remove-Item Env:GITHUB_TOKEN, Env:GITEE_TOKEN -ErrorAction SilentlyContinue
 ```
 
 - GitHub token：脚本优先读取 `gh auth token`；
@@ -76,7 +79,7 @@ pwsh scripts/init-release-infra.ps1 -StoreGiteeToken
 - Container：`signing`（私有）
 - Key Vault：`kv-carejournal-60f52ccd`
 
-签名文件放 Storage，密码/alias/hash 放 Key Vault。临时下载到 `.tmp/`，构建后删除。
+Android keystore 放 Storage，密码、alias 和 hash 放 Key Vault。临时下载到 `.tmp/`，构建后删除。Harmony 签名材料不再存入该发布基础设施。
 
 ## 换机器发布
 
