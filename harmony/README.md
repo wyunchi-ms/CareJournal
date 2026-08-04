@@ -12,10 +12,12 @@ React/Vite 应用，ArkWeb 只承担渲染；ArkTS 桥接负责关系型数据�
 
 ## 构建
 
+普通用户不能从 GitHub/Gitee 下载 HAP 后直接点击安装。完整的 DevEco Studio 下载、个人开发者实名认证、自动调试签名和真机安装流程见 [HarmonyOS NEXT 自行安装指南](../docs/HARMONY_SELF_BUILD.zh-CN.md)。
+
 1. 在仓库根目录运行 `npm install`。
 2. 运行 `npm run harmony:build`，构建共享前端、同步 Web 资源并生成
    `entry-default.hap`。
-3. 如需 IDE 调试，使用 DevEco Studio 打开本目录；真机安装前配置自动签名或发布签名。
+3. 如需真机调试，使用 DevEco Studio 打开本目录，并为连接的设备配置自动调试签名。
 
 生成的 Web 产物、签名和构建目录均不会提交到 Git。
 

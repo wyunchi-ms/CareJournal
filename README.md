@@ -28,6 +28,7 @@ CareJournal 不提供账号、广告或开发者运营的云端服务，病程�
 ## 文档
 
 - [中文用户手册](docs/USER_GUIDE.zh-CN.md)
+- [HarmonyOS NEXT 自行构建与安装指南](docs/HARMONY_SELF_BUILD.zh-CN.md)
 - [iOS 原生接入规划](docs/IOS_NATIVE.md)
 - [GitHub/Gitee 双远端与发布维护方案](docs/RELEASE_MAINTENANCE.md)
 
@@ -70,8 +71,9 @@ npm run harmony:build
 ```
 
 原生工程位于 `harmony/`，使用 ArkWeb + ArkTS JSBridge。命令会调用本机
-DevEco Studio 工具链生成 HAP；详细环境、签名和迁移说明见
-[HarmonyOS README](harmony/README.md)。
+DevEco Studio 工具链生成开发构建；普通用户不能像安装 APK 一样直接安装公开 HAP。
+自行安装需使用 DevEco Studio 为自己的设备生成调试签名，详见
+[HarmonyOS 自行安装指南](docs/HARMONY_SELF_BUILD.zh-CN.md)和[HarmonyOS README](harmony/README.md)。
 
 ## 验证
 
@@ -80,3 +82,5 @@ npm run test
 npm run lint
 npm run build
 ```
+
+祝早日康复！

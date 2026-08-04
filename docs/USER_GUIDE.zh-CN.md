@@ -29,9 +29,7 @@
 
 ### HarmonyOS NEXT
 
-1. 从 Release 下载已签名的 HAP/APP。
-2. 若下载的是标记为 `unsigned` 的包，只能用于开发环境，不能作为正式发行安装包。
-3. 正式包需使用华为开发者证书和 profile 签名。
+HarmonyOS NEXT 不支持像 Android APK 一样让未知用户下载 HAP 后直接安装，因此公开 Release 不再提供 Harmony 安装包。愿意使用 Windows 电脑自行安装的用户，请按 [HarmonyOS NEXT 自行构建与安装指南](HARMONY_SELF_BUILD.zh-CN.md)操作：安装 DevEco Studio、登录已实名认证的个人开发者账号，为自己的设备生成调试签名并运行。
 
 ### Web
 
