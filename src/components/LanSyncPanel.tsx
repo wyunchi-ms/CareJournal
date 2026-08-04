@@ -17,6 +17,7 @@ import {
 } from '../services/lanSync'
 import { lanSyncTransport, type IncomingLanRequest, type LanPeer, type LanServiceInfo } from '../services/lanSyncTransport'
 import { isHarmonyPlatform } from '../platform/harmonyBridge'
+import { Capacitor } from '@capacitor/core'
 import type { LanSyncEntityKind, LanSyncPreview, LanSyncSnapshot } from '../types'
 
 type SyncStatus = { tone: 'neutral' | 'working' | 'success' | 'error'; message: string; progress?: number }
@@ -112,6 +113,7 @@ function deviceAlias() {
   if (stored) return stored
   const alias = isHarmonyPlatform()
     ? 'CareJournal 鸿蒙设备'
+    : Capacitor.getPlatform() === 'ios' ? 'CareJournal iPhone'
     : /Android/i.test(navigator.userAgent) ? 'CareJournal 手机' : 'CareJournal 网页'
   localStorage.setItem('carejournal-lan-alias', alias)
   return alias
