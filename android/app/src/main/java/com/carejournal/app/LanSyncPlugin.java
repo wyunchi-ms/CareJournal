@@ -3,6 +3,8 @@ package com.carejournal.app;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.net.DhcpInfo;
+import android.net.nsd.NsdManager;
+import android.net.nsd.NsdServiceInfo;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.provider.Settings;
@@ -22,6 +24,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
+import java.net.Inet4Address;
 import java.net.InetSocketAddress;
 import java.net.MulticastSocket;
 import java.net.ServerSocket;
@@ -34,6 +37,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -45,9 +49,15 @@ import java.util.concurrent.TimeUnit;
 public class LanSyncPlugin extends Plugin {
     private static final String MULTICAST_ADDRESS = "224.0.0.167";
     private static final String BROADCAST_ADDRESS = "255.255.255.255";
+    private static final String NSD_SERVICE_TYPE = "_carejournal._tcp.";
+    private static final String NSD_APP = "carejournal";
+    private static final String NSD_VERSION = "4";
     private static final int PORT = 53318;
     private static final long PEER_TTL_MS = 90000;
+    private static final long PENDING_TTL_MS = 125000;
     private static final int MAX_BODY_BYTES = 300 * 1024 * 1024;
+    private static final int NSD_ALIAS_TARGET_BYTES = 160;
+    private static final int NSD_TXT_TARGET_BYTES = 400;
 
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private ScheduledExecutorService scheduler;
@@ -60,6 +70,10 @@ public class LanSyncPlugin extends Plugin {
     private ServerSocket serverSocket;
     private MulticastSocket multicastSocket;
     private WifiManager.MulticastLock multicastLock;
+    private NsdManager nsdManager;
+    private NsdManager.RegistrationListener nsdRegistrationListener;
+    private NsdManager.DiscoveryListener nsdDiscoveryListener;
+    private final Set<String> resolvingNsdServices = ConcurrentHashMap.newKeySet();
 
     @PluginMethod
     public void start(PluginCall call) {
@@ -105,6 +119,7 @@ public class LanSyncPlugin extends Plugin {
             return;
         }
         announce(true);
+        refreshNsd();
         call.resolve();
     }
 
@@ -148,7 +163,7 @@ public class LanSyncPlugin extends Plugin {
             try {
                 boolean known = currentPeers().stream().anyMatch(peer -> peer.host.equals(host) && peer.port == remotePort);
                 if (!known) throw new IOException("目标设备不在当前发现列表中，请刷新后重试");
-                String base = "http://" + host + ":" + remotePort;
+                String base = "http://" + hostForUrl(host) + ":" + remotePort;
                 JSONObject created = requestJson("POST", base + "/carejournal/v1/sync", envelope, 30000);
                 String requestId = created.getString("requestId");
                 long deadline = System.currentTimeMillis() + 120000;
@@ -258,9 +273,12 @@ public class LanSyncPlugin extends Plugin {
                 return;
             }
             if ("GET".equals(method) && path.startsWith("/carejournal/v1/result/")) {
+                expirePending();
                 String requestId = path.substring("/carejournal/v1/result/".length());
                 PendingRequest request = pending.get(requestId);
-                if (request == null || (request.resultEnvelope == null && request.error == null)) {
+                if (request == null) {
+                    writeResponse(output, 410, new JSONObject().put("error", "同步请求已失效").toString());
+                } else if (request.resultEnvelope == null && request.error == null) {
                     writeResponse(output, 202, new JSONObject().put("status", "pending").toString());
                 } else if (request.error != null) {
                     pending.remove(requestId);
@@ -335,6 +353,158 @@ public class LanSyncPlugin extends Plugin {
         scheduler = Executors.newSingleThreadScheduledExecutor();
         scheduler.scheduleAtFixedRate(() -> announce(false), 0, 5, TimeUnit.SECONDS);
         announce(true);
+        startNsd();
+    }
+
+    private void startNsd() {
+        if (!active || serverSocket == null || serverSocket.isClosed()) return;
+        try {
+            nsdManager = (NsdManager) getContext().getApplicationContext().getSystemService(Context.NSD_SERVICE);
+        } catch (RuntimeException error) {
+            nsdManager = null;
+        }
+        if (nsdManager == null) return;
+        registerNsdService();
+        discoverNsdServices();
+    }
+
+    private void refreshNsd() {
+        executor.execute(() -> {
+            stopNsd();
+            if (active) startNsd();
+        });
+    }
+
+    private void registerNsdService() {
+        if (nsdManager == null || nsdRegistrationListener != null) return;
+        NsdServiceInfo serviceInfo = new NsdServiceInfo();
+        serviceInfo.setServiceType(NSD_SERVICE_TYPE);
+        serviceInfo.setServiceName(nsdServiceName(fingerprint));
+        serviceInfo.setPort(PORT);
+        try {
+            addNsdAttributes(serviceInfo, alias);
+        } catch (IllegalArgumentException error) {
+            return;
+        }
+        nsdRegistrationListener = new NsdManager.RegistrationListener() {
+            @Override
+            public void onServiceRegistered(NsdServiceInfo serviceInfo) {}
+
+            @Override
+            public void onRegistrationFailed(NsdServiceInfo serviceInfo, int errorCode) {
+                nsdRegistrationListener = null;
+            }
+
+            @Override
+            public void onServiceUnregistered(NsdServiceInfo serviceInfo) {}
+
+            @Override
+            public void onUnregistrationFailed(NsdServiceInfo serviceInfo, int errorCode) {}
+        };
+        try {
+            nsdManager.registerService(serviceInfo, NsdManager.PROTOCOL_DNS_SD, nsdRegistrationListener);
+        } catch (RuntimeException error) {
+            nsdRegistrationListener = null;
+        }
+    }
+
+    private void discoverNsdServices() {
+        if (nsdManager == null || nsdDiscoveryListener != null) return;
+        nsdDiscoveryListener = new NsdManager.DiscoveryListener() {
+            @Override
+            public void onDiscoveryStarted(String serviceType) {}
+
+            @Override
+            public void onServiceFound(NsdServiceInfo serviceInfo) {
+                if (!active || serviceInfo == null || !NSD_SERVICE_TYPE.equals(serviceInfo.getServiceType())) return;
+                resolveNsdService(serviceInfo);
+            }
+
+            @Override
+            public void onServiceLost(NsdServiceInfo serviceInfo) {}
+
+            @Override
+            public void onDiscoveryStopped(String serviceType) {}
+
+            @Override
+            public void onStartDiscoveryFailed(String serviceType, int errorCode) {
+                stopNsdDiscovery();
+            }
+
+            @Override
+            public void onStopDiscoveryFailed(String serviceType, int errorCode) {
+                stopNsdDiscovery();
+            }
+        };
+        try {
+            nsdManager.discoverServices(NSD_SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, nsdDiscoveryListener);
+        } catch (RuntimeException error) {
+            nsdDiscoveryListener = null;
+        }
+    }
+
+    private void resolveNsdService(NsdServiceInfo serviceInfo) {
+        String serviceName = serviceInfo.getServiceName();
+        if (serviceName == null) return;
+        if (!resolvingNsdServices.add(serviceName)) return;
+        NsdManager.ResolveListener listener = new NsdManager.ResolveListener() {
+            @Override
+            public void onResolveFailed(NsdServiceInfo serviceInfo, int errorCode) {
+                resolvingNsdServices.remove(serviceName);
+            }
+
+            @Override
+            public void onServiceResolved(NsdServiceInfo resolved) {
+                resolvingNsdServices.remove(serviceName);
+                handleResolvedNsdService(resolved);
+            }
+        };
+        try {
+            nsdManager.resolveService(serviceInfo, listener);
+        } catch (RuntimeException error) {
+            resolvingNsdServices.remove(serviceName);
+        }
+    }
+
+    private void handleResolvedNsdService(NsdServiceInfo resolved) {
+        if (!active || resolved == null) return;
+        NsdPeerRecord record = parseNsdPeerRecord(resolved);
+        if (record == null) return;
+        peers.put(record.fingerprint, new Peer(
+            record.fingerprint,
+            record.alias,
+            record.deviceType,
+            record.publicKey,
+            record.host,
+            record.port,
+            System.currentTimeMillis()
+        ));
+        notifyPeers();
+    }
+
+    private void stopNsd() {
+        stopNsdDiscovery();
+        if (nsdManager != null && nsdRegistrationListener != null) {
+            try {
+                nsdManager.unregisterService(nsdRegistrationListener);
+            } catch (IllegalArgumentException | IllegalStateException ignored) {
+                // Listener was not registered or Android NSD has already torn it down.
+            }
+        }
+        nsdRegistrationListener = null;
+        nsdManager = null;
+        resolvingNsdServices.clear();
+    }
+
+    private void stopNsdDiscovery() {
+        if (nsdManager != null && nsdDiscoveryListener != null) {
+            try {
+                nsdManager.stopServiceDiscovery(nsdDiscoveryListener);
+            } catch (IllegalArgumentException | IllegalStateException ignored) {
+                // Listener was not active or Android NSD has already stopped it.
+            }
+        }
+        nsdDiscoveryListener = null;
     }
 
     private void announce(boolean requestResponse) {
@@ -388,6 +558,109 @@ public class LanSyncPlugin extends Plugin {
             byte[] data = advertisement.toString().getBytes(StandardCharsets.UTF_8);
             multicastSocket.send(new java.net.DatagramPacket(data, data.length, address, PORT));
         } catch (Exception ignored) {}
+    }
+
+    private static String nsdServiceName(String fingerprint) {
+        return nsdServiceNamePrefix(fingerprint) + "-" + UUID.randomUUID().toString().replace("-", "").substring(0, 4);
+    }
+
+    static String nsdServiceNamePrefix(String fingerprint) {
+        String sanitized = fingerprint == null ? "" : fingerprint.replaceAll("[^A-Za-z0-9]", "").toLowerCase(java.util.Locale.ROOT);
+        if (sanitized.length() > 8) sanitized = sanitized.substring(0, 8);
+        while (sanitized.length() < 8) sanitized += "0";
+        return "cj-" + sanitized;
+    }
+
+    private void addNsdAttributes(NsdServiceInfo serviceInfo, String sourceAlias) {
+        String txtAlias = truncateUtf8(sourceAlias == null ? "" : sourceAlias, NSD_ALIAS_TARGET_BYTES);
+        serviceInfo.setAttribute("app", NSD_APP);
+        serviceInfo.setAttribute("v", NSD_VERSION);
+        serviceInfo.setAttribute("fp", fingerprint);
+        serviceInfo.setAttribute("pk", publicKey);
+        serviceInfo.setAttribute("dt", "mobile");
+        serviceInfo.setAttribute("alias", fitAliasForTxtBudget(txtAlias));
+    }
+
+    private String fitAliasForTxtBudget(String txtAlias) {
+        int fixedBytes = txtEntryBytes("app", NSD_APP)
+            + txtEntryBytes("v", NSD_VERSION)
+            + txtEntryBytes("fp", fingerprint)
+            + txtEntryBytes("pk", publicKey)
+            + txtEntryBytes("dt", "mobile");
+        int remaining = NSD_TXT_TARGET_BYTES - fixedBytes - "alias=".getBytes(StandardCharsets.UTF_8).length;
+        if (remaining <= 0) return "";
+        return truncateUtf8(txtAlias, Math.min(NSD_ALIAS_TARGET_BYTES, remaining));
+    }
+
+    private static int txtEntryBytes(String key, String value) {
+        return (key + "=" + (value == null ? "" : value)).getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    static String truncateUtf8(String value, int maxBytes) {
+        if (value == null || maxBytes <= 0) return "";
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length <= maxBytes) return value;
+        int end = 0;
+        int used = 0;
+        while (end < value.length()) {
+            int codePoint = value.codePointAt(end);
+            int count = new String(Character.toChars(codePoint)).getBytes(StandardCharsets.UTF_8).length;
+            if (used + count > maxBytes) break;
+            used += count;
+            end += Character.charCount(codePoint);
+        }
+        return value.substring(0, end);
+    }
+
+    NsdPeerRecord parseNsdPeerRecord(NsdServiceInfo serviceInfo) {
+        if (serviceInfo == null) return null;
+        if (!NSD_SERVICE_TYPE.equals(serviceInfo.getServiceType())) return null;
+        int port = serviceInfo.getPort();
+        if (port <= 0 || port > 65535) return null;
+        String app = nsdAttribute(serviceInfo, "app");
+        String version = nsdAttribute(serviceInfo, "v");
+        String remoteFingerprint = nsdAttribute(serviceInfo, "fp");
+        String remotePublicKey = nsdAttribute(serviceInfo, "pk");
+        String deviceType = nsdAttribute(serviceInfo, "dt");
+        String remoteAlias = nsdAttribute(serviceInfo, "alias");
+        if (!NSD_APP.equals(app) || !NSD_VERSION.equals(version)) return null;
+        if (remoteFingerprint.isEmpty() || remotePublicKey.isEmpty() || remoteAlias.isEmpty() || deviceType.isEmpty()) return null;
+        if (remoteFingerprint.equals(fingerprint)) return null;
+        InetAddress host = preferredNsdHost(serviceInfo);
+        if (host == null) return null;
+        return new NsdPeerRecord(
+            remoteFingerprint,
+            remoteAlias,
+            "web".equals(deviceType) ? "web" : "mobile",
+            remotePublicKey,
+            host.getHostAddress(),
+            port
+        );
+    }
+
+    private static InetAddress preferredNsdHost(NsdServiceInfo serviceInfo) {
+        if (Build.VERSION.SDK_INT >= 34) {
+            List<InetAddress> hosts = serviceInfo.getHostAddresses();
+            for (InetAddress address : hosts) {
+                if (address instanceof Inet4Address) return address;
+            }
+            if (!hosts.isEmpty()) return hosts.get(0);
+        }
+        return serviceInfo.getHost();
+    }
+
+    private static String nsdAttribute(NsdServiceInfo serviceInfo, String key) {
+        Map<String, byte[]> attributes = serviceInfo.getAttributes();
+        byte[] data = attributes == null ? null : attributes.get(key);
+        if (data == null || data.length == 0) return "";
+        return new String(data, StandardCharsets.UTF_8).trim();
+    }
+
+    static String hostForUrl(String host) {
+        if (host == null) return "";
+        String value = host.trim();
+        if (value.indexOf(':') >= 0 && !(value.startsWith("[") && value.endsWith("]"))) return "[" + value + "]";
+        return value;
     }
 
     @SuppressWarnings("deprecation")
@@ -508,6 +781,7 @@ public class LanSyncPlugin extends Plugin {
 
     private void stopInternal() {
         active = false;
+        stopNsd();
         if (scheduler != null) scheduler.shutdownNow();
         scheduler = null;
         if (multicastSocket != null) multicastSocket.close();
@@ -555,12 +829,14 @@ public class LanSyncPlugin extends Plugin {
 
     private static void writeResponse(BufferedOutputStream output, int status, String body) throws IOException {
         byte[] data = body.getBytes(StandardCharsets.UTF_8);
-        String reason = status == 200 ? "OK" : status == 202 ? "Accepted" : status == 204 ? "No Content" : "Error";
+        String reason = status == 200 ? "OK" : status == 202 ? "Accepted" : status == 204 ? "No Content" : status == 404 ? "Not Found" : status == 409 ? "Conflict" : status == 410 ? "Gone" : "Error";
         String headers = "HTTP/1.1 " + status + " " + reason + "\r\n"
             + "Content-Type: application/json; charset=utf-8\r\n"
             + "Content-Length: " + data.length + "\r\n"
             + "Cache-Control: no-store\r\n"
             + "Access-Control-Allow-Origin: *\r\n"
+            + "Access-Control-Allow-Headers: Content-Type, X-CareJournal-Alias, X-CareJournal-Fingerprint\r\n"
+            + "Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n"
             + "Connection: close\r\n\r\n";
         output.write(headers.getBytes(StandardCharsets.UTF_8));
         output.write(data);
@@ -596,7 +872,10 @@ public class LanSyncPlugin extends Plugin {
         if (stream != null) {
             byte[] buffer = new byte[8192];
             int count;
-            while ((count = stream.read(buffer)) >= 0) output.write(buffer, 0, count);
+            while ((count = stream.read(buffer)) >= 0) {
+                if (output.size() + count > MAX_BODY_BYTES) throw new IOException("远程设备返回内容过大");
+                output.write(buffer, 0, count);
+            }
             stream.close();
         }
         connection.disconnect();
@@ -623,6 +902,11 @@ public class LanSyncPlugin extends Plugin {
 
     private static String safeMessage(Exception error) {
         return error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+    }
+
+    private void expirePending() {
+        long cutoff = System.currentTimeMillis() - PENDING_TTL_MS;
+        pending.entrySet().removeIf(entry -> entry.getValue().createdAt < cutoff);
     }
 
     private static class Peer {
@@ -662,10 +946,29 @@ public class LanSyncPlugin extends Plugin {
         final String envelope;
         volatile String resultEnvelope;
         volatile String error;
+        final long createdAt = System.currentTimeMillis();
 
         PendingRequest(String requestId, String envelope) {
             this.requestId = requestId;
             this.envelope = envelope;
+        }
+    }
+
+    static class NsdPeerRecord {
+        final String fingerprint;
+        final String alias;
+        final String deviceType;
+        final String publicKey;
+        final String host;
+        final int port;
+
+        NsdPeerRecord(String fingerprint, String alias, String deviceType, String publicKey, String host, int port) {
+            this.fingerprint = fingerprint;
+            this.alias = alias;
+            this.deviceType = deviceType;
+            this.publicKey = publicKey;
+            this.host = host;
+            this.port = port;
         }
     }
 
