@@ -1,5 +1,13 @@
 # ChangeLog
 
+## v0.19.19 (2026-08-04)
+
+- 新增 Capacitor iOS 工程、原生 SQLite 配置和 Swift `NativeImageStorage` 插件，图片/PDF 可写入启用文件保护的应用私有目录，并支持素材读取和垃圾清理。
+- iOS 接入现有相机/图片/PDF 选择、备份导出、原生 HTTP 与启动桥接；新增相机/相册权限说明、Privacy Manifest 和 Xcode 工程静态校验脚本。
+- 新增跨平台 Bonjour/mDNS 发现通道：iOS 使用 `NWBrowser + NWListener` 实现前台发现和现有 HTTP 同步协议，Android 通过 `NsdManager`、HarmonyOS 通过 NetworkKit mDNS 发布和发现服务，同时保留 Android/Harmony 原有 UDP 发现兼容性。
+- iOS 局域网同步仅保证应用保持前台时运行；当前 iOS 工程尚未经过 macOS/Xcode、CocoaPods、模拟器或真机验证，不纳入公开 Release。
+- 修正应用内隐私说明和 Harmony 文档中对局域网同步加密状态的错误描述：同步不经过开发者服务器，但当前没有额外的应用层加密，只应在可信 Wi-Fi 下使用。
+
 ## v0.19.18 (2026-08-03)
 
 - Android/Harmony 系统强制启动窗改为同色纯背景并隐藏默认图标，视觉上只保留一个原生开屏。开屏中显示 App 图标和两行矢量 slogan，至少停留 2 秒，且本地数据未读取完时会继续保持；就绪后才淡出，不再露出 Web loading 页。
