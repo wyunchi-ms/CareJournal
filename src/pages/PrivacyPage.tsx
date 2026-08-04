@@ -9,7 +9,7 @@ export function PrivacyPage() {
           返回设置
         </a>
         <div>
-          <span>更新日期：2026年7月29日</span>
+          <span>更新日期：2026年8月4日</span>
           <h1>隐私说明</h1>
           <p>CareJournal 是个人维护的公益开源工具，不提供账号、广告或开发者运营的云端服务。</p>
         </div>
@@ -38,7 +38,7 @@ export function PrivacyPage() {
 
         <section className="privacy-section card">
           <div className="privacy-section-heading"><Network aria-hidden="true" /><h2>局域网同步</h2></div>
-          <p>局域网同步只在你主动开启、选择设备并确认后发生。两台设备会自动协商临时密钥并加密传输，不需要输入配对码，也不经过项目维护者的服务器。LLM 配置和 OCR 队列不会同步。</p>
+          <p>局域网同步只在你主动开启、选择设备并确认后发生，不经过项目维护者的服务器。当前同步数据没有额外的应用层加密，请只在可信 Wi-Fi 下使用；iOS 使用 Bonjour 在应用保持前台时发现并同步设备。LLM 配置和 OCR 队列不会同步。</p>
         </section>
 
         <section className="privacy-section card">
