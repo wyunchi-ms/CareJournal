@@ -34,7 +34,7 @@ React/Vite 应用，ArkWeb 只承担渲染；ArkTS 桥接负责关系型数据�
 - 系统文件选择、拍照入口、图片全屏预览、PDF 分页预览和备份文件保存。
 - PDF 文本提取；扫描件与图片可先经本地 PaddleOCR 脱敏，再发送给 LLM。
 - Azure OpenAI、DeepSeek 及其他 OpenAI-compatible 服务由 ArkTS 原生 HTTP 请求。
-- 与 Android/Web 使用相同的端到端加密局域网同步协议，无配对码。
+- 与 Android/Web 使用相同的局域网同步协议，无配对码；当前没有额外的应用层加密，只应在可信 Wi-Fi 下使用。
 - 系统返回键关闭最上层弹窗或返回上一页，根页面再次返回时退出应用。
 - 手机、平板和 2in1 共用响应式布局。
 
