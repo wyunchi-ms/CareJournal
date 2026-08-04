@@ -12,4 +12,5 @@ if [[ ! -d ios ]]; then
   npx cap add ios
 fi
 npx cap sync ios
-echo "Open ios/App/App.xcworkspace in Xcode, configure Team and signing, then Archive for distribution."
+npm run ios:verify
+echo "Open ios/App/App.xcworkspace in Xcode, configure Team and signing, then build on a simulator before using Archive."
