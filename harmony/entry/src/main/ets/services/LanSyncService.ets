@@ -1,5 +1,5 @@
 import { common } from '@kit.AbilityKit';
-import { connection, http, socket } from '@kit.NetworkKit';
+import { connection, http, mdns, socket } from '@kit.NetworkKit';
 import { preferences } from '@kit.ArkData';
 import { util } from '@kit.ArkTS';
 import runningLock from '@ohos.runningLock';
@@ -8,10 +8,20 @@ const PORT: number = 53318;
 const MULTICAST_ADDRESS: string = '224.0.0.167';
 const BROADCAST_ADDRESS: string = '255.255.255.255';
 const PEER_TTL_MS: number = 90000;
-const PENDING_TTL_MS: number = 5 * 60 * 1000;
+const PENDING_TTL_MS: number = 125 * 1000;
 const MAX_HEADER_BYTES: number = 32 * 1024;
 const MAX_BODY_BYTES: number = 300 * 1024 * 1024;
 const CLIENT_REQUEST_TIMEOUT_MS: number = 30000;
+const MDNS_SERVICE_TYPE: string = '_carejournal._tcp';
+const MDNS_TXT_VERSION: string = '4';
+const MDNS_SERVICE_NAME_PREFIX: string = 'cj-';
+const MDNS_MAX_LABEL_BYTES: number = 63;
+const MDNS_MAX_TXT_BYTES: number = 255;
+const MDNS_MAX_ALIAS_BYTES: number = 96;
+const MDNS_MAX_FINGERPRINT_BYTES: number = 128;
+const MDNS_MAX_PUBLIC_KEY_BYTES: number = 240;
+const MDNS_MAX_TOTAL_TXT_BYTES: number = 400;
+const MDNS_TXT_KEYS: string[] = ['app', 'v', 'fp', 'pk', 'dt', 'alias'];
 
 interface PeerAdvertisement {
   app: string;
@@ -52,6 +62,13 @@ interface RawHttpResult {
   body: string;
 }
 
+interface MdnsPeerAdvertisement {
+  alias: string;
+  deviceType: string;
+  fingerprint: string;
+  publicKey: string;
+}
+
 class PeersChangedEvent {
   type: string = 'peersChanged';
   peers: LanPeer[];
@@ -88,6 +105,10 @@ export class LanSyncService {
   private fingerprint: string = '';
   private active: boolean = false;
   private announceTimer: number = -1;
+  private mdnsLocalService?: mdns.LocalServiceInfo;
+  private mdnsDiscovery?: mdns.DiscoveryService;
+  private mdnsServiceFoundCallback?: (serviceInfo: mdns.LocalServiceInfo) => void;
+  private mdnsServiceLostCallback?: (serviceInfo: mdns.LocalServiceInfo) => void;
   private transferLock?: runningLock.RunningLock;
   private transferLockPromise?: Promise<void>;
 
@@ -115,6 +136,7 @@ export class LanSyncService {
     try {
       await this.startServer();
       await this.startDiscovery();
+      await this.startMdns().catch(() => undefined);
       this.announceTimer = setInterval(() => {
         this.announce(false).catch(() => undefined);
         this.expirePending();
@@ -142,6 +164,7 @@ export class LanSyncService {
       await this.udp.dropMembership({ address: MULTICAST_ADDRESS, port: PORT }).catch(() => undefined);
       await this.udp.close().catch(() => undefined);
     }
+    await this.stopMdns().catch(() => undefined);
     if (this.server) await this.server.close().catch(() => undefined);
     this.udp = undefined;
     this.server = undefined;
@@ -155,6 +178,7 @@ export class LanSyncService {
   async refresh(): Promise<void> {
     if (!this.active) throw new Error('局域网同步尚未开启');
     await this.announce(true);
+    await this.refreshMdns().catch(() => undefined);
     this.emitPeers();
   }
 
@@ -200,7 +224,7 @@ export class LanSyncService {
   async sendSync(host: string, port: number, envelope: string): Promise<string> {
     const known = this.sortedPeers().some((peer) => peer.host === host && peer.port === port);
     if (!known) throw new Error('目标设备不在当前发现列表中，请刷新后重试');
-    const base = `http://${host}:${port}`;
+    const base = this.httpBaseUrl(host, port);
     const created = await this.requestJson(http.RequestMethod.POST, `${base}/carejournal/v1/sync`, envelope, 30000);
     const requestId = String(created['requestId'] ?? '');
     if (!requestId) throw new Error('目标设备未返回同步请求编号');
@@ -302,6 +326,268 @@ export class LanSyncService {
       data: JSON.stringify(this.advertisement(false)),
       address: { address, port: PORT }
     });
+  }
+
+  private async startMdns(): Promise<void> {
+    await this.registerMdnsService();
+    this.startMdnsSearch();
+  }
+
+  private async refreshMdns(): Promise<void> {
+    if (!this.active) return;
+    if (!this.mdnsLocalService) await this.registerMdnsService();
+    if (!this.mdnsDiscovery) this.startMdnsSearch();
+  }
+
+  private async registerMdnsService(): Promise<void> {
+    if (!this.active || this.mdnsLocalService) return;
+    const serviceInfo: mdns.LocalServiceInfo = {
+      serviceType: MDNS_SERVICE_TYPE,
+      serviceName: this.mdnsServiceName(),
+      port: PORT,
+      serviceAttribute: this.mdnsServiceAttributes()
+    };
+    this.mdnsLocalService = await mdns.addLocalService(this.context, serviceInfo);
+  }
+
+  private startMdnsSearch(): void {
+    if (!this.active || this.mdnsDiscovery) return;
+    const discovery = mdns.createDiscoveryService(this.context, MDNS_SERVICE_TYPE);
+    const found = (serviceInfo: mdns.LocalServiceInfo) => {
+      this.handleMdnsServiceFound(serviceInfo).catch(() => undefined);
+    };
+    const lost = (_serviceInfo: mdns.LocalServiceInfo) => {
+      if (!this.active) return;
+      this.expirePeers();
+      this.emitPeers();
+    };
+    discovery.on('serviceFound', found);
+    discovery.on('serviceLost', lost);
+    discovery.startSearchingMDNS();
+    this.mdnsDiscovery = discovery;
+    this.mdnsServiceFoundCallback = found;
+    this.mdnsServiceLostCallback = lost;
+  }
+
+  private async stopMdns(): Promise<void> {
+    const discovery = this.mdnsDiscovery;
+    if (discovery) {
+      try {
+        discovery.stopSearchingMDNS();
+      } catch (_) {
+        // Discovery may already be stopped by the platform.
+      }
+      if (this.mdnsServiceFoundCallback) {
+        try {
+          discovery.off('serviceFound', this.mdnsServiceFoundCallback);
+        } catch (_) {
+          // Ignore stale callback cleanup errors.
+        }
+      }
+      if (this.mdnsServiceLostCallback) {
+        try {
+          discovery.off('serviceLost', this.mdnsServiceLostCallback);
+        } catch (_) {
+          // Ignore stale callback cleanup errors.
+        }
+      }
+    }
+    this.mdnsDiscovery = undefined;
+    this.mdnsServiceFoundCallback = undefined;
+    this.mdnsServiceLostCallback = undefined;
+
+    const localService = this.mdnsLocalService;
+    this.mdnsLocalService = undefined;
+    if (localService) await mdns.removeLocalService(this.context, localService).catch(() => undefined);
+  }
+
+  private async handleMdnsServiceFound(serviceInfo: mdns.LocalServiceInfo): Promise<void> {
+    if (!this.active || serviceInfo.serviceType !== MDNS_SERVICE_TYPE) return;
+    let resolved = serviceInfo;
+    try {
+      resolved = await mdns.resolveLocalService(this.context, serviceInfo);
+    } catch (_) {
+      if (!serviceInfo.host || !serviceInfo.host.address) return;
+    }
+    if (!this.active) return;
+    const advertisement = this.parseMdnsPeerAdvertisement(resolved);
+    if (!advertisement || advertisement.fingerprint === this.fingerprint) return;
+    const host = resolved.host?.address ?? '';
+    if (!host) return;
+    const resolvedPort = resolved.port ?? resolved.host?.port ?? PORT;
+    const port = this.validPort(resolvedPort) ? resolvedPort : PORT;
+    this.upsertPeer(
+      advertisement.fingerprint,
+      advertisement.alias,
+      advertisement.deviceType,
+      advertisement.publicKey,
+      host,
+      port
+    );
+  }
+
+  private mdnsServiceName(): string {
+    const source = (this.fingerprint || util.generateRandomUUID(true)).toLowerCase();
+    let safe = '';
+    for (let index = 0; index < source.length; index += 1) {
+      const code = source.charCodeAt(index);
+      const isDigit = code >= 48 && code <= 57;
+      const isLetter = code >= 97 && code <= 122;
+      if (isDigit || isLetter || source[index] === '-') safe += source[index];
+    }
+    safe = this.trimHyphen(safe) || 'device';
+    let name = `${MDNS_SERVICE_NAME_PREFIX}${safe}`;
+    while (new util.TextEncoder().encodeInto(name).byteLength > MDNS_MAX_LABEL_BYTES) {
+      name = name.slice(0, Math.max(MDNS_SERVICE_NAME_PREFIX.length + 1, name.length - 1));
+      name = this.trimHyphen(name);
+    }
+    return name.startsWith(MDNS_SERVICE_NAME_PREFIX) ? name : `${MDNS_SERVICE_NAME_PREFIX}device`;
+  }
+
+  private trimHyphen(value: string): string {
+    let result = value;
+    while (result.startsWith('-')) result = result.slice(1);
+    while (result.endsWith('-')) result = result.slice(0, result.length - 1);
+    return result;
+  }
+
+  private mdnsServiceAttributes(): Array<mdns.ServiceAttribute> {
+    const attributes = [
+      this.mdnsAttribute('app', 'carejournal'),
+      this.mdnsAttribute('v', MDNS_TXT_VERSION),
+      this.mdnsAttribute('fp', this.fingerprint),
+      this.mdnsAttribute('pk', this.publicKey),
+      this.mdnsAttribute('dt', 'mobile'),
+      this.mdnsAttribute('alias', this.alias)
+    ];
+    const total = attributes.reduce((sum, attribute) => sum + attribute.key.length + 1 + attribute.value.length, 0);
+    if (total > MDNS_MAX_TOTAL_TXT_BYTES) {
+      const fixed = total - attributes[attributes.length - 1].value.length;
+      const aliasBudget = Math.max(0, Math.min(MDNS_MAX_ALIAS_BYTES, MDNS_MAX_TOTAL_TXT_BYTES - fixed));
+      attributes[attributes.length - 1] = this.mdnsAttribute('alias', this.truncateUtf8(this.alias, aliasBudget));
+    }
+    return attributes;
+  }
+
+  private truncateUtf8(value: string, maxBytes: number): string {
+    if (maxBytes <= 0) return '';
+    let result = '';
+    for (const character of value) {
+      const candidate = result + character;
+      if (new util.TextEncoder().encodeInto(candidate).byteLength > maxBytes) break;
+      result = candidate;
+    }
+    return result;
+  }
+
+  private mdnsAttribute(key: string, value: string): mdns.ServiceAttribute {
+    if (!this.isValidMdnsTxtKey(key)) throw new Error('mDNS TXT key invalid');
+    const bytes = new util.TextEncoder().encodeInto(value);
+    if (key.length + 1 + bytes.byteLength > MDNS_MAX_TXT_BYTES) throw new Error('mDNS TXT value too long');
+    return { key, value: Array.from(bytes) };
+  }
+
+  private parseMdnsPeerAdvertisement(serviceInfo: mdns.LocalServiceInfo): MdnsPeerAdvertisement | undefined {
+    const attributes = serviceInfo.serviceAttribute;
+    if (!attributes || attributes.length !== MDNS_TXT_KEYS.length) return undefined;
+    const values: Map<string, string> = new Map();
+    let totalBytes = 0;
+    for (const attribute of attributes) {
+      if (!this.isValidMdnsTxtKey(attribute.key) || !MDNS_TXT_KEYS.includes(attribute.key) || values.has(attribute.key)) {
+        return undefined;
+      }
+      const value = this.decodeMdnsTxtValue(attribute.key, attribute.value);
+      if (value === undefined) return undefined;
+      totalBytes += attribute.key.length + 1 + attribute.value.length;
+      if (totalBytes > MDNS_MAX_TOTAL_TXT_BYTES) return undefined;
+      values.set(attribute.key, value);
+    }
+    if (values.get('app') !== 'carejournal' || values.get('v') !== MDNS_TXT_VERSION) return undefined;
+    const fingerprint = values.get('fp') ?? '';
+    const publicKey = values.get('pk') ?? '';
+    const deviceType = values.get('dt') ?? '';
+    const alias = values.get('alias') ?? '';
+    if (!fingerprint || !publicKey || !this.validMdnsDeviceType(deviceType)) return undefined;
+    return { alias: alias || 'CareJournal 设备', deviceType, fingerprint, publicKey };
+  }
+
+  private decodeMdnsTxtValue(key: string, value: Array<number>): string | undefined {
+    if (!value) return undefined;
+    if (key.length + 1 + value.length > MDNS_MAX_TXT_BYTES) return undefined;
+    if (key === 'alias' && value.length > MDNS_MAX_ALIAS_BYTES) return undefined;
+    if (key === 'fp' && value.length > MDNS_MAX_FINGERPRINT_BYTES) return undefined;
+    if (key === 'pk' && value.length > MDNS_MAX_PUBLIC_KEY_BYTES) return undefined;
+    const bytes = new Uint8Array(value.length);
+    for (let index = 0; index < value.length; index += 1) {
+      const byte = value[index];
+      if (!Number.isInteger(byte) || byte < 0 || byte > 255) return undefined;
+      bytes[index] = byte;
+    }
+    if (!this.isValidUtf8(bytes)) return undefined;
+    return new util.TextDecoder().decodeToString(bytes);
+  }
+
+  private isValidMdnsTxtKey(key: string): boolean {
+    if (!key || key.length > 9) return false;
+    for (let index = 0; index < key.length; index += 1) {
+      const code = key.charCodeAt(index);
+      const lower = code >= 97 && code <= 122;
+      const digit = code >= 48 && code <= 57;
+      if (!lower && !digit) return false;
+    }
+    return true;
+  }
+
+  private validMdnsDeviceType(deviceType: string): boolean {
+    return deviceType === 'mobile' || deviceType === 'web';
+  }
+
+  private validPort(port: number): boolean {
+    return Number.isInteger(port) && port > 0 && port <= 65535;
+  }
+
+  private isValidUtf8(bytes: Uint8Array): boolean {
+    let index = 0;
+    while (index < bytes.byteLength) {
+      const first = bytes[index];
+      if (first <= 0x7F) {
+        index += 1;
+        continue;
+      }
+      let needed = 0;
+      let codePoint = 0;
+      if (first >= 0xC2 && first <= 0xDF) {
+        needed = 1;
+        codePoint = first & 0x1F;
+      } else if (first >= 0xE0 && first <= 0xEF) {
+        needed = 2;
+        codePoint = first & 0x0F;
+      } else if (first >= 0xF0 && first <= 0xF4) {
+        needed = 3;
+        codePoint = first & 0x07;
+      } else {
+        return false;
+      }
+      if (index + needed >= bytes.byteLength) return false;
+      for (let offset = 1; offset <= needed; offset += 1) {
+        const next = bytes[index + offset];
+        if ((next & 0xC0) !== 0x80) return false;
+        codePoint = (codePoint << 6) | (next & 0x3F);
+      }
+      if ((needed === 2 && codePoint < 0x800) ||
+        (needed === 3 && codePoint < 0x10000) ||
+        codePoint > 0x10FFFF ||
+        (codePoint >= 0xD800 && codePoint <= 0xDFFF)) {
+        return false;
+      }
+      index += needed + 1;
+    }
+    return true;
+  }
+
+  private httpBaseUrl(host: string, port: number): string {
+    const safeHost = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+    return `http://${safeHost}:${port}`;
   }
 
   private async directedBroadcastAddress(): Promise<string> {
@@ -441,9 +727,12 @@ export class LanSyncService {
         return;
       }
       if (request.method === 'GET' && request.path.startsWith('/carejournal/v1/result/')) {
+        this.expirePending();
         const requestId = request.path.slice('/carejournal/v1/result/'.length);
         const pending = this.pending.get(requestId);
-        if (!pending || (!pending.resultEnvelope && !pending.error)) {
+        if (!pending) {
+          await this.respond(client, 410, JSON.stringify({ error: '同步请求已失效' }));
+        } else if (!pending.resultEnvelope && !pending.error) {
           await this.respond(client, 202, JSON.stringify({ status: 'pending' }));
         } else if (pending.error) {
           this.pending.delete(requestId);
@@ -462,7 +751,8 @@ export class LanSyncService {
 
   private async respond(client: socket.TCPSocketConnection, status: number, body: string): Promise<void> {
     const reason = status === 200 ? 'OK' : status === 202 ? 'Accepted' :
-      status === 204 ? 'No Content' : status === 404 ? 'Not Found' : 'Error';
+      status === 204 ? 'No Content' : status === 404 ? 'Not Found' :
+        status === 409 ? 'Conflict' : status === 410 ? 'Gone' : 'Error';
     const data = new util.TextEncoder().encodeInto(body);
     const headers = `HTTP/1.1 ${status} ${reason}\r\n` +
       'Content-Type: application/json; charset=utf-8\r\n' +
@@ -514,9 +804,13 @@ export class LanSyncService {
         readTimeout: timeout,
         expectDataType: http.HttpDataType.STRING
       });
+      const responseBody = String(response.result ?? '');
+      if (new util.TextEncoder().encodeInto(responseBody).byteLength > MAX_BODY_BYTES) {
+        throw new Error('远程设备返回内容过大');
+      }
       return {
         status: response.responseCode,
-        body: String(response.result ?? '')
+        body: responseBody
       };
     } finally {
       client.destroy();
