@@ -1,7 +1,7 @@
 {
   "name": "carejournal",
   "private": true,
-  "version": "0.19.19",
+  "version": "0.19.20",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -18,7 +18,10 @@
     "ios:verify": "node scripts/verify-ios-project.mjs",
     "harmony:sync": "node scripts/build-harmony-web.mjs && node scripts/sync-harmony-assets.mjs",
     "harmony:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-harmony.ps1",
-    "release": "pwsh -NoProfile -File scripts/publish-release.ps1"
+    "release": "pwsh -NoProfile -File scripts/publish-release.ps1",
+    "tauri": "tauri",
+    "tauri:build": "tauri build --no-bundle",
+    "tauri:build:portable": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build-tauri-portable.ps1"
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^7.0.1",
@@ -28,6 +31,7 @@
     "@capacitor/filesystem": "^7.1.4",
     "@capacitor/ios": "^7.4.3",
     "@paddleocr/paddleocr-js": "^0.4.2",
+    "@tauri-apps/api": "^2.2.0",
     "date-fns": "^4.1.0",
     "dexie": "^4.2.1",
     "echarts": "^6.0.0",
@@ -48,6 +52,7 @@
     "@types/jszip": "^3.4.1",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
+    "@tauri-apps/cli": "^2.2.7",
     "@vitejs/plugin-react": "^5.1.1",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
