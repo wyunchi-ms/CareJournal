@@ -1,7 +1,7 @@
 {
   "name": "carejournal",
   "private": true,
-  "version": "0.19.18",
+  "version": "0.19.19",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,6 +14,8 @@
     "lint": "eslint .",
     "android:sync": "npm run build && cap sync android",
     "android:release": "pwsh -NoProfile -File scripts/build-android-release.ps1",
+    "ios:sync": "npm run build && cap sync ios",
+    "ios:verify": "node scripts/verify-ios-project.mjs",
     "harmony:sync": "node scripts/build-harmony-web.mjs && node scripts/sync-harmony-assets.mjs",
     "harmony:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-harmony.ps1",
     "release": "pwsh -NoProfile -File scripts/publish-release.ps1"
@@ -24,6 +26,7 @@
     "@capacitor/app": "^7.1.2",
     "@capacitor/core": "^7.4.3",
     "@capacitor/filesystem": "^7.1.4",
+    "@capacitor/ios": "^7.4.3",
     "@paddleocr/paddleocr-js": "^0.4.2",
     "date-fns": "^4.1.0",
     "dexie": "^4.2.1",

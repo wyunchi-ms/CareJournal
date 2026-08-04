@@ -7,6 +7,11 @@ const config: CapacitorConfig = {
   android: {
     backgroundColor: '#f6fafb',
   },
+  plugins: {
+    CapacitorSQLite: {
+      iosDatabaseLocation: 'Library/CapacitorDatabase',
+    },
+  },
 }
 
 export default config
