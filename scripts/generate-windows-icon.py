@@ -1,19 +1,9 @@
+"""Backward-compatible entry point for the unified cross-platform icon generator."""
+
+import runpy
+import sys
 from pathlib import Path
 
-from PIL import Image
 
-
-ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "android" / "app" / "src" / "main" / "res" / "mipmap-xxxhdpi" / "ic_launcher.png"
-TARGET = ROOT / "src-tauri" / "icons" / "icon.ico"
-
-
-def main() -> None:
-    with Image.open(SOURCE) as source:
-        icon = source.convert("RGBA").resize((256, 256), Image.Resampling.LANCZOS)
-        TARGET.parent.mkdir(parents=True, exist_ok=True)
-        icon.save(TARGET, format="ICO", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-
-
-if __name__ == "__main__":
-    main()
+sys.argv = [sys.argv[0], "--platform", "desktop"]
+runpy.run_path(str(Path(__file__).with_name("generate-app-icons.py")), run_name="__main__")

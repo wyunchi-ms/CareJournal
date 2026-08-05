@@ -19,7 +19,9 @@ try {
   python (Join-Path $PSScriptRoot 'generate-windows-icon.py')
   if ($LASTEXITCODE -ne 0) { throw 'Windows icon generation failed' }
   npm run build
+  if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed' }
   npm exec -- tauri build --no-bundle
+  if ($LASTEXITCODE -ne 0) { throw 'Tauri build failed' }
 } finally {
   Pop-Location
 }
