@@ -294,6 +294,26 @@ async function createPortableCatalog(records: ExamRecord[], reimbursementPlans: 
   }
 }
 
+function remapAssetReferences<T extends StoredImage>(image: T, assetIds: Map<string, string>): T {
+  if (!image.assetId) return image
+  const assetId = assetIds.get(image.assetId)
+  return assetId && assetId !== image.assetId ? { ...image, assetId } : image
+}
+
+function remapRecordAssets(record: ExamRecord, assetIds: Map<string, string>): ExamRecord {
+  return { ...record, images: record.images.map((image) => remapAssetReferences(image, assetIds)) }
+}
+
+function remapPlanAssets(plan: ReimbursementPlan, assetIds: Map<string, string>): ReimbursementPlan {
+  return {
+    ...plan,
+    materials: plan.materials.map((material) => ({
+      ...material,
+      attachments: material.attachments.map((attachment) => remapAssetReferences(attachment, assetIds)),
+    })),
+  }
+}
+
 export async function exportBackup(
   events: TreatmentEvent[],
   chemotherapyTemplates: ChemotherapyTemplate[],
@@ -308,7 +328,9 @@ export async function exportBackup(
   const zip = new JSZip()
   const manifest: BackupAssetManifestEntry[] = []
   const seenContent = new Map<string, string>()
+  const seenAssets = new Set<string>()
   const payloadAssets: MediaAsset[] = []
+  const repairedAssetIds = new Map<string, string>()
 
   for (const sourceAsset of assets) {
     validateAllowedMimeType(sourceAsset.mimeType)
@@ -316,23 +338,27 @@ export async function exportBackup(
     validateMagicBytes(bytes, sourceAsset.mimeType)
     if (bytes.byteLength > MAX_ASSET_BYTES) throw new Error('单个备份素材不能超过 48MiB')
     const sha256 = await sha256Hex(bytes)
-    if (sourceAsset.sha256 && sourceAsset.sha256 !== sha256) throw new Error('备份素材校验失败')
-    const asset: MediaAsset = { ...sourceAsset, sha256, dataUrl: '' }
+    const id = `sha256:${sha256}`
+    repairedAssetIds.set(sourceAsset.id, id)
+    const asset: MediaAsset = { ...sourceAsset, id, sha256, dataUrl: '' }
     const path = seenContent.get(sha256) ?? `assets/${sha256}.${extensionForAsset(asset)}`
     seenContent.set(sha256, path)
     if (!zip.file(path)) zip.file(path, bytes)
-    payloadAssets.push(asset)
-    manifest.push({
-      id: asset.id,
-      name: asset.name,
-      mimeType: asset.mimeType,
-      size: bytes.byteLength,
-      sha256,
-      path,
-      visualFingerprint: asset.visualFingerprint,
-      createdAt: asset.createdAt,
-      updatedAt: asset.updatedAt,
-    })
+    if (!seenAssets.has(id)) {
+      seenAssets.add(id)
+      payloadAssets.push(asset)
+      manifest.push({
+        id: asset.id,
+        name: asset.name,
+        mimeType: asset.mimeType,
+        size: bytes.byteLength,
+        sha256,
+        path,
+        visualFingerprint: asset.visualFingerprint,
+        createdAt: asset.createdAt,
+        updatedAt: asset.updatedAt,
+      })
+    }
   }
 
   const payload: BackupPayload = {
@@ -341,9 +367,9 @@ export async function exportBackup(
     assets: payloadAssets,
     events,
     chemotherapyTemplates,
-    records: catalog.records.map(compactRecordMedia),
+    records: catalog.records.map((record) => compactRecordMedia(remapRecordAssets(record, repairedAssetIds))),
     pins,
-    reimbursementPlans: catalog.reimbursementPlans.map(compactReimbursementMedia),
+    reimbursementPlans: catalog.reimbursementPlans.map((plan) => compactReimbursementMedia(remapPlanAssets(plan, repairedAssetIds))),
     preferences: portablePreferences(preferences),
   }
   const wrapper: ZipBackupWrapper = { format: ZIP_FORMAT, exportedAt: payload.exportedAt, payload, assetManifest: manifest }

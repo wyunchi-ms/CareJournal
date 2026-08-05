@@ -256,6 +256,40 @@ describe('backup media asset ZIP format', () => {
     expect(imported.assets?.[0].dataUrl).toBe(sharedImage.dataUrl)
   })
 
+  it('repairs stale historical sha256 values from the actual materialized bytes', async () => {
+    const staleRecord: ExamRecord = {
+      ...record,
+      images: [{ ...sharedImage, sha256: 'stale-historical-hash', assetId: 'sha256:stale-historical-hash' }],
+    }
+
+    const blob = await exportBackup([], [], [staleRecord], [], [], preferences)
+    const { wrapper } = await openBackup(blob)
+
+    expect(wrapper.payload.assets).toHaveLength(1)
+    expect(wrapper.payload.assets?.[0]).toMatchObject({ id: `sha256:${sharedHash}`, sha256: sharedHash })
+    expect(wrapper.payload.records[0].images[0]).toMatchObject({ assetId: `sha256:${sharedHash}` })
+    await expect(importBackup(blobFile(blob))).resolves.toMatchObject({
+      assets: [expect.objectContaining({ id: `sha256:${sharedHash}`, sha256: sharedHash })],
+    })
+  })
+
+  it('deduplicates different stale hashes that resolve to the same actual bytes', async () => {
+    const staleRecord: ExamRecord = {
+      ...record,
+      images: [
+        { ...sharedImage, id: 'old-a', sha256: 'old-a', assetId: 'sha256:old-a' },
+        { ...sharedImage, id: 'old-b', sha256: 'old-b', assetId: 'sha256:old-b' },
+      ],
+    }
+
+    const blob = await exportBackup([], [], [staleRecord], [], [], preferences)
+    const { wrapper } = await openBackup(blob)
+
+    expect(wrapper.payload.assets).toHaveLength(1)
+    expect(wrapper.assetManifest).toHaveLength(1)
+    expect(wrapper.payload.records[0].images.every((image) => image.assetId === `sha256:${sharedHash}`)).toBe(true)
+  })
+
   it('rejects unsafe asset paths and undeclared archive entries', async () => {
     const blob = await exportBackup([], [], [record], [], [], preferences)
     const { zip, wrapper } = await openBackup(blob)
