@@ -6,6 +6,11 @@ const isHarmonyBuild = process.env.CAREJOURNAL_HARMONY_BUILD === '1'
 export default defineConfig({
   plugins: [react()],
   base: './',
+  server: {
+    host: '127.0.0.1',
+    port: 14207,
+    strictPort: true,
+  },
   build: isHarmonyBuild ? {
     cssCodeSplit: false,
     rollupOptions: {
@@ -14,13 +19,6 @@ export default defineConfig({
       },
     },
   } : undefined,
-  server: {
-    proxy: {
-      '/api/llm': 'http://127.0.0.1:8787',
-      '/api/azure-openai': 'http://127.0.0.1:8787',
-      '/api/lan': 'http://127.0.0.1:8787',
-    },
-  },
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
