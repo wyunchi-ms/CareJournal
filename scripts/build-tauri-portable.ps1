@@ -16,6 +16,8 @@ if (-not (Test-Path -LiteralPath $tauriDir)) {
 
 Push-Location $repoRoot
 try {
+  python (Join-Path $PSScriptRoot 'generate-windows-icon.py')
+  if ($LASTEXITCODE -ne 0) { throw 'Windows icon generation failed' }
   npm run build
   npm exec -- tauri build --no-bundle
 } finally {
