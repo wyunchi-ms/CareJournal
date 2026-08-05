@@ -572,6 +572,12 @@ progress::-moz-progress-bar { border-radius: 999px; background: var(--primary); 
 .background-ocr-status progress { grid-column: 1 / -1; height: 5px; }
 .spinner { width: 20px; height: 20px; display: inline-block; flex: 0 0 auto; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.backup-import-progress { z-index: 200; cursor: wait; }
+.backup-import-progress-card { width: min(460px, 100%); }
+.backup-import-progress-content { display: flex; align-items: flex-start; gap: 14px; padding: 24px; }
+.backup-import-progress-content .spinner { width: 24px; height: 24px; margin-top: 2px; }
+.backup-import-progress-content h2 { margin: 0; color: var(--text); font-size: 1.08rem; }
+.backup-import-progress-content p { margin: 7px 0 0; color: var(--muted); font-size: .86rem; line-height: 1.6; }
 .callout { display: flex; align-items: flex-start; gap: 9px; margin: 14px 0; padding: 12px; border-radius: 9px; color: var(--text); background: var(--primary-soft); font-size: .83rem; line-height: 1.5; }
 .callout svg { flex: 0 0 auto; }
 .callout.warning { color: var(--warning); background: color-mix(in srgb, var(--warning), transparent 90%); }

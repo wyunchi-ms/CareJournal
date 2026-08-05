@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { Capacitor } from '@capacitor/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsPage } from '../pages/SettingsPage'
-import { BackupPasswordRequiredError, exportBackup, importBackup, downloadBlob } from '../services/backup'
+import { BackupPasswordRequiredError, exportAndroidBackupZip, exportBackup, importBackup, downloadBlob } from '../services/backup'
 
 const { savePreferences, restoreBackup } = vi.hoisted(() => ({
   savePreferences: vi.fn(async () => undefined),
@@ -18,6 +19,7 @@ vi.mock('../services/backup', () => {
   return {
     BackupPasswordRequiredError,
     exportBackup: vi.fn(async () => new Blob(['dummy'], { type: 'application/zip' })),
+    exportAndroidBackupZip: vi.fn(async () => ({ cancelled: false, filename: 'android.zip' })),
     importBackup: vi.fn(),
     downloadBlob: vi.fn(async () => 'Documents/CareJournal/test.zip'),
   }
@@ -56,9 +58,14 @@ describe('SettingsPage', () => {
   afterEach(() => {
     cleanup()
     window.location.hash = ''
+    vi.restoreAllMocks()
   })
   beforeEach(() => {
     savePreferences.mockClear()
+    vi.mocked(exportBackup).mockClear()
+    vi.mocked(exportAndroidBackupZip).mockClear()
+    vi.mocked(downloadBlob).mockClear()
+    vi.mocked(importBackup).mockReset()
     window.location.hash = ''
   })
 
@@ -131,14 +138,26 @@ describe('SettingsPage', () => {
     const trigger = screen.getByRole('button', { name: /备份与恢复/ })
     fireEvent.click(trigger)
 
-    expect(screen.getByText(/当前版本导出为未加密的 ZIP 文件/)).toBeInTheDocument()
-
     const exportBtn = screen.getByRole('button', { name: '导出备份' })
     fireEvent.click(exportBtn)
 
     await waitFor(() => expect(exportBackup).toHaveBeenCalled())
     await waitFor(() => expect(downloadBlob).toHaveBeenCalled())
+    expect(exportAndroidBackupZip).not.toHaveBeenCalled()
     expect(screen.getByText(/备份已保存至/)).toBeInTheDocument()
+  })
+
+  it('uses the Android streaming ZIP path without JSZip or blob download', async () => {
+    vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('android')
+    render(<SettingsPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: /备份与恢复/ }))
+    fireEvent.click(screen.getByRole('button', { name: '导出备份' }))
+
+    await waitFor(() => expect(exportAndroidBackupZip).toHaveBeenCalled())
+    expect(exportBackup).not.toHaveBeenCalled()
+    expect(downloadBlob).not.toHaveBeenCalled()
+    expect(screen.getByText(/备份已保存至：android.zip/)).toBeInTheDocument()
   })
 
   it('shows password prompt if importing an encrypted backup', async () => {
@@ -183,5 +202,43 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认覆盖' }))
     await waitFor(() => expect(restoreBackup).toHaveBeenCalled())
     expect(screen.getByText('已成功恢复备份数据')).toBeInTheDocument()
+  })
+
+  it('blocks the interface with explicit feedback while parsing a backup', async () => {
+    let finishParsing: ((payload: Awaited<ReturnType<typeof importBackup>>) => void) | undefined
+    vi.mocked(importBackup).mockImplementationOnce(() => new Promise((resolve) => { finishParsing = resolve }))
+    render(<SettingsPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: /备份与恢复/ }))
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['backup'], 'backup.zip', { type: 'application/zip' })
+    Object.defineProperty(fileInput, 'files', { value: [file] })
+    fireEvent.change(fileInput)
+
+    const dialog = await screen.findByRole('dialog', { name: '正在解析备份' })
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(screen.getByText(/正在校验备份索引和素材/)).toBeInTheDocument()
+    expect(document.querySelector('.settings-layout')).toHaveAttribute('aria-busy', 'true')
+
+    finishParsing?.({
+      version: 2,
+      exportedAt: '2026-08-05T00:00:00.000Z',
+      events: [],
+      chemotherapyTemplates: [],
+      records: [],
+      pins: [],
+      reimbursementPlans: [],
+      assets: [],
+      preferences: {
+        darkMode: false,
+        localPrivacyOcrEnabled: false,
+        chartIndicatorOrder: [],
+        chartPinnedIndicatorCodes: [],
+      },
+    })
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '正在解析备份' })).not.toBeInTheDocument())
+    expect(screen.getByText('确认覆盖本地数据？')).toBeInTheDocument()
+    expect(document.querySelector('.settings-layout')).toHaveAttribute('aria-busy', 'false')
   })
 })

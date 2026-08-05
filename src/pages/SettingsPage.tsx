@@ -4,12 +4,13 @@ import { ChoicePicker } from '../components/ChoicePicker'
 import { ConfirmSheet } from '../components/ConfirmSheet'
 import { LanSyncPanel } from '../components/LanSyncPanel'
 import { SettingsCollapsibleCard } from '../components/SettingsCollapsibleCard'
-import { BackupPasswordRequiredError, downloadBlob, exportBackup, importBackup } from '../services/backup'
+import { BackupPasswordRequiredError, downloadBlob, exportAndroidBackupZip, exportBackup, importBackup } from '../services/backup'
 import { createProviderSettings, getLlmProvider, LLM_PROVIDERS } from '../services/llmProviders'
 import { testLlmConnection } from '../services/ocr'
 import { useApp } from '../store/AppContext'
 import type { BackupPayload, LlmProviderId, LlmProviderSettings } from '../types'
 import { isTauriPlatform, tauriInvoke } from '../platform/tauriBridge'
+import { Capacitor } from '@capacitor/core'
 
 export function SettingsPage({ lanSyncManagedGlobally = false }: { lanSyncManagedGlobally?: boolean }) {
   const { preferences, savePreferences, events, chemotherapyTemplates, records, pins, reimbursementPlans, restoreBackup } = useApp()
@@ -30,6 +31,7 @@ export function SettingsPage({ lanSyncManagedGlobally = false }: { lanSyncManage
   const [showKey, setShowKey] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle')
   const [connectionMessage, setConnectionMessage] = useState('')
+  const isParsingBackup = isImporting && !confirmImportData
   const activeProvider = getLlmProvider(form.llm.activeProvider)
   const activeProviderSettings = createProviderSettings(activeProvider.id, form.llm.providers[activeProvider.id])
   const providerConfigured = Boolean(activeProviderSettings.endpoint.trim() && activeProviderSettings.apiKey.trim() && activeProviderSettings.model.trim())
@@ -70,12 +72,18 @@ export function SettingsPage({ lanSyncManagedGlobally = false }: { lanSyncManage
     setBackupError('')
     setBackupSuccess('')
     try {
-      const blob = await exportBackup(events, chemotherapyTemplates, records, pins, reimbursementPlans, form)
       const now = new Date()
       const pad = (n: number) => n.toString().padStart(2, '0')
       const filename = `carejournal-backup-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.zip`
-      const path = await downloadBlob(blob, filename)
-      setBackupSuccess(`备份已保存至：${path}`)
+      if (Capacitor.getPlatform() === 'android') {
+        const result = await exportAndroidBackupZip(filename, events, chemotherapyTemplates, records, pins, reimbursementPlans, form)
+        if (result.cancelled) return
+        setBackupSuccess(`备份已保存至：${result.filename ?? result.path ?? filename}`)
+      } else {
+        const blob = await exportBackup(events, chemotherapyTemplates, records, pins, reimbursementPlans, form)
+        const path = await downloadBlob(blob, filename)
+        setBackupSuccess(`备份已保存至：${path}`)
+      }
     } catch (error) {
       setBackupError(error instanceof Error ? error.message : '导出备份失败')
     } finally {
@@ -154,7 +162,7 @@ export function SettingsPage({ lanSyncManagedGlobally = false }: { lanSyncManage
   }
 
   return <>
-    <div className="settings-layout">
+    <div className="settings-layout" aria-busy={isParsingBackup}>
       <SettingsCollapsibleCard
         id="llm-settings"
         className="llm-settings-card"
@@ -219,13 +227,6 @@ export function SettingsPage({ lanSyncManagedGlobally = false }: { lanSyncManage
         expanded={backupExpanded}
         onToggle={() => setBackupExpanded((value) => !value)}
       >
-        <div className="callout warning">
-          <AlertTriangle />
-          <span>
-            <strong>当前版本导出为未加密的 ZIP 文件</strong>
-            <small>导出的备份包含原始图片、病程和可迁移设置，但排除了智能识别服务的 API Key。请妥善保管导出的文件，不要分享给他人。</small>
-          </span>
-        </div>
         <div className="form-actions backup-actions">
           <button className="button secondary" onClick={() => void handleExport()} disabled={isExporting || isImporting}>
             <Download aria-hidden="true" /> {isExporting ? '正在导出…' : '导出备份'}
@@ -302,5 +303,18 @@ export function SettingsPage({ lanSyncManagedGlobally = false }: { lanSyncManage
         <label className="toggle-row"><span>深色模式</span><input type="checkbox" checked={form.darkMode} onChange={async (e) => { const next = { ...form, darkMode: e.target.checked }; setForm(next); await savePreferences(next) }} /></label>
       </SettingsCollapsibleCard>
     </div>
+    {isParsingBackup && (
+      <div className="modal-backdrop backup-import-progress" role="presentation">
+        <section className="modal-card backup-import-progress-card" role="dialog" aria-modal="true" aria-labelledby="backup-import-progress-title" aria-describedby="backup-import-progress-description">
+          <div className="backup-import-progress-content" role="status" aria-live="assertive">
+            <span className="spinner" aria-hidden="true" />
+            <div>
+              <h2 id="backup-import-progress-title">正在解析备份</h2>
+              <p id="backup-import-progress-description">正在校验备份索引和素材，请勿关闭应用。文件较大时可能需要一些时间。</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    )}
   </>
 }
