@@ -117,7 +117,7 @@ try {
   }
 
   $githubRelease = Invoke-RestMethod -Method Patch -Uri "https://api.github.com/repos/wyunchi-ms/CareJournal/releases/$($githubRelease.id)" -Headers $headers -ContentType 'application/json' -Body (@{ draft=$false } | ConvertTo-Json)
-  $giteeRelease = Invoke-RestMethod -Method Patch -Uri "https://gitee.com/api/v5/repos/wyunchi/care-journal/releases/$($giteeRelease.id)" -Body @{ access_token=$giteeToken; tag_name=$tag; name="CareJournal $tag"; draft='false' } -ContentType 'application/x-www-form-urlencoded'
+  $giteeRelease = Invoke-RestMethod -Method Patch -Uri "https://gitee.com/api/v5/repos/wyunchi/care-journal/releases/$($giteeRelease.id)" -Body @{ access_token=$giteeToken; tag_name=$tag; name="CareJournal $tag"; body=$notes; prerelease=([bool]$Prerelease).ToString().ToLowerInvariant(); draft='false' } -ContentType 'application/x-www-form-urlencoded'
 } catch {
   if ($githubRelease) { Invoke-RestMethod -Method Delete -Uri "https://api.github.com/repos/wyunchi-ms/CareJournal/releases/$($githubRelease.id)" -Headers $headers -ErrorAction SilentlyContinue }
   if ($giteeRelease) { Invoke-RestMethod -Method Delete -Uri "https://gitee.com/api/v5/repos/wyunchi/care-journal/releases/$($giteeRelease.id)" -Body @{ access_token=$giteeToken } -ContentType 'application/x-www-form-urlencoded' -ErrorAction SilentlyContinue }
