@@ -42,17 +42,8 @@ interface LanSyncNativePlugin {
 
 const NativeLanSync = registerPlugin<LanSyncNativePlugin>('LanSync')
 
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-  })
-  const body = await response.json().catch(() => ({})) as { error?: string | { message?: string } }
-  if (!response.ok) {
-    const message = typeof body.error === 'string' ? body.error : body.error?.message
-    throw new Error(message || `局域网服务返回 ${response.status}`)
-  }
-  return body as T
+function unsupportedPlatform(): never {
+  throw new Error('当前运行环境不受支持，请使用 Windows、Android、iOS 或 HarmonyOS 应用')
 }
 
 class LanSyncTransport {
@@ -150,18 +141,8 @@ class LanSyncTransport {
       }
     }
 
-    try {
-      const info = await fetchJson<LanServiceInfo>('/api/lan/start', {
-        method: 'POST',
-        body: JSON.stringify({ alias, publicKey }),
-      })
-      this.pollTimer = window.setInterval(() => void this.pollWeb(), 1200)
-      await this.pollWeb()
-      return info
-    } catch (error) {
-      this.active = false
-      throw new Error(`${error instanceof Error ? error.message : '无法连接'}。网页端请使用 npm run serve:web 启动本机伴侣服务。`)
-    }
+    this.active = false
+    return unsupportedPlatform()
   }
 
   async stop() {
@@ -180,8 +161,6 @@ class LanSyncTransport {
       await tauriInvoke('desktop_lan_stop').catch(() => undefined)
       await Promise.all(this.tauriUnlisteners.map((fn) => Promise.resolve().then(() => fn()).catch(() => undefined)))
       this.tauriUnlisteners = []
-    } else {
-      await fetchJson('/api/lan/stop', { method: 'POST', body: '{}' }).catch(() => undefined)
     }
   }
 
@@ -197,10 +176,7 @@ class LanSyncTransport {
       await tauriInvoke('desktop_lan_refresh')
       const { peers } = await tauriInvoke<{ peers: LanPeer[] }>('desktop_lan_list')
       this.emitPeers(peers)
-    } else {
-      await fetchJson('/api/lan/refresh', { method: 'POST', body: '{}' })
-      await this.pollWeb()
-    }
+    } else unsupportedPlatform()
   }
 
   async sendSync(peer: Pick<LanPeer, 'host' | 'port'>, envelope: LanEncryptedEnvelope) {
@@ -211,7 +187,7 @@ class LanSyncTransport {
       ? await NativeLanSync.sendSync(payload)
       : isTauriPlatform()
       ? await tauriInvoke<{ envelope: string }>('desktop_lan_send', payload)
-      : await fetchJson<{ envelope: string }>('/api/lan/send', { method: 'POST', body: JSON.stringify(payload) })
+      : unsupportedPlatform()
     return JSON.parse(result.envelope) as LanEncryptedEnvelope
   }
 
@@ -220,7 +196,7 @@ class LanSyncTransport {
     if (isHarmonyPlatform()) await getHarmonyBridge().lanCompleteSync(payload.requestId, payload.envelope)
     else if (Capacitor.isNativePlatform()) await NativeLanSync.completeSync(payload)
     else if (isTauriPlatform()) await tauriInvoke('desktop_lan_complete', payload)
-    else await fetchJson('/api/lan/complete', { method: 'POST', body: JSON.stringify(payload) })
+    else unsupportedPlatform()
   }
 
   async rejectSync(requestId: string, error: string) {
@@ -228,7 +204,7 @@ class LanSyncTransport {
     if (isHarmonyPlatform()) await getHarmonyBridge().lanRejectSync(payload.requestId, payload.error)
     else if (Capacitor.isNativePlatform()) await NativeLanSync.rejectSync(payload)
     else if (isTauriPlatform()) await tauriInvoke('desktop_lan_reject', payload)
-    else await fetchJson('/api/lan/reject', { method: 'POST', body: JSON.stringify(payload) })
+    else unsupportedPlatform()
   }
 
   async setTransferActive(active: boolean) {
@@ -249,20 +225,6 @@ class LanSyncTransport {
   onRequest(listener: (request: IncomingLanRequest) => void) {
     this.requestListeners.add(listener)
     return () => this.requestListeners.delete(listener)
-  }
-
-  private async pollWeb() {
-    if (!this.active) return
-    try {
-      const [{ peers }, { requests }] = await Promise.all([
-        fetchJson<{ peers: LanPeer[] }>('/api/lan/peers'),
-        fetchJson<{ requests: IncomingLanRequest[] }>('/api/lan/incoming'),
-      ])
-      this.emitPeers(peers)
-      requests.forEach((request) => this.emitRequest(request))
-    } catch {
-      // The settings panel displays start/send failures. Transient polling errors retry.
-    }
   }
 
   private async pollNative() {

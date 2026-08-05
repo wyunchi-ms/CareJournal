@@ -168,15 +168,7 @@ async function llmPost(provider: LlmProviderId, url: string, apiKey: string, bod
       detail: typeof response.data === 'string' ? response.data : JSON.stringify(response.data),
     }
   }
-  const response = await fetch('/api/llm', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-llm-api-key': apiKey },
-    body: JSON.stringify({ provider, url, payload: body }),
-  })
-  const text = await response.text()
-  let data: unknown = text
-  try { data = JSON.parse(text) } catch { /* Some providers return plain text errors. */ }
-  return { ok: response.ok, status: response.status, data, detail: text }
+  throw new Error('当前运行环境不受支持，请使用 Windows、Android、iOS 或 HarmonyOS 应用')
 }
 
 type UserReportContent = string | Array<
