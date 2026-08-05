@@ -432,7 +432,7 @@ dependencies = [
 
 [[package]]
 name = "carejournal"
-version = "0.19.21"
+version = "0.19.22"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
