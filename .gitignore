@@ -42,3 +42,6 @@ local.properties
 .env.*.local
 .DS_Store
 Thumbs.db
+__pycache__/
+*.py[cod]
+.vscode/
