@@ -25,6 +25,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(FolderImportPlugin.class);
+        registerPlugin(BackupZipPlugin.class);
         registerPlugin(ImageStoragePlugin.class);
         registerPlugin(LanSyncPlugin.class);
         registerPlugin(StartupPlugin.class);
