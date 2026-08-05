@@ -204,15 +204,14 @@ pub fn run() {
         .manage(state)
         .setup(move |app| {
             std::fs::create_dir_all(data_root.join("media"))?;
-            tauri::WebviewWindowBuilder::new(
-                app,
-                "main",
-                tauri::WebviewUrl::App("index.html".into()),
-            )
-            .title("CareJournal")
+            let window_config = app
+                .config()
+                .app
+                .windows
+                .first()
+                .expect("main window config");
+            tauri::WebviewWindowBuilder::from_config(app, window_config)?
             .data_directory(webview_root.clone())
-            .inner_size(1200.0, 820.0)
-            .min_inner_size(900.0, 620.0)
             .build()?;
             Ok(())
         })
