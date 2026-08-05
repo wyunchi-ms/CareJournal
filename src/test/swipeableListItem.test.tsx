@@ -41,4 +41,22 @@ describe('SwipeableListItem', () => {
     expect(onLongPress).toHaveBeenCalledOnce()
     expect(onOpen).not.toHaveBeenCalled()
   })
+
+  it('leaves desktop mouse clicks to the row button instead of capturing them for swipe', () => {
+    const onOpen = vi.fn()
+    render(<SwipeableListItem
+      itemId="one"
+      label="第一项"
+      actions={[{ id: 'delete', label: '删除', icon: <Trash2 />, tone: 'danger', onSelect: vi.fn() }]}
+    ><button type="button" onClick={onOpen}>打开第一项</button></SwipeableListItem>)
+    const surface = document.querySelector('.swipeable-list-surface') as HTMLElement
+    const setPointerCapture = vi.fn()
+    Object.defineProperty(surface, 'setPointerCapture', { configurable: true, value: setPointerCapture })
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: '打开第一项' }), { pointerId: 1, pointerType: 'mouse', button: 0, clientX: 120, clientY: 100 })
+    fireEvent.click(screen.getByRole('button', { name: '打开第一项' }))
+
+    expect(setPointerCapture).not.toHaveBeenCalled()
+    expect(onOpen).toHaveBeenCalledOnce()
+  })
 })

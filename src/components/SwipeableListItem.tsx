@@ -67,7 +67,7 @@ export function SwipeableListItem({
   useEffect(() => () => clearLongPress(), [])
 
   function start(event: ReactPointerEvent<HTMLDivElement>) {
-    if (editMode || event.pointerType === 'mouse' && event.button !== 0) return
+    if (editMode || event.pointerType === 'mouse') return
     if ((event.target as HTMLElement).closest('[data-list-gesture-ignore]')) return
     const offset = isRevealed ? -actionWidth : 0
     startRef.current = { x: event.clientX, y: event.clientY, offset }
