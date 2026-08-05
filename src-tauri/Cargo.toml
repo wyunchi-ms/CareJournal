@@ -1,6 +1,6 @@
 [package]
 name = "carejournal"
-version = "0.19.20"
+version = "0.19.21"
 description = "CareJournal desktop backend"
 authors = ["CareJournal"]
 edition = "2021"

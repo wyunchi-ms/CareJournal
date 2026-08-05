@@ -1,5 +1,10 @@
 # ChangeLog
 
+## v0.19.21 (2026-08-05)
+
+- 修复历史原生素材的旧 SHA-256 与实际压缩文件字节不一致时，ZIP 备份导出错误提示“备份素材校验失败”的问题；导出会按实际字节修复备份内的素材 ID 和引用，不修改本机数据库。
+- Windows 绿色版 EXE 改为由 Android `ic_launcher.png` 生成同源多尺寸 ICO，桌面、任务栏和文件图标与 Android 应用保持一致。
+
 ## v0.19.20 (2026-08-04)
 
 - 新增 Tauri 2 Windows x64 绿色桌面版：解压后直接运行 `CareJournal.exe`，数据与素材保存在 EXE 同级 `CareJournalData/`，无需公共 Web 服务或本地 Node server。
