@@ -2,6 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mergeRecognizedRecord, recognizeReport, recognizeReportText, toDomainRecords } from '../services/ocr'
 import type { DynamicVocabulary, ExamRecord, LlmSettings, StoredImage } from '../types'
 
+const nativePost = vi.hoisted(() => vi.fn())
+
+vi.mock('@capacitor/core', () => ({
+  Capacitor: { isNativePlatform: () => true },
+  CapacitorHttp: { post: nativePost },
+}))
+
 const image: StoredImage = {
   id: 'image-1',
   name: 'report-1.jpg',
@@ -22,23 +29,24 @@ const settings: LlmSettings = {
   },
 }
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.restoreAllMocks()
+  nativePost.mockReset()
+})
 
 describe('recognizeReport', () => {
   it('每个调用只发送一张图片并携带固定与动态词表', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+    nativePost.mockResolvedValue({ status: 200, data: {
       choices: [{ message: { content: JSON.stringify({ records: [] }) } }],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    } })
 
     const vocabulary: DynamicVocabulary = { hospitals: ['协和医院'], departments: ['肿瘤内科'] }
     await expect(recognizeReport(image, settings, undefined, vocabulary)).resolves.toEqual({ records: [] })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(nativePost).toHaveBeenCalledTimes(1)
 
-    const request = fetchMock.mock.calls[0]
-    const proxyBody = JSON.parse(String((request[1] as RequestInit).body)) as {
-      provider: string
+    const request = nativePost.mock.calls[0][0] as {
       url: string
-      payload: {
+      data: {
         messages: Array<{ content: string | Array<{ type: string; text?: string }> }>
         response_format: {
           json_schema: {
@@ -66,17 +74,16 @@ describe('recognizeReport', () => {
         }
       }
     }
-    expect(proxyBody.provider).toBe('azure-openai')
-    expect(proxyBody.url).toBe('https://example-resource.openai.azure.com/openai/v1/chat/completions')
-    const userContent = proxyBody.payload.messages[1].content
+    expect(request.url).toBe('https://example-resource.openai.azure.com/openai/v1/chat/completions')
+    const userContent = request.data.messages[1].content
     expect(Array.isArray(userContent) ? userContent.filter((item) => item.type === 'image_url') : []).toHaveLength(1)
-    expect(proxyBody.payload.messages[0].content).toContain('所有指标必须统一为中国大陆临床检验常用单位')
-    expect(proxyBody.payload.messages[0].content).toContain('HGB/血红蛋白：g/L')
-    expect(proxyBody.payload.messages[0].content).toContain('13.2 g/dL 返回 value=132')
-    expect(proxyBody.payload.messages[0].content).toContain('即使申请日期更醒目，也不得使用申请日期')
-    expect(proxyBody.payload.messages[0].content).toContain('禁止使用其他日期或当天日期补全')
+    expect(request.data.messages[0].content).toContain('所有指标必须统一为中国大陆临床检验常用单位')
+    expect(request.data.messages[0].content).toContain('HGB/血红蛋白：g/L')
+    expect(request.data.messages[0].content).toContain('13.2 g/dL 返回 value=132')
+    expect(request.data.messages[0].content).toContain('即使申请日期更醒目，也不得使用申请日期')
+    expect(request.data.messages[0].content).toContain('禁止使用其他日期或当天日期补全')
     expect(Array.isArray(userContent) ? userContent.find((item) => item.type === 'text')?.text : '').toContain('换算为给定的中国大陆标准单位')
-    const fields = proxyBody.payload.response_format.json_schema.schema.properties.records.items.properties
+    const fields = request.data.response_format.json_schema.schema.properties.records.items.properties
     expect(fields.normalizedReportType.enum).toContain('血常规')
     expect(fields.sampleDate.description).toContain('只提取采样日期')
     expect(fields.sampleDate.description).toContain('必须忽略申请日期')
@@ -90,16 +97,16 @@ describe('recognizeReport', () => {
   })
 
   it('sends locally extracted PDF text without an image payload', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+    nativePost.mockResolvedValue({ status: 200, data: {
       choices: [{ message: { content: JSON.stringify({ records: [] }) } }],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    } })
 
     await expect(recognizeReportText('血红蛋白 132 g/L\n参考范围 120-160 g/L', '血常规.pdf', settings)).resolves.toEqual({ records: [] })
 
-    const proxyBody = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)) as {
-      payload: { messages: Array<{ content: string | Array<{ type: string }> }> }
+    const request = nativePost.mock.calls[0][0] as {
+      data: { messages: Array<{ content: string | Array<{ type: string }> }> }
     }
-    const userContent = proxyBody.payload.messages[1].content
+    const userContent = request.data.messages[1].content
     expect(userContent).toBeTypeOf('string')
     expect(userContent).toContain('血红蛋白 132 g/L')
     expect(userContent).toContain('<report_text>')
@@ -108,9 +115,9 @@ describe('recognizeReport', () => {
   })
 
   it('uses the selected OpenAI-compatible provider and its single model', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+    nativePost.mockResolvedValue({ status: 200, data: {
       choices: [{ message: { content: '```json\n{"records":[]}\n```' } }],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    } })
     const deepseek: LlmSettings = {
       activeProvider: 'deepseek',
       providers: {
@@ -125,15 +132,13 @@ describe('recognizeReport', () => {
 
     await expect(recognizeReportText('血红蛋白 132 g/L', '报告.txt', deepseek)).resolves.toEqual({ records: [] })
 
-    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)) as {
-      provider: string
+    const request = nativePost.mock.calls[0][0] as {
       url: string
-      payload: { model: string; response_format: { type: string }; max_tokens: number }
+      data: { model: string; response_format: { type: string }; max_tokens: number }
     }
-    expect(body).toMatchObject({
-      provider: 'deepseek',
+    expect(request).toMatchObject({
       url: 'https://api.deepseek.com/v1/chat/completions',
-      payload: {
+      data: {
         model: 'deepseek-chat',
         response_format: { type: 'json_object' },
         max_tokens: 10000,
