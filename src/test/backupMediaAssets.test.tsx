@@ -1,6 +1,6 @@
 import JSZip from 'jszip'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { BackupPasswordRequiredError, exportBackup, importBackup } from '../services/backup'
+import { BackupPasswordRequiredError, backupPayloadFromAssets, exportBackup, importBackup, prepareAndroidBackupZipPayload } from '../services/backup'
 import { AppProvider, useApp } from '../store/AppContext'
 import type { AppPreferences, BackupPayload, ExamRecord, ReimbursementPlan, StoredImage } from '../types'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -288,6 +288,110 @@ describe('backup media asset ZIP format', () => {
     expect(wrapper.payload.assets).toHaveLength(1)
     expect(wrapper.assetManifest).toHaveLength(1)
     expect(wrapper.payload.records[0].images.every((image) => image.assetId === `sha256:${sharedHash}`)).toBe(true)
+  })
+
+  it('prepares Android ZIP metadata without putting asset bytes on the bridge', async () => {
+    const androidStoredImage = { ...sharedImage, dataUrl: '', storagePath: 'report-images/native.jpg', localUri: 'file://private/native.jpg' }
+    const payload = await prepareAndroidBackupZipPayload(
+      [],
+      [],
+      [{ ...record, images: [androidStoredImage] }],
+      [],
+      [{
+        ...plan,
+        materials: [{
+          ...plan.materials[0],
+          attachments: [{
+            ...plan.materials[0].attachments[0],
+            ...androidStoredImage,
+            id: 'android-attachment',
+          }],
+        }],
+      }],
+      preferences,
+    )
+
+    expect(payload.assets).toHaveLength(1)
+    expect(payload.assets?.[0]).toMatchObject({ dataUrl: '', storagePath: 'report-images/native.jpg' })
+    expect(JSON.stringify(payload)).not.toContain('data:image/')
+    expect(JSON.stringify(payload)).not.toContain('file://private')
+    expect(payload.records[0].images[0]).toMatchObject({ dataUrl: '', assetId: `sha256:${sharedHash}` })
+    expect(payload.records[0].images[0]).not.toHaveProperty('storagePath')
+    expect(payload.records[0].images[0]).not.toHaveProperty('visualFingerprint')
+    expect(payload.reimbursementPlans?.[0].materials[0].attachments[0]).toMatchObject({ dataUrl: '', assetId: `sha256:${sharedHash}` })
+    expect(payload.reimbursementPlans?.[0].materials[0].attachments[0]).not.toHaveProperty('storagePath')
+    expect(payload.reimbursementPlans?.[0].materials[0].attachments[0]).not.toHaveProperty('visualFingerprint')
+  })
+
+  it('keeps visual fingerprints only once per Android asset instead of repeating them in references', async () => {
+    const visualFingerprint = `v1:2200x1600:${'A'.repeat(6144)}`
+    const androidStoredImage = {
+      ...sharedImage,
+      dataUrl: '',
+      storagePath: 'report-images/native.jpg',
+      localUri: 'file://private/native.jpg',
+      visualFingerprint,
+    }
+    const payload = await prepareAndroidBackupZipPayload(
+      [],
+      [],
+      [{ ...record, images: Array.from({ length: 100 }, (_, index) => ({ ...androidStoredImage, id: `image-${index}` })) }],
+      [],
+      [],
+      preferences,
+    )
+    const serialized = JSON.stringify(payload)
+
+    expect(payload.assets).toHaveLength(1)
+    expect(payload.assets?.[0].visualFingerprint).toBe(visualFingerprint)
+    expect(payload.records[0].images.every((image) => !image.visualFingerprint)).toBe(true)
+    expect(serialized.split(visualFingerprint)).toHaveLength(2)
+  })
+
+  it('fails Android ZIP preparation when an asset has no private storagePath', async () => {
+    await expect(prepareAndroidBackupZipPayload([], [], [record], [], [], preferences)).rejects.toThrow('缺少本机私有存储路径')
+    await expect(prepareAndroidBackupZipPayload(
+      [],
+      [],
+      [{ ...record, images: [{ ...sharedImage, storagePath: '/private/local.jpg' }] }],
+      [],
+      [],
+      preferences,
+    )).rejects.toThrow('缺少本机私有存储路径')
+  })
+
+  it('builds carejournal-zip-v1 wrapper metadata from native-verified assets and remaps references', () => {
+    const staleRecord: ExamRecord = {
+      ...record,
+      images: [{ ...sharedImage, id: 'old-a', sha256: 'stale', assetId: 'sha256:stale', dataUrl: '', storagePath: 'report-images/native.jpg' }],
+    }
+    const wrapper = backupPayloadFromAssets(
+      [],
+      [],
+      staleRecord.images.length ? [staleRecord] : [],
+      [],
+      [{
+        ...plan,
+        materials: [{
+          ...plan.materials[0],
+          attachments: [{ ...plan.materials[0].attachments[0], assetId: 'sha256:stale', dataUrl: '', storagePath: 'report-images/native.jpg' }],
+        }],
+      }],
+      preferences,
+      [
+        { sourceId: 'sha256:stale', sourceAsset: { ...sharedImage, id: 'sha256:stale', dataUrl: '', storagePath: 'report-images/native.jpg', createdAt: '2026-07-23T00:00:00.000Z', updatedAt: '2026-07-23T00:00:00.000Z' }, id: `sha256:${sharedHash}`, sha256: sharedHash, size: imageBytes.byteLength, path: `assets/${sharedHash}.jpg` },
+        { sourceId: 'duplicate-old', sourceAsset: { ...sharedImage, id: 'duplicate-old', dataUrl: '', storagePath: 'report-images/native-copy.jpg', createdAt: '2026-07-23T00:00:00.000Z', updatedAt: '2026-07-23T00:00:00.000Z' }, id: `sha256:${sharedHash}`, sha256: sharedHash, size: imageBytes.byteLength, path: `assets/${sharedHash}.jpg` },
+      ],
+      '2026-07-24T00:00:00.000Z',
+    )
+
+    expect(wrapper.format).toBe('carejournal-zip-v1')
+    expect(wrapper.assetManifest).toHaveLength(1)
+    expect(wrapper.assetManifest[0]).not.toHaveProperty('visualFingerprint')
+    expect(wrapper.payload.assets).toHaveLength(1)
+    expect(wrapper.payload.records[0].images[0]).toMatchObject({ assetId: `sha256:${sharedHash}`, dataUrl: '' })
+    expect(wrapper.payload.reimbursementPlans?.[0].materials[0].attachments[0]).toMatchObject({ assetId: `sha256:${sharedHash}`, dataUrl: '' })
+    expect(JSON.stringify(wrapper)).not.toContain('report-images/')
   })
 
   it('rejects unsafe asset paths and undeclared archive entries', async () => {

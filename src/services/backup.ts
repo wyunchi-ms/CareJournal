@@ -1,4 +1,4 @@
-import { Capacitor } from '@capacitor/core'
+import { Capacitor, registerPlugin } from '@capacitor/core'
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import JSZip from 'jszip'
 import type { AppPreferences, BackupPayload, ChartPin, ChemotherapyTemplate, ExamRecord, LlmProviderId, LlmProviderSettings, MediaAsset, ReimbursementPlan, StoredImage, TreatmentEvent } from '../types'
@@ -18,6 +18,7 @@ const MAX_BACKUP_JSON_BYTES = 10 * 1024 * 1024
 const MAX_ASSET_BYTES = 48 * 1024 * 1024
 const MAX_TOTAL_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
 const MAX_ENTITY_COUNT = 100000
+const ANDROID_PRIVATE_ASSET_PREFIX = 'report-images/'
 const SHA256_HEX = /^[a-f0-9]{64}$/
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 const HEIF_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs', 'mif1', 'msf1'])
@@ -54,6 +55,32 @@ interface ZipBackupWrapper {
   payload: BackupPayload
   assetManifest: BackupAssetManifestEntry[]
 }
+
+export interface AndroidBackupZipResult {
+  cancelled: boolean
+  path?: string
+  filename?: string
+  assetCount?: number
+  bytesWritten?: number
+}
+
+interface BackupZipPlugin {
+  save(options: {
+    filename: string
+    payload: BackupPayload
+  }): Promise<AndroidBackupZipResult>
+}
+
+export interface VerifiedBackupAsset {
+  sourceId: string
+  sourceAsset: MediaAsset
+  id: string
+  sha256: string
+  size: number
+  path: string
+}
+
+const BackupZip = registerPlugin<BackupZipPlugin>('BackupZip')
 
 interface ImportBackupOptions {
   password?: string
@@ -183,14 +210,32 @@ function stripLocalImageFields<T extends StoredImage>(image: T): T {
   return portable
 }
 
+function stripPortableReferenceFields<T extends StoredImage>(image: T): T {
+  const portable = stripLocalImageFields(image)
+  delete portable.visualFingerprint
+  return portable
+}
+
 function stripLocalAssetFields(asset: MediaAsset): MediaAsset {
   const portable = stripLocalImageFields(asset)
   delete portable.pendingSync
   return portable
 }
 
+function stripBridgeOnlyAssetFields(asset: MediaAsset): MediaAsset {
+  const portable = stripLocalAssetFields(asset)
+  portable.dataUrl = ''
+  return portable
+}
+
+function metadataAssetForAndroid(asset: MediaAsset): MediaAsset {
+  const portable = stripBridgeOnlyAssetFields(asset)
+  if (!asset.storagePath?.startsWith(ANDROID_PRIVATE_ASSET_PREFIX)) throw new Error(`素材 ${asset.name || asset.id} 缺少本机私有存储路径，无法在 Android 上流式导出`)
+  return { ...portable, storagePath: asset.storagePath }
+}
+
 function stripRecordLocalFields(record: ExamRecord): ExamRecord {
-  return { ...record, images: record.images.map(stripLocalImageFields) }
+  return { ...record, images: record.images.map(stripPortableReferenceFields) }
 }
 
 function stripPlanLocalFields(plan: ReimbursementPlan): ReimbursementPlan {
@@ -198,7 +243,7 @@ function stripPlanLocalFields(plan: ReimbursementPlan): ReimbursementPlan {
     ...plan,
     materials: plan.materials.map((material) => ({
       ...material,
-      attachments: material.attachments.map(stripLocalImageFields),
+      attachments: material.attachments.map(stripPortableReferenceFields),
     })),
   }
 }
@@ -314,6 +359,92 @@ function remapPlanAssets(plan: ReimbursementPlan, assetIds: Map<string, string>)
   }
 }
 
+export function backupPayloadFromAssets(
+  events: TreatmentEvent[],
+  chemotherapyTemplates: ChemotherapyTemplate[],
+  records: ExamRecord[],
+  pins: ChartPin[],
+  reimbursementPlans: ReimbursementPlan[],
+  preferences: AppPreferences,
+  sourceAssets: VerifiedBackupAsset[],
+  exportedAt = new Date().toISOString(),
+): ZipBackupWrapper {
+  const repairedAssetIds = new Map<string, string>()
+  const seenAssets = new Set<string>()
+  const payloadAssets: MediaAsset[] = []
+  const manifest: BackupAssetManifestEntry[] = []
+
+  for (const item of sourceAssets) {
+    repairedAssetIds.set(item.sourceId, item.id)
+    if (seenAssets.has(item.id)) continue
+    seenAssets.add(item.id)
+    const asset: MediaAsset = { ...stripBridgeOnlyAssetFields(item.sourceAsset), id: item.id, sha256: item.sha256 }
+    payloadAssets.push(asset)
+    manifest.push({
+      id: asset.id,
+      name: asset.name,
+      mimeType: asset.mimeType,
+      size: item.size,
+      sha256: item.sha256,
+      path: item.path,
+      createdAt: asset.createdAt,
+      updatedAt: asset.updatedAt,
+    })
+  }
+
+  const payload: BackupPayload = {
+    version: 2,
+    exportedAt,
+    assets: payloadAssets,
+    events,
+    chemotherapyTemplates,
+    records: records.map((record) => compactRecordMedia(remapRecordAssets(record, repairedAssetIds))),
+    pins,
+    reimbursementPlans: reimbursementPlans.map((plan) => compactReimbursementMedia(remapPlanAssets(plan, repairedAssetIds))),
+    preferences: portablePreferences(preferences),
+  }
+  return { format: ZIP_FORMAT, exportedAt: payload.exportedAt, payload, assetManifest: manifest }
+}
+
+export async function prepareAndroidBackupZipPayload(
+  events: TreatmentEvent[],
+  chemotherapyTemplates: ChemotherapyTemplate[],
+  records: ExamRecord[],
+  pins: ChartPin[],
+  reimbursementPlans: ReimbursementPlan[],
+  preferences: AppPreferences,
+) {
+  const catalog = reconcileMediaCatalog(records, [], reimbursementPlans)
+  const assets = catalog.assets.map(metadataAssetForAndroid)
+  return {
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    assets,
+    events,
+    chemotherapyTemplates,
+    records: catalog.records.map((record) => compactRecordMedia(stripRecordLocalFields(record))),
+    pins,
+    reimbursementPlans: catalog.reimbursementPlans.map((plan) => compactReimbursementMedia(stripPlanLocalFields(plan))),
+    preferences: portablePreferences(preferences),
+  } satisfies BackupPayload
+}
+
+export async function exportAndroidBackupZip(
+  filename: string,
+  events: TreatmentEvent[],
+  chemotherapyTemplates: ChemotherapyTemplate[],
+  records: ExamRecord[],
+  pins: ChartPin[],
+  reimbursementPlans: ReimbursementPlan[],
+  preferences: AppPreferences,
+) {
+  if (Capacitor.getPlatform() !== 'android') throw new Error('Android 流式备份仅支持 Android')
+  return BackupZip.save({
+    filename,
+    payload: await prepareAndroidBackupZipPayload(events, chemotherapyTemplates, records, pins, reimbursementPlans, preferences),
+  })
+}
+
 export async function exportBackup(
   events: TreatmentEvent[],
   chemotherapyTemplates: ChemotherapyTemplate[],
@@ -326,11 +457,8 @@ export async function exportBackup(
 ) {
   const { catalog, assets } = await createPortableCatalog(records, reimbursementPlans)
   const zip = new JSZip()
-  const manifest: BackupAssetManifestEntry[] = []
+  const verifiedAssets: VerifiedBackupAsset[] = []
   const seenContent = new Map<string, string>()
-  const seenAssets = new Set<string>()
-  const payloadAssets: MediaAsset[] = []
-  const repairedAssetIds = new Map<string, string>()
 
   for (const sourceAsset of assets) {
     validateAllowedMimeType(sourceAsset.mimeType)
@@ -339,40 +467,14 @@ export async function exportBackup(
     if (bytes.byteLength > MAX_ASSET_BYTES) throw new Error('单个备份素材不能超过 48MiB')
     const sha256 = await sha256Hex(bytes)
     const id = `sha256:${sha256}`
-    repairedAssetIds.set(sourceAsset.id, id)
     const asset: MediaAsset = { ...sourceAsset, id, sha256, dataUrl: '' }
     const path = seenContent.get(sha256) ?? `assets/${sha256}.${extensionForAsset(asset)}`
     seenContent.set(sha256, path)
     if (!zip.file(path)) zip.file(path, bytes)
-    if (!seenAssets.has(id)) {
-      seenAssets.add(id)
-      payloadAssets.push(asset)
-      manifest.push({
-        id: asset.id,
-        name: asset.name,
-        mimeType: asset.mimeType,
-        size: bytes.byteLength,
-        sha256,
-        path,
-        visualFingerprint: asset.visualFingerprint,
-        createdAt: asset.createdAt,
-        updatedAt: asset.updatedAt,
-      })
-    }
+    verifiedAssets.push({ sourceId: sourceAsset.id, sourceAsset, id, sha256, size: bytes.byteLength, path })
   }
 
-  const payload: BackupPayload = {
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    assets: payloadAssets,
-    events,
-    chemotherapyTemplates,
-    records: catalog.records.map((record) => compactRecordMedia(remapRecordAssets(record, repairedAssetIds))),
-    pins,
-    reimbursementPlans: catalog.reimbursementPlans.map((plan) => compactReimbursementMedia(remapPlanAssets(plan, repairedAssetIds))),
-    preferences: portablePreferences(preferences),
-  }
-  const wrapper: ZipBackupWrapper = { format: ZIP_FORMAT, exportedAt: payload.exportedAt, payload, assetManifest: manifest }
+  const wrapper = backupPayloadFromAssets(events, chemotherapyTemplates, catalog.records, pins, catalog.reimbursementPlans, preferences, verifiedAssets)
   const backupJson = JSON.stringify(wrapper)
   if (encoder.encode(backupJson).byteLength > MAX_BACKUP_JSON_BYTES) throw new Error('备份索引过大')
   zip.file('backup.json', backupJson)
