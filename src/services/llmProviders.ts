@@ -217,6 +217,11 @@ export function normalizeAppPreferences(value?: unknown): AppPreferences {
 
   return {
     llm,
+    locale: {
+      region: ['CN', 'HK', 'MO', 'TW', 'SG', 'US', 'GB', 'CA', 'AU', 'OTHER'].includes(source.locale?.region ?? '') ? source.locale!.region : DEFAULT_PREFERENCES.locale.region,
+      language: ['zh-CN', 'zh-TW', 'en'].includes(source.locale?.language ?? '') ? source.locale!.language : DEFAULT_PREFERENCES.locale.language,
+      setupCompleted: source.locale?.setupCompleted === true,
+    },
     localPrivacyOcrEnabled: source.localPrivacyOcrEnabled ?? DEFAULT_PREFERENCES.localPrivacyOcrEnabled,
     darkMode: source.darkMode ?? DEFAULT_PREFERENCES.darkMode,
     chartIndicatorOrder: Array.isArray(source.chartIndicatorOrder) ? source.chartIndicatorOrder : DEFAULT_PREFERENCES.chartIndicatorOrder,

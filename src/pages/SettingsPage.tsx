@@ -1,4 +1,4 @@
-import { AlertTriangle, Archive, Check, CheckCircle2, ChevronRight, Download, Eye, EyeOff, KeyRound, Moon, ScanText, ShieldCheck, Sun, Upload } from 'lucide-react'
+import { AlertTriangle, Archive, Check, CheckCircle2, ChevronRight, Download, Eye, EyeOff, Globe2, KeyRound, Moon, ScanText, ShieldCheck, Sun, Upload } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { ChoicePicker } from '../components/ChoicePicker'
 import { ConfirmSheet } from '../components/ConfirmSheet'
@@ -11,6 +11,8 @@ import { useApp } from '../store/AppContext'
 import type { BackupPayload, LlmProviderId, LlmProviderSettings } from '../types'
 import { isTauriPlatform, tauriInvoke } from '../platform/tauriBridge'
 import { Capacitor } from '@capacitor/core'
+import { LocaleFields } from '../components/LocaleSetup'
+import { localeText, regionLabel } from '../services/localization'
 
 export function SettingsPage({ lanSyncManagedGlobally = false }: { lanSyncManagedGlobally?: boolean }) {
   const { preferences, savePreferences, events, chemotherapyTemplates, records, pins, reimbursementPlans, restoreBackup } = useApp()
@@ -18,6 +20,8 @@ export function SettingsPage({ lanSyncManagedGlobally = false }: { lanSyncManage
   const [llmExpanded, setLlmExpanded] = useState(() => window.location.hash.endsWith('#llm-settings'))
   const [privacyExpanded, setPrivacyExpanded] = useState(false)
   const [displayExpanded, setDisplayExpanded] = useState(false)
+  const [localeExpanded, setLocaleExpanded] = useState(false)
+  const [localeMessage, setLocaleMessage] = useState('')
   const [backupExpanded, setBackupExpanded] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
@@ -292,6 +296,22 @@ export function SettingsPage({ lanSyncManagedGlobally = false }: { lanSyncManage
           <li>本应用仅整理资料，不提供诊断或治疗建议。</li>
         </ul>
         <a className="settings-link-row" href="#/privacy"><span>查看完整隐私说明</span><ChevronRight aria-hidden="true" /></a>
+      </SettingsCollapsibleCard>
+      <SettingsCollapsibleCard
+        icon={<Globe2 />}
+        title={localeText[form.locale.language].settingsTitle}
+        summary={`${regionLabel(form.locale.region, form.locale.language)} · ${localeText[form.locale.language].settingsSummary}`}
+        expanded={localeExpanded}
+        onToggle={() => setLocaleExpanded((value) => !value)}
+      >
+        <LocaleFields value={form.locale} onChange={(locale) => { setForm((current) => ({ ...current, locale })); setLocaleMessage('') }} />
+        {localeMessage && <p className="connection-status success" role="status"><CheckCircle2 />{localeMessage}</p>}
+        <div className="form-actions"><button className="button primary" onClick={async () => {
+          const next = { ...form, locale: { ...form.locale, setupCompleted: true } }
+          setForm(next)
+          await savePreferences(next)
+          setLocaleMessage(localeText[next.locale.language].saved)
+        }}>{localeText[form.locale.language].save}</button></div>
       </SettingsCollapsibleCard>
       <SettingsCollapsibleCard
         icon={form.darkMode ? <Moon /> : <Sun />}

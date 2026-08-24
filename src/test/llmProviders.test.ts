@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { chatCompletionsUrl, normalizeAppPreferences } from '../services/llmProviders'
 
 describe('LLM provider settings', () => {
+  it('migrates old preferences to an unfinished default locale setup', () => {
+    const preferences = normalizeAppPreferences({ darkMode: true })
+    expect(preferences.locale).toEqual({ region: 'CN', language: 'zh-CN', setupCompleted: false })
+  })
+
+  it('keeps a completed region and language selection', () => {
+    const preferences = normalizeAppPreferences({ locale: { region: 'US', language: 'en', setupCompleted: true } })
+    expect(preferences.locale).toEqual({ region: 'US', language: 'en', setupCompleted: true })
+  })
   it('migrates the existing Azure settings to the v1 provider format without losing the key', () => {
     const preferences = normalizeAppPreferences({
       azure: {

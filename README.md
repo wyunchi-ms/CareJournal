@@ -1,5 +1,7 @@
 # 病程记 CareJournal
 
+[简体中文](README.md) · [繁體中文](README.zh-TW.md) · [English](README.en.md)
+
 面向单一肿瘤患者的本地病程记录、检查报告整理与指标可视化工具。支持 Android 和 Windows，并已加入 HarmonyOS NEXT 与 iOS 工程；各端共用 React/TypeScript 界面。
 
 ## 功能
@@ -7,6 +9,7 @@
 - 月历病程：手术、住院、化疗、放疗、用药、检查、身体指标和治疗日记等单日或跨日记录。
 - 检查记录：原始图片、结构化指标、异常标记、类型筛选和内容去重。
 - 多服务商 LLM OCR：支持 Azure OpenAI、OpenAI、DeepSeek、Kimi、豆包、Qwen、Gemini、MiniMax、GLM、OpenRouter 及自定义 OpenAI 兼容服务；文件数量不限，每张图片一个独立请求，成功后直接入库。
+- 地区与语言：首次打开选择常用地区和语言；OCR 会根据地区使用相应的临床单位规则，而不是固定使用中国大陆单位。
 - 指标图表：多指标日期趋势、治疗事件标记、化疗周期 Day 1 对齐叠加、图表固定。
 - 本地数据：Windows 使用 WebView2 IndexedDB 与绿色目录素材存储，Android 使用 SQLite，HarmonyOS 使用 ArkData RDB 与应用私有素材目录。
 - 局域网同步：同一可信 Wi-Fi 下的手机与 Windows 版可直接发现并同步数据；传输不经过开发者服务器，但应用层不额外加密，LLM 配置不会同步。
@@ -27,7 +30,12 @@ CareJournal 不提供账号、广告或开发者运营的云端服务，病程�
 
 ## 文档
 
-- [中文用户手册](docs/USER_GUIDE.zh-CN.md)
+- [简体中文用户手册](docs/USER_GUIDE.zh-CN.md)
+- [繁體中文使用手冊](docs/USER_GUIDE.zh-TW.md)
+- [English user guide](docs/USER_GUIDE.en.md)
+- [简体中文隐私说明](PRIVACY.md)
+- [繁體中文隱私說明](PRIVACY.zh-TW.md)
+- [English privacy notice](PRIVACY.en.md)
 - [HarmonyOS NEXT 自行构建与安装指南](docs/HARMONY_SELF_BUILD.zh-CN.md)
 - [iOS 原生支持与 Mac 验证说明](docs/IOS_NATIVE.md)
 - [Windows 绿色桌面版说明](docs/WINDOWS_DESKTOP.md)

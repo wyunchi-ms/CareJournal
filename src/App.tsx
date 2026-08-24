@@ -14,6 +14,7 @@ import { ReimbursementPage } from './pages/ReimbursementPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { PrivacyPage } from './pages/PrivacyPage'
 import { addHarmonyEventListener, getHarmonyBridge, isHarmonyPlatform } from './platform/harmonyBridge'
+import { LocaleSetup } from './components/LocaleSetup'
 
 const navItems = [
   { path: '/chemotherapy-templates', label: '方案', icon: Pill },
@@ -39,11 +40,12 @@ function routePathname(route: string) {
 }
 
 function Navigation({ onNavigate }: { onNavigate: (path: string) => void }) {
+  const { preferences } = useApp()
   const location = useLocation()
   const activeIndex = Math.max(0, navIndex(location.pathname))
 
   return (
-    <nav className="app-nav" aria-label="主导航">
+    <nav className="app-nav" aria-label={preferences.locale.language === 'en' ? 'Main navigation' : preferences.locale.language === 'zh-TW' ? '主導覽' : '主导航'}>
       <div className="brand">
         <span className="brand-mark"><Activity aria-hidden="true" /></span>
         <span><strong>病程记</strong><small>CareJournal</small></span>
@@ -53,11 +55,11 @@ function Navigation({ onNavigate }: { onNavigate: (path: string) => void }) {
         {navItems.map(({ path, label, icon: Icon }, index) => (
           <NavLink key={path} to={path} onClick={() => onNavigate(path)} className={`nav-item${index === activeIndex ? ' active' : ''}`}>
             <Icon aria-hidden="true" />
-            <span>{label}</span>
+            <span>{preferences.locale.language === 'en' ? ({ '/chemotherapy-templates': 'Plans', '/records': 'Reports', '/calendar': 'Journal', '/charts': 'Charts', '/reimbursement': 'Claims', '/settings': 'Settings' } as Record<string, string>)[path] : preferences.locale.language === 'zh-TW' ? ({ '方案': '方案', '检查': '檢查', '病程': '病程', '图表': '圖表', '报销': '報銷', '设置': '設定' } as Record<string, string>)[label] : label}</span>
           </NavLink>
         ))}
       </div>
-      <p className="local-note">病程数据默认保存在本设备</p>
+      <p className="local-note">{preferences.locale.language === 'en' ? 'Health data stays on this device by default' : preferences.locale.language === 'zh-TW' ? '病程資料預設保存在本裝置' : '病程数据默认保存在本设备'}</p>
     </nav>
   )
 }
@@ -76,7 +78,7 @@ function OcrBackgroundStatus() {
 }
 
 export default function App({ lanSyncPanel }: { lanSyncPanel?: ReactNode }) {
-  const { ready, storageError } = useApp()
+  const { ready, storageError, preferences, savePreferences } = useApp()
   const location = useLocation()
   const navigate = useNavigate()
   const navigationType = useNavigationType()
@@ -96,6 +98,10 @@ export default function App({ lanSyncPanel }: { lanSyncPanel?: ReactNode }) {
       void NativeStartup.ready().catch((error) => console.warn('Unable to dismiss native startup screen', error))
     }
   }, [ready, storageError])
+
+  useEffect(() => {
+    document.documentElement.lang = preferences.locale.language
+  }, [preferences.locale.language])
 
   useEffect(() => {
     if (currentRouteRef.current === currentRoute) return
@@ -167,9 +173,10 @@ export default function App({ lanSyncPanel }: { lanSyncPanel?: ReactNode }) {
     </div>
   )
   if (!ready) return <div className="startup-wait-screen" role="status" aria-label="正在读取本地病程记录"><p>放化疗只是一时<br />愿康复如期而至</p></div>
+  if (!preferences.locale.setupCompleted) return <LocaleSetup initialValue={preferences.locale} onComplete={async (locale) => savePreferences({ ...preferences, locale })} />
   return (
     <div className="app-shell">
-      <a className="skip-link" href="#main-content">跳到主要内容</a>
+      <a className="skip-link" href="#main-content">{preferences.locale.language === 'en' ? 'Skip to main content' : preferences.locale.language === 'zh-TW' ? '跳到主要內容' : '跳到主要内容'}</a>
       <Navigation onNavigate={preparePageTransition} />
       <main id="main-content" className="app-main">
         <div

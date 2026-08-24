@@ -79,10 +79,10 @@ describe('recognizeReport', () => {
     expect(Array.isArray(userContent) ? userContent.filter((item) => item.type === 'image_url') : []).toHaveLength(1)
     expect(request.data.messages[0].content).toContain('所有指标必须统一为中国大陆临床检验常用单位')
     expect(request.data.messages[0].content).toContain('HGB/血红蛋白：g/L')
-    expect(request.data.messages[0].content).toContain('13.2 g/dL 返回 value=132')
+    expect(request.data.messages[0].content).toContain('13.2 g/dL 转为 value=132')
     expect(request.data.messages[0].content).toContain('即使申请日期更醒目，也不得使用申请日期')
     expect(request.data.messages[0].content).toContain('禁止使用其他日期或当天日期补全')
-    expect(Array.isArray(userContent) ? userContent.find((item) => item.type === 'text')?.text : '').toContain('换算为给定的中国大陆标准单位')
+    expect(Array.isArray(userContent) ? userContent.find((item) => item.type === 'text')?.text : '').toContain('换算为中国大陆临床常用单位')
     const fields = request.data.response_format.json_schema.schema.properties.records.items.properties
     expect(fields.normalizedReportType.enum).toContain('血常规')
     expect(fields.sampleDate.description).toContain('只提取采样日期')
@@ -93,7 +93,44 @@ describe('recognizeReport', () => {
     expect(fields.department.description).toContain('肿瘤内科')
     expect(fields.indicators.items.properties.unit.description).toContain('HGB/血红蛋白：g/L')
     expect(fields.indicators.items.properties.unit.description).toContain('不得只改单位不改数值')
-    expect(fields.indicators.items.properties.value.description).toContain('换算为中国大陆标准单位后的结果数值')
+    expect(fields.indicators.items.properties.value.description).toContain('使用中国大陆临床常用单位后的结果数值')
+  })
+
+  it('builds unit guidance from the selected region without leaking mainland rules', async () => {
+    nativePost.mockResolvedValue({ status: 200, data: {
+      choices: [{ message: { content: JSON.stringify({ records: [] }) } }],
+    } })
+
+    await recognizeReport(image, settings, undefined, { hospitals: [], departments: [] }, {
+      region: 'US', language: 'en', setupCompleted: true,
+    })
+
+    const request = nativePost.mock.calls[0][0] as {
+      data: { messages: Array<{ content: string }>; response_format: { json_schema: { schema: { properties: { records: { items: { properties: { indicators: { items: { properties: { unit: { description: string } } } } } } } } } } } }
+    }
+    const systemPrompt = request.data.messages[0].content
+    const unitDescription = request.data.response_format.json_schema.schema.properties.records.items.properties.indicators.items.properties.unit.description
+    expect(systemPrompt).toContain('医疗地区是“United States”')
+    expect(systemPrompt).toContain('HGB/血红蛋白：g/dL')
+    expect(systemPrompt).toContain('summary 等自然语言字段使用English')
+    expect(systemPrompt).not.toContain('中国大陆')
+    expect(unitDescription).toContain('United States临床检验常用单位')
+    expect(unitDescription).not.toContain('中国大陆')
+  })
+
+  it('preserves source units when the user selects another unspecified region', async () => {
+    nativePost.mockResolvedValue({ status: 200, data: {
+      choices: [{ message: { content: JSON.stringify({ records: [] }) } }],
+    } })
+
+    await recognizeReportText('Hemoglobin 13.2 g/dL', 'lab.pdf', settings, undefined, { hospitals: [], departments: [] }, {
+      region: 'OTHER', language: 'en', setupCompleted: true,
+    })
+
+    const request = nativePost.mock.calls[0][0] as { data: { messages: Array<{ content: string }> } }
+    expect(request.data.messages[0].content).toContain('忠实保留报告原始单位和值')
+    expect(request.data.messages[0].content).not.toContain('中国大陆')
+    expect(request.data.messages[1].content).toContain('保留报告原始单位和值')
   })
 
   it('sends locally extracted PDF text without an image payload', async () => {

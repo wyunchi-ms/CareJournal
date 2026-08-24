@@ -347,8 +347,18 @@ export interface LegacyAzureSettings {
   maxRetries: number
 }
 
+export type AppRegion = 'CN' | 'HK' | 'MO' | 'TW' | 'SG' | 'US' | 'GB' | 'CA' | 'AU' | 'OTHER'
+export type AppLanguage = 'zh-CN' | 'zh-TW' | 'en'
+
+export interface LocalePreferences {
+  region: AppRegion
+  language: AppLanguage
+  setupCompleted: boolean
+}
+
 export interface AppPreferences {
   llm: LlmSettings
+  locale: LocalePreferences
   localPrivacyOcrEnabled: boolean
   darkMode: boolean
   chartIndicatorOrder: string[]
@@ -444,7 +454,8 @@ export interface BackupPayload {
   records: ExamRecord[]
   pins: ChartPin[]
   reimbursementPlans?: ReimbursementPlan[]
-  preferences: Omit<AppPreferences, 'llm'> & {
+  preferences: Omit<AppPreferences, 'llm' | 'locale'> & {
+    locale?: LocalePreferences
     llm?: {
       activeProvider: LlmProviderId
       providers: Partial<Record<LlmProviderId, Omit<LlmProviderSettings, 'apiKey'>>>
@@ -464,6 +475,11 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
         maxRetries: 3,
       },
     },
+  },
+  locale: {
+    region: 'CN',
+    language: 'zh-CN',
+    setupCompleted: false,
   },
   localPrivacyOcrEnabled: false,
   darkMode: false,

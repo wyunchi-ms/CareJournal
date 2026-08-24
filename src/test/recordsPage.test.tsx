@@ -54,6 +54,8 @@ vi.mock('../store/AppContext', () => ({
   useApp: () => ({
     ready: true,
     storageError: null,
+    preferences: { locale: { region: 'CN', language: 'zh-CN', setupCompleted: true } },
+    savePreferences: vi.fn(async () => undefined),
     ocrQueueStats: { queued: 0, processing: 0, completed: 0, failed: 0, progress: 0 },
     events: [],
     records,

@@ -156,6 +156,7 @@ const plan: ReimbursementPlan = {
 }
 
 const preferences: AppPreferences = {
+  locale: { region: 'CN', language: 'zh-CN', setupCompleted: true },
   llm: {
     activeProvider: 'deepseek',
     providers: {

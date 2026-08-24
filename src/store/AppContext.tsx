@@ -373,10 +373,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         maximumAttempts = Math.max(maximumAttempts, attempt)
       }
       const result = preferences.localPrivacyOcrEnabled
-        ? await recognizeReportText((await extractPrivacySafeText(image)).text, image.name, preferences.llm, onAttempt, vocabulary)
+        ? await recognizeReportText((await extractPrivacySafeText(image)).text, image.name, preferences.llm, onAttempt, vocabulary, preferences.locale)
         : image.mimeType === 'application/pdf'
-          ? await recognizeReportText((await extractPdfText(image)).text, image.name, preferences.llm, onAttempt, vocabulary)
-          : await recognizeReport(image, preferences.llm, onAttempt, vocabulary)
+          ? await recognizeReportText((await extractPdfText(image)).text, image.name, preferences.llm, onAttempt, vocabulary, preferences.locale)
+          : await recognizeReport(image, preferences.llm, onAttempt, vocabulary, preferences.locale)
       const candidates = await toDomainRecords(result, [], attempts, vocabulary)
       const matching = candidates.find((candidate) =>
         candidate.normalizedReportType === original.normalizedReportType
@@ -388,7 +388,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const updated = mergeRecognizedRecord(original, recognizedRecords, maximumAttempts)
     await saveRecord(updated)
     return updated
-  }, [preferences.llm, preferences.localPrivacyOcrEnabled, saveRecord, vocabulary])
+  }, [preferences.llm, preferences.localPrivacyOcrEnabled, preferences.locale, saveRecord, vocabulary])
 
   const deleteRecord = useCallback(async (id: string) => {
     const record = records.find((item) => item.id === id)
@@ -552,6 +552,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       : preferences.llm)
     const nextPreferences = normalizeAppPreferences({
       ...payload.preferences,
+      locale: payload.preferences.locale ?? preferences.locale,
       llm: mergePortableLlmSettings(portableLlm, preferences.llm),
     })
     await repository.put('preferences', 'main', nextPreferences)
@@ -571,7 +572,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setReimbursementPlans(sortedReimbursementPlans)
     setPreferences(nextPreferences)
     void garbageCollectNativeImages(sortedRecords, [], sortedReimbursementPlans).catch(console.warn)
-  }, [preferences.llm])
+  }, [preferences.llm, preferences.locale])
 
   const deduplicateImagesGlobally = useCallback(async (): Promise<ImageDeduplicationResult> => {
     const fingerprinted = await addMissingVisualFingerprints(recordsRef.current, reimbursementPlansRef.current)
@@ -693,8 +694,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           void updateOcrJob(nextJob.id, { attempts: attempt, phase: 'recognizing', progress: Math.min(55, 18 + attempt * 10) })
         }
         const result = preferences.localPrivacyOcrEnabled || isPdf
-          ? await recognizeReportText(extractedText, readyImage.name, preferences.llm, onAttempt, vocabulary)
-          : await recognizeReport(readyImage, preferences.llm, onAttempt, vocabulary)
+          ? await recognizeReportText(extractedText, readyImage.name, preferences.llm, onAttempt, vocabulary, preferences.locale)
+          : await recognizeReport(readyImage, preferences.llm, onAttempt, vocabulary, preferences.locale)
         await updateOcrJob(nextJob.id, { attempts, phase: 'saving', progress: 78 })
         const domainRecords = await toDomainRecords(result, [durableImage], attempts, vocabulary)
         const domainEvents = domainRecords.map(eventForRecord).filter((event): event is TreatmentEvent => event !== null)
@@ -723,7 +724,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setOcrJobs([...ocrJobsRef.current])
       }
     })()
-  }, [ready, ocrJobs, preferences.llm, preferences.localPrivacyOcrEnabled, vocabulary, saveImportedRecords, updateOcrJob])
+  }, [ready, ocrJobs, preferences.llm, preferences.localPrivacyOcrEnabled, preferences.locale, vocabulary, saveImportedRecords, updateOcrJob])
 
   const ocrQueueStats = useMemo<OcrQueueStats>(() => {
     const total = ocrJobs.length

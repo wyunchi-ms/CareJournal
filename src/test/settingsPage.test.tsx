@@ -28,6 +28,7 @@ vi.mock('../services/backup', () => {
 vi.mock('../store/AppContext', () => ({
   useApp: () => ({
     preferences: {
+      locale: { region: 'CN', language: 'zh-CN', setupCompleted: true },
       darkMode: false,
       localPrivacyOcrEnabled: false,
       llm: {
@@ -90,6 +91,19 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('button', { name: /未开启 · 同一 Wi-Fi 双向同步/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /深色模式：未开启/ })).toBeInTheDocument()
     expect(screen.queryByRole('checkbox', { name: '深色模式' })).not.toBeInTheDocument()
+  })
+
+  it('updates the saved region and language independently', async () => {
+    render(<SettingsPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: /地区与语言/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'English' }))
+    fireEvent.change(screen.getByRole('combobox', { name: 'Region' }), { target: { value: 'US' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save region & language' }))
+
+    await waitFor(() => expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
+      locale: { region: 'US', language: 'en', setupCompleted: true },
+    })))
   })
 
   it('opens the intelligent recognition card when linked from the import guide', () => {

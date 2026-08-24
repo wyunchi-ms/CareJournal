@@ -305,6 +305,7 @@ function portablePreferences(preferences: AppPreferences): BackupPayload['prefer
     }),
   ) as Partial<Record<LlmProviderId, Omit<LlmProviderSettings, 'apiKey'>>>
   return {
+    locale: preferences.locale,
     localPrivacyOcrEnabled: preferences.localPrivacyOcrEnabled,
     darkMode: preferences.darkMode,
     chartIndicatorOrder: preferences.chartIndicatorOrder,
