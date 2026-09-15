@@ -1,7 +1,7 @@
 import { differenceInCalendarDays, format, parseISO, subMonths } from 'date-fns'
 import type { EChartsType } from 'echarts'
 import ReactECharts from 'echarts-for-react'
-import { Bookmark, BookmarkCheck, BookmarkX, CalendarPlus, ChartNoAxesCombined, ChevronRight, Eye, EyeOff, FileUp, GripVertical, Plus, RotateCcw, Search, X } from 'lucide-react'
+import { Bookmark, BookmarkCheck, BookmarkX, CalendarPlus, ChartNoAxesCombined, ChevronRight, Eye, EyeOff, GripVertical, Plus, RotateCcw, Search, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { ChoicePicker } from '../components/ChoicePicker'
@@ -12,7 +12,8 @@ import { RecordSummaryContent } from '../components/RecordSummaryContent'
 import { useSortableDragLift } from '../components/SortableDragLift'
 import { SortableDragOverlay } from '../components/SortableDragOverlay'
 import { SwipeableListItem } from '../components/SwipeableListItem'
-import { sortChartIndicators } from '../services/chartIndicators'
+import { sortChartIndicators, type ChartIndicatorOption } from '../services/chartIndicators'
+import { chartMetricPoints, collectChartMetrics, formatChartMetricValue, getBodyChartMetric } from '../services/chartMetrics'
 import { moveChartPin, sortChartPins } from '../services/chartPins'
 import { groupChemotherapyCycles, type ChemotherapyCycle } from '../services/chemotherapy'
 import { useApp } from '../store/AppContext'
@@ -20,13 +21,6 @@ import { EVENT_TYPES, newId, type ChartPin, type ExamRecord, type TreatmentEvent
 
 const seriesColors = ['#0891b2', '#7a5af8', '#e45756', '#f59e0b', '#16a34a', '#2563eb']
 const cycleSeriesColors = ['#0072b2', '#e69f00', '#009e73', '#cc79a7', '#d55e00', '#56b4e9', '#7a3e9d', '#6b7a00', '#8c564b', '#17becf', '#e83e8c', '#4d7c0f']
-const hasRecordDate = (date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date)
-
-interface ChartIndicatorMeta {
-  code: string
-  name: string
-  unit: string
-}
 
 type TrendRange = '3m' | '6m' | '1y' | 'all'
 
@@ -44,23 +38,31 @@ function cycleSeriesColor(index: number) {
   return `hsl(${hue}, 72%, ${lightness}%)`
 }
 
+function formatTooltipValue(code: string, unit: string, value: unknown) {
+  const rawValue = Array.isArray(value) ? value.at(-1) : value
+  const numericValue = Number(rawValue)
+  const label = Number.isFinite(numericValue) ? formatChartMetricValue(code, numericValue) : String(rawValue ?? '')
+  return `${label}${unit ? ` ${unit}` : ''}`
+}
+
+function bodyMetricAxisLabel(code: string) {
+  return getBodyChartMetric(code)
+    ? { formatter: (value: number) => formatChartMetricValue(code, Number(value)) }
+    : undefined
+}
+
 function buildTrendOption(
   records: ExamRecord[],
   events: TreatmentEvent[],
   code: string,
-  meta: ChartIndicatorMeta | undefined,
+  meta: ChartIndicatorOption | undefined,
   showEventMarkers: boolean,
   range: TrendRange = 'all',
 ) {
-  const data = code
-    ? records.filter((record) => hasRecordDate(record.sampleDate)).flatMap((record) => (
-        record.indicators
-          .filter((item) => item.normalizedCode === code && item.value !== null)
-          .map((item) => ({ value: [record.sampleDate, item.value], record, item }))
-      )).sort((a, b) => String(a.value[0]).localeCompare(String(b.value[0])))
-    : []
-  const firstDate = data[0]?.value[0] as string | undefined
-  const lastDate = data.at(-1)?.value[0] as string | undefined
+  const points = code ? chartMetricPoints(records, events, code) : []
+  const data = points.map((point) => [point.date, point.value])
+  const firstDate = points[0]?.date
+  const lastDate = points.at(-1)?.date
   const rangeMonths = trendRangeOptions.find((option) => option.value === range)?.months ?? null
   const requestedStart = lastDate && rangeMonths !== null
     ? format(subMonths(parseISO(lastDate), rangeMonths), 'yyyy-MM-dd')
@@ -90,7 +92,7 @@ function buildTrendOption(
         formatter: (value: number) => format(new Date(value), visibleSpanDays > 550 ? 'yy-MM' : 'MM-dd'),
       },
     },
-    yAxis: { type: 'value', name: meta?.unit ?? '', scale: true, splitLine: { lineStyle: { color: '#dbe6e9' } } },
+    yAxis: { type: 'value', name: meta?.unit ?? '', scale: true, axisLabel: bodyMetricAxisLabel(code), splitLine: { lineStyle: { color: '#dbe6e9' } } },
     dataZoom: [
       {
         type: 'inside',
@@ -120,6 +122,7 @@ function buildTrendOption(
       connectNulls: false,
       symbolSize: 8,
       data,
+      tooltip: getBodyChartMetric(code) ? { valueFormatter: (value: unknown) => formatTooltipValue(code, meta?.unit ?? '', value) } : undefined,
       markLine: showEventMarkers ? { silent: true, data: events.filter((event) => ['chemotherapy', 'surgery', 'hospitalization'].includes(event.type)).map((event) => ({ xAxis: event.startDate, label: { formatter: event.title, position: 'insideEndTop' }, lineStyle: { color: EVENT_TYPES[event.type].color, opacity: 0.45, type: 'dashed' } })) } : undefined,
     }] : [],
   }
@@ -127,11 +130,12 @@ function buildTrendOption(
 
 function buildCycleOption(
   records: ExamRecord[],
+  events: TreatmentEvent[],
   chemotherapyCycles: ChemotherapyCycle[],
   cyclesNewestFirst: ChemotherapyCycle[],
   selectedCycleIds: string[],
   code: string,
-  meta: ChartIndicatorMeta | undefined,
+  meta: ChartIndicatorOption | undefined,
 ) {
   const displayedCycles = cyclesNewestFirst.filter((cycle) => selectedCycleIds.includes(cycle.id))
   const legendRows = Math.max(1, Math.ceil(displayedCycles.length / 7))
@@ -151,7 +155,7 @@ function buildCycleOption(
     },
     grid: { left: 44, right: 18, top: 26 + legendRows * 18, bottom: 34 },
     xAxis: { type: 'value', min: 0, minInterval: 1, axisLabel: { formatter: (value: number) => String(value + 1) } },
-    yAxis: { type: 'value', name: meta?.unit ?? '', scale: true, splitLine: { lineStyle: { color: '#dbe6e9' } } },
+    yAxis: { type: 'value', name: meta?.unit ?? '', scale: true, axisLabel: bodyMetricAxisLabel(code), splitLine: { lineStyle: { color: '#dbe6e9' } } },
     dataZoom: [{ type: 'inside', filterMode: 'filter' }],
     series: displayedCycles.map((cycle) => {
       const dayOne = parseISO(cycle.dayOne)
@@ -162,34 +166,32 @@ function buildCycleOption(
       const cycleLabel = `C${cycleNumber}${duplicateCycleNumber ? `·${format(dayOne, 'yyMMdd')}` : ''}`
       const nextCycle = chemotherapyCycles[cycleIndex + 1]
       const maxDay = nextCycle ? differenceInCalendarDays(parseISO(nextCycle.dayOne), dayOne) - 1 : 42
-      const data = records.filter((record) => hasRecordDate(record.sampleDate)).flatMap((record) => record.indicators.filter((item) => item.normalizedCode === code && item.value !== null).map((item) => ({ day: differenceInCalendarDays(parseISO(record.sampleDate), dayOne), value: item.value }))).filter((item) => item.day >= 0 && item.day <= maxDay).sort((a, b) => a.day - b.day).map((item) => [item.day, item.value])
+      const data = chartMetricPoints(records, events, code).map((point) => ({ day: differenceInCalendarDays(parseISO(point.date), dayOne), value: point.value })).filter((item) => item.day >= 0 && item.day <= maxDay).sort((a, b) => a.day - b.day).map((item) => [item.day, item.value])
       const values = data.map((item) => item[1] as number)
       const min = values.length ? Math.min(...values) : null
-      return { name: cycleLabel, type: 'line', symbolSize: 8, data, markPoint: min === null ? undefined : { symbolSize: 42, data: [{ type: 'min', name: '最低点' }] } }
+      return { name: cycleLabel, type: 'line', symbolSize: 8, data, tooltip: getBodyChartMetric(code) ? { valueFormatter: (value: unknown) => formatTooltipValue(code, meta?.unit ?? '', value) } : undefined, markPoint: min === null ? undefined : { symbolSize: 42, data: [{ type: 'min', name: '最低点' }] } }
     }),
   }
 }
 
-function recordsForChart(
+function sourcesForChart(
   records: ExamRecord[],
+  events: TreatmentEvent[],
   code: string,
   mode: ChartPin['mode'],
   chemotherapyCycles: ChemotherapyCycle[],
   selectedCycleIds: string[],
 ) {
-  const numericRecords = records.filter((record) => (
-    hasRecordDate(record.sampleDate)
-    && record.indicators.some((indicator) => indicator.normalizedCode === code && indicator.value !== null)
-  ))
-  if (mode === 'trend') return [...numericRecords].sort((first, second) => second.sampleDate.localeCompare(first.sampleDate))
-  return numericRecords.filter((record) => chemotherapyCycles.some((cycle, cycleIndex) => {
+  const points = chartMetricPoints(records, events, code)
+  if (mode === 'trend') return [...points].sort((first, second) => second.date.localeCompare(first.date))
+  return points.filter((point) => chemotherapyCycles.some((cycle, cycleIndex) => {
     if (!selectedCycleIds.includes(cycle.id)) return false
     const dayOne = parseISO(cycle.dayOne)
     const nextCycle = chemotherapyCycles[cycleIndex + 1]
     const maxDay = nextCycle ? differenceInCalendarDays(parseISO(nextCycle.dayOne), dayOne) - 1 : 42
-    const day = differenceInCalendarDays(parseISO(record.sampleDate), dayOne)
+    const day = differenceInCalendarDays(parseISO(point.date), dayOne)
     return day >= 0 && day <= maxDay
-  })).sort((first, second) => second.sampleDate.localeCompare(first.sampleDate))
+  })).sort((first, second) => second.date.localeCompare(first.date))
 }
 
 function TimeSeriesChart({ option, compact = false, height, onReady }: { option: object; compact?: boolean; height?: number; onReady?: (instance: EChartsType) => void }) {
@@ -208,19 +210,10 @@ export function ChartsPage() {
   const { records, events, pins, preferences, savePin, reorderPins, deletePin, savePreferences } = useApp()
   const indicatorOrder = preferences.chartIndicatorOrder
   const pinnedIndicatorCodes = preferences.chartPinnedIndicatorCodes
-  const indicators = useMemo(() => {
-    const map = new Map<string, { code: string; name: string; unit: string; count: number }>()
-    records.flatMap((record) => record.indicators).filter((item) => item.value !== null).forEach((item) => {
-      const current = map.get(item.normalizedCode)
-      map.set(item.normalizedCode, {
-        code: item.normalizedCode,
-        name: item.normalizedName,
-        unit: item.unit || current?.unit || '',
-        count: (current?.count ?? 0) + 1,
-      })
-    })
-    return sortChartIndicators([...map.values()], indicatorOrder, pinnedIndicatorCodes)
-  }, [records, indicatorOrder, pinnedIndicatorCodes])
+  const indicators = useMemo(
+    () => sortChartIndicators(collectChartMetrics(records, events), indicatorOrder, pinnedIndicatorCodes),
+    [records, events, indicatorOrder, pinnedIndicatorCodes],
+  )
   const chemotherapyCycles = useMemo(() => groupChemotherapyCycles(events), [events])
   const cyclesNewestFirst = useMemo(() => [...chemotherapyCycles].sort((first, second) => second.dayOne.localeCompare(first.dayOne)), [chemotherapyCycles])
   const [mode, setMode] = useState<'trend' | 'cycle'>('trend')
@@ -268,7 +261,7 @@ export function ChartsPage() {
   const currentCode = indicators.some((item) => item.code === selectedCode) ? selectedCode : indicators[0]?.code ?? ''
   const currentCycles = selectedCycles.length ? selectedCycles : chemotherapyCycles.map((cycle) => cycle.id)
   const currentIndicator = indicators.find((item) => item.code === currentCode)
-  const currentIndicatorName = currentIndicator?.name || currentCode || '检查指标'
+  const currentIndicatorName = currentIndicator?.name || currentCode || '图表指标'
   const currentChartTitle = mode === 'trend'
     ? `${currentIndicatorName}趋势`
     : `${currentIndicatorName}周期对比`
@@ -335,11 +328,12 @@ export function ChartsPage() {
   const detailOption = detailPin
     ? detailPin.mode === 'trend'
       ? buildTrendOption(records, events, detailCode, detailIndicator, false, detailTrendRange)
-      : buildCycleOption(records, chemotherapyCycles, cyclesNewestFirst, effectiveDetailCycleIds, detailCode, detailIndicator)
+      : buildCycleOption(records, events, chemotherapyCycles, cyclesNewestFirst, effectiveDetailCycleIds, detailCode, detailIndicator)
     : null
-  const detailRecords = detailPin
-    ? recordsForChart(records, detailCode, detailPin.mode, chemotherapyCycles, effectiveDetailCycleIds)
+  const detailSources = detailPin
+    ? sourcesForChart(records, events, detailCode, detailPin.mode, chemotherapyCycles, effectiveDetailCycleIds)
     : []
+  const detailIsBodyMetric = Boolean(getBodyChartMetric(detailCode))
   const showChartBuilder = pins.length === 0 || addingChart
 
   const trendOption = useMemo(
@@ -348,8 +342,8 @@ export function ChartsPage() {
   )
 
   const cycleOption = useMemo(
-    () => buildCycleOption(records, chemotherapyCycles, cyclesNewestFirst, currentCycles, currentCode, currentIndicator),
-    [currentCode, currentCycles, chemotherapyCycles, currentIndicator, cyclesNewestFirst, records],
+    () => buildCycleOption(records, events, chemotherapyCycles, cyclesNewestFirst, currentCycles, currentCode, currentIndicator),
+    [currentCode, currentCycles, chemotherapyCycles, currentIndicator, cyclesNewestFirst, records, events],
   )
 
   const savedChartItems = useMemo(() => orderedPins.map((pin) => {
@@ -362,7 +356,7 @@ export function ChartsPage() {
       pin,
       option: pin.mode === 'trend'
         ? buildTrendOption(records, events, code, meta, false)
-        : buildCycleOption(records, chemotherapyCycles, cyclesNewestFirst, selectedCycleIds, code, meta),
+        : buildCycleOption(records, events, chemotherapyCycles, cyclesNewestFirst, selectedCycleIds, code, meta),
       unavailable: !meta || (pin.mode === 'cycle' && selectedCycleIds.length === 0),
     }
   }), [orderedPins, indicators, records, events, chemotherapyCycles, cyclesNewestFirst])
@@ -568,21 +562,36 @@ export function ChartsPage() {
         </section>
         <section className="chart-detail-records" aria-labelledby="chart-detail-records-title">
           <div className="chart-detail-section-heading">
-            <div><h3 id="chart-detail-records-title">相关检查报告</h3><small>仅显示当前图表实际使用的数值报告</small></div>
-            <span>{detailRecords.length} 份</span>
+            <div>
+              <h3 id="chart-detail-records-title">{detailIsBodyMetric ? '相关身体记录' : '相关检查报告'}</h3>
+              <small>{detailIsBodyMetric ? '仅显示当前图表实际使用的身体测量记录' : '仅显示当前图表实际使用的数值报告'}</small>
+            </div>
+            <span>{detailSources.length} {detailIsBodyMetric ? '条' : '份'}</span>
           </div>
           <div className="chart-report-list">
-            {detailRecords.map((record) => <Link
+            {detailSources.map((source) => source.source === 'exam' ? <Link
               className="record-row chart-report-row"
-              to={`/records?recordId=${encodeURIComponent(record.id)}`}
+              to={`/records?recordId=${encodeURIComponent(source.record.id)}`}
               state={{ recordDetailOrigin: '/charts' }}
               onClick={() => setDetailPinId(null)}
-              aria-label={`打开相关检查报告：${record.sampleDate || '日期未识别'}`}
-              key={record.id}
+              aria-label={`打开相关检查报告：${source.date || '日期未识别'}`}
+              key={`exam-${source.record.id}`}
             >
-              <RecordSummaryContent record={record} showDate />
+              <RecordSummaryContent record={source.record} showDate />
+            </Link> : <Link
+              className="record-row chart-report-row chart-body-record-row"
+              to={`/calendar?date=${encodeURIComponent(source.date)}`}
+              onClick={() => setDetailPinId(null)}
+              aria-label={`打开相关身体记录：${source.date}`}
+              key={`body-${source.event.id}`}
+            >
+              <span className="record-main">
+                <strong>{detailIndicator?.name ?? '身体指标'} {formatChartMetricValue(detailCode, source.value)}{detailIndicator?.unit ? ` ${detailIndicator.unit}` : ''}</strong>
+                <small>{source.date} · 身体记录</small>
+              </span>
+              <ChevronRight aria-hidden="true" />
             </Link>)}
-            {detailRecords.length === 0 && <div className="empty-inline"><ChartNoAxesCombined /><strong>没有相关数值报告</strong><p>当前选择的周期内没有可绘制的数据。</p></div>}
+            {detailSources.length === 0 && <div className="empty-inline"><ChartNoAxesCombined /><strong>{detailIsBodyMetric ? '没有相关身体记录' : '没有相关数值报告'}</strong><p>当前选择的周期内没有可绘制的数据。</p></div>}
           </div>
         </section>
       </div>
@@ -639,6 +648,7 @@ export function ChartsPage() {
         </div>
         <div className="control-groups">
           <IndicatorPicker
+            label="图表指标"
             options={indicators}
             value={currentCode}
             pinnedCodes={pinnedIndicatorCodes}
@@ -686,6 +696,7 @@ export function ChartsPage() {
       </div>
       <div className="control-groups">
         <IndicatorPicker
+          label="图表指标"
           options={indicators}
           value={currentCode}
           pinnedCodes={pinnedIndicatorCodes}
@@ -727,7 +738,7 @@ export function ChartsPage() {
         </div>
       </div>}
       {indicators.length === 0
-        ? <div className="empty-state"><ChartNoAxesCombined /><h3>还没有可绘制的指标</h3><p>导入含数值指标的检查报告后，趋势图会自动出现。</p><a className="button primary" href="#/import"><FileUp />导入检查报告</a></div>
+        ? <div className="empty-state"><ChartNoAxesCombined /><h3>还没有可绘制的指标</h3><p>添加身体记录，或导入含数值指标的检查报告后，趋势图会自动出现。</p><a className="button primary" href="#/calendar"><CalendarPlus />添加身体记录</a></div>
         : mode === 'cycle' && chemotherapyCycles.length === 0
           ? <div className="empty-state"><RotateCcw /><h3>还没有化疗周期</h3><p>先在病程日历中创建化疗事件并设置 Day 1。</p><a className="button primary" href="#/calendar"><CalendarPlus />创建化疗事件</a></div>
           : <TimeSeriesChart option={mode === 'trend' ? trendOption : cycleOption} onReady={registerChartInstance} />}

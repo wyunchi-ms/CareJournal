@@ -217,7 +217,7 @@ async function recognizeReportContent(userContent: UserReportContent, llm: LlmSe
             { role: 'user', content: userContent },
           ],
           ...(responseFormat ? { response_format: responseFormat } : {}),
-          [provider.tokenParameter]: 10000,
+          [provider.tokenParameter]: provider.maxOutputTokens ?? 10000,
         })
       if (!response.ok) {
         const error = new Error(`${provider.label} 请求失败（${response.status}）：${response.detail.slice(0, 300)}`)

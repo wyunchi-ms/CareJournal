@@ -38,7 +38,7 @@ export function formatBodyMeasurements(event: TreatmentEvent) {
   if (!values) return ''
   return [
     values.heightCm !== undefined ? `身高 ${values.heightCm} cm` : '',
-    values.weightKg !== undefined ? `体重 ${values.weightKg} kg` : '',
+    values.weightKg !== undefined ? `体重 ${values.weightKg.toFixed(2)} kg` : '',
     values.temperatureC !== undefined ? `体温 ${values.temperatureC} ℃` : '',
     values.systolicBp !== undefined || values.diastolicBp !== undefined
       ? `血压 ${values.systolicBp ?? '—'}/${values.diastolicBp ?? '—'} mmHg`

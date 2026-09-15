@@ -8,7 +8,7 @@
 
 - 月曆病程：手術、住院、化療、放療、用藥、檢查、身體指標與日記。
 - 檢查報告：原始圖片/PDF、結構化指標、異常標記、篩選及重複素材偵測。
-- 使用自行設定的 Azure OpenAI、OpenAI、DeepSeek、Kimi、豆包、Qwen、Gemini、MiniMax、GLM、OpenRouter 或 OpenAI 相容服務進行 OCR。
+- 使用自行設定的 Azure OpenAI、OpenAI、DeepSeek、月之暗面 Kimi、火山方舟、阿里雲百煉、SiliconFlow、騰訊混元、階躍星辰、百川智能、訊飛星火、Gemini、MiniMax 稀宇科技、智譜 GLM、OpenRouter 或 OpenAI 相容服務進行 OCR。
 - 首次開啟選擇地區與語言；OCR 會依所選地區建立檢驗單位規則，不會一律使用中國大陸指標。
 - 指標趨勢圖、治療週期比較、報銷材料、本機備份及可信任區網同步。
 

@@ -8,7 +8,7 @@
 
 - 月历病程：手术、住院、化疗、放疗、用药、检查、身体指标和治疗日记等单日或跨日记录。
 - 检查记录：原始图片、结构化指标、异常标记、类型筛选和内容去重。
-- 多服务商 LLM OCR：支持 Azure OpenAI、OpenAI、DeepSeek、Kimi、豆包、Qwen、Gemini、MiniMax、GLM、OpenRouter 及自定义 OpenAI 兼容服务；文件数量不限，每张图片一个独立请求，成功后直接入库。
+- 多服务商 LLM OCR：支持 Azure OpenAI、OpenAI、DeepSeek、月之暗面 Kimi、火山方舟、阿里云百炼、硅基流动、腾讯混元、阶跃星辰、百川智能、讯飞星火、Gemini、MiniMax 稀宇科技、智谱 GLM、OpenRouter 及自定义 OpenAI 兼容服务；文件数量不限，每张图片一个独立请求，成功后直接入库。
 - 地区与语言：首次打开选择常用地区和语言；OCR 会根据地区使用相应的临床单位规则，而不是固定使用中国大陆单位。
 - 指标图表：多指标日期趋势、治疗事件标记、化疗周期 Day 1 对齐叠加、图表固定。
 - 本地数据：Windows 使用 WebView2 IndexedDB 与绿色目录素材存储，Android 使用 SQLite，HarmonyOS 使用 ArkData RDB 与应用私有素材目录。

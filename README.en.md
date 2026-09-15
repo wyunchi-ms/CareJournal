@@ -8,7 +8,7 @@ CareJournal is a local-first health journal for one cancer patient and their fam
 
 - Calendar journal for surgery, admissions, chemotherapy, radiotherapy, medication, examinations, symptoms, and notes.
 - Test reports with source images/PDFs, structured indicators, abnormal flags, filtering, and duplicate detection.
-- OCR using your own Azure OpenAI, OpenAI, DeepSeek, Kimi, Doubao, Qwen, Gemini, MiniMax, GLM, OpenRouter, or OpenAI-compatible provider.
+- OCR using your own Azure OpenAI, OpenAI, DeepSeek, Moonshot Kimi, Volcano Ark, Alibaba Cloud Model Studio, SiliconFlow, Tencent Hunyuan, StepFun, Baichuan AI, iFlytek Spark, Gemini, MiniMax, Zhipu GLM, OpenRouter, or OpenAI-compatible provider.
 - Region and language setup on first launch. OCR unit instructions are generated from the chosen region instead of always using Mainland China conventions.
 - Trend charts, treatment-cycle comparison, reimbursement material lists, local backup, and trusted-LAN device sync.
 

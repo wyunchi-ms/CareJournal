@@ -294,7 +294,9 @@ describe('calendar event filter', () => {
 
     expect(screen.queryByRole('textbox', { name: '标题' })).not.toBeInTheDocument()
     fireEvent.change(screen.getByRole('spinbutton', { name: '身高（cm）' }), { target: { value: '171.5' } })
-    fireEvent.change(screen.getByRole('spinbutton', { name: '体重（kg）' }), { target: { value: '63.2' } })
+    const weightInput = screen.getByRole('spinbutton', { name: '体重（kg）' })
+    expect(weightInput).toHaveAttribute('step', '0.01')
+    fireEvent.change(weightInput, { target: { value: '63.26' } })
     fireEvent.change(screen.getByRole('spinbutton', { name: '收缩压（mmHg）' }), { target: { value: '118' } })
     fireEvent.change(screen.getByRole('spinbutton', { name: '舒张压（mmHg）' }), { target: { value: '76' } })
     fireEvent.click(screen.getByRole('button', { name: '保存事件' }))
@@ -304,7 +306,7 @@ describe('calendar event filter', () => {
       title: '身体记录',
       bodyMeasurements: expect.objectContaining({
         heightCm: 171.5,
-        weightKg: 63.2,
+        weightKg: 63.26,
         systolicBp: 118,
         diastolicBp: 76,
       }),

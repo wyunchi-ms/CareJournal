@@ -8,7 +8,7 @@ import { ConfirmSheet } from '../components/ConfirmSheet'
 import { HistoryCombobox } from '../components/HistoryCombobox'
 import { Modal } from '../components/Modal'
 import { SwipeableListItem } from '../components/SwipeableListItem'
-import { selectCalendarEventLabels } from '../services/calendarEvents'
+import { formatBodyMeasurements, selectCalendarEventLabels } from '../services/calendarEvents'
 import { buildTreatmentCourseEvents, getChemotherapyDayMedications, getChemotherapyTemplateDayPlans, summarizeChemotherapyMedications } from '../services/chemotherapy'
 import { useApp } from '../store/AppContext'
 import { CHEMOTHERAPY_DOSE_UNITS, EVENT_TYPES, MEDICATION_ADMINISTRATION_ROUTES, TREATMENT_PLAN_TYPES, newId, type BodyMeasurements, type ChemotherapyMedication, type EventType, type TreatmentEvent, type TreatmentPlanType } from '../types'
@@ -32,8 +32,10 @@ const treatmentPlanTypesByEvent: Partial<Record<EventType, TreatmentPlanType[]>>
 }
 type MonthTransition = 'next' | 'previous'
 
-function optionalNumber(value: string) {
-  return value.trim() === '' ? undefined : Number(value)
+function optionalNumber(value: string, decimals?: number) {
+  if (value.trim() === '') return undefined
+  const number = Number(value)
+  return decimals === undefined ? number : Number(number.toFixed(decimals))
 }
 
 function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onClose }: { initialDate: string; event?: TreatmentEvent; hospitalHistory: string[]; departmentHistory: string[]; onClose: () => void }) {
@@ -59,7 +61,7 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
     cycleNumber: event?.cycleNumber?.toString() ?? '',
     cycleDayOne: event?.cycleDayOne ?? initialDate,
     heightCm: event?.bodyMeasurements?.heightCm?.toString() ?? '',
-    weightKg: event?.bodyMeasurements?.weightKg?.toString() ?? '',
+    weightKg: event?.bodyMeasurements?.weightKg?.toFixed(2) ?? '',
     temperatureC: event?.bodyMeasurements?.temperatureC?.toString() ?? '',
     systolicBp: event?.bodyMeasurements?.systolicBp?.toString() ?? '',
     diastolicBp: event?.bodyMeasurements?.diastolicBp?.toString() ?? '',
@@ -155,7 +157,7 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
     if (endDate < form.startDate) return setError('结束日期不能早于开始日期')
     const bodyMeasurements: BodyMeasurements | undefined = isBodyMeasurement ? {
       heightCm: optionalNumber(form.heightCm),
-      weightKg: optionalNumber(form.weightKg),
+      weightKg: optionalNumber(form.weightKg, 2),
       temperatureC: optionalNumber(form.temperatureC),
       systolicBp: optionalNumber(form.systolicBp),
       diastolicBp: optionalNumber(form.diastolicBp),
@@ -298,7 +300,7 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
           <p>填写当次实际测量值，至少填写一项。</p>
           <div className="body-measurement-grid">
             <label>身高（cm）<input type="number" inputMode="decimal" min="30" max="250" step="0.1" value={form.heightCm} onChange={(e) => set('heightCm', e.target.value)} /></label>
-            <label>体重（kg）<input type="number" inputMode="decimal" min="1" max="500" step="0.1" value={form.weightKg} onChange={(e) => set('weightKg', e.target.value)} /></label>
+            <label>体重（kg）<input type="number" inputMode="decimal" min="1" max="500" step="0.01" value={form.weightKg} onChange={(e) => set('weightKg', e.target.value)} /></label>
             <label>体温（℃）<input type="number" inputMode="decimal" min="30" max="45" step="0.1" value={form.temperatureC} onChange={(e) => set('temperatureC', e.target.value)} /></label>
             <label>心率（次/分）<input type="number" inputMode="numeric" min="20" max="250" step="1" value={form.heartRateBpm} onChange={(e) => set('heartRateBpm', e.target.value)} /></label>
             <label>收缩压（mmHg）<input type="number" inputMode="numeric" min="40" max="300" step="1" value={form.systolicBp} onChange={(e) => set('systolicBp', e.target.value)} /></label>
@@ -511,7 +513,7 @@ export function CalendarPage() {
               key={event.id}
             >
               {agendaEditMode && <label className="agenda-item-select" aria-label={`选择 ${event.title}`}><input type="checkbox" checked={selectedAgendaIds.includes(event.id)} onChange={() => setSelectedAgendaIds((current) => current.includes(event.id) ? current.filter((id) => id !== event.id) : [...current, event.id])} /></label>}
-              <button className="agenda-item" onClick={() => agendaEditMode ? setSelectedAgendaIds((current) => current.includes(event.id) ? current.filter((id) => id !== event.id) : [...current, event.id]) : openEvent(event)} style={{ '--event-color': EVENT_TYPES[event.type].color } as React.CSSProperties}><span className="agenda-marker" /><span className="agenda-item-copy"><strong>{event.title}</strong><small>{EVENT_TYPES[event.type].label}{event.startDate !== event.endDate ? ` · ${event.startDate} 至 ${event.endDate}` : ''}</small></span></button>
+              <button className="agenda-item" onClick={() => agendaEditMode ? setSelectedAgendaIds((current) => current.includes(event.id) ? current.filter((id) => id !== event.id) : [...current, event.id]) : openEvent(event)} style={{ '--event-color': EVENT_TYPES[event.type].color } as React.CSSProperties}><span className="agenda-marker" /><span className="agenda-item-copy"><strong>{event.title}</strong><small>{event.type === 'bodyMeasurement' ? formatBodyMeasurements(event) || EVENT_TYPES[event.type].label : `${EVENT_TYPES[event.type].label}${event.startDate !== event.endDate ? ` · ${event.startDate} 至 ${event.endDate}` : ''}`}</small></span></button>
             </SwipeableListItem>)}
           </div>
         </section>

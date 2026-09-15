@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chatCompletionsUrl, normalizeAppPreferences } from '../services/llmProviders'
+import { chatCompletionsUrl, LLM_PROVIDERS, normalizeAppPreferences } from '../services/llmProviders'
 
 describe('LLM provider settings', () => {
   it('migrates old preferences to an unfinished default locale setup', () => {
@@ -43,5 +43,20 @@ describe('LLM provider settings', () => {
       .toBe('https://carejournal.openai.azure.com/openai/v1/chat/completions')
     expect(chatCompletionsUrl('openrouter', 'https://openrouter.ai/api/v1/'))
       .toBe('https://openrouter.ai/api/v1/chat/completions')
+  })
+
+  it('includes domestic OpenAI-compatible providers with their official endpoints', () => {
+    expect(LLM_PROVIDERS).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'siliconflow', defaultEndpoint: 'https://api.siliconflow.cn/v1' }),
+      expect.objectContaining({ id: 'tencent-hunyuan', defaultEndpoint: 'https://api.hunyuan.cloud.tencent.com/v1' }),
+      expect.objectContaining({ id: 'stepfun', defaultEndpoint: 'https://api.stepfun.com/v1' }),
+      expect.objectContaining({ id: 'baichuan', defaultEndpoint: 'https://api.baichuan-ai.com/v1' }),
+      expect.objectContaining({ id: 'iflytek-spark', defaultEndpoint: 'https://spark-api-open.xf-yun.com/v1' }),
+      expect.objectContaining({ id: 'kimi', defaultEndpoint: 'https://api.moonshot.cn/v1' }),
+      expect.objectContaining({ id: 'minimax', tokenParameter: 'max_completion_tokens', maxOutputTokens: 2048 }),
+      expect.objectContaining({ id: 'glm', defaultEndpoint: 'https://open.bigmodel.cn/api/paas/v4' }),
+    ]))
+    expect(chatCompletionsUrl('iflytek-spark', 'https://spark-api-open.xf-yun.com/v1/'))
+      .toBe('https://spark-api-open.xf-yun.com/v1/chat/completions')
   })
 })

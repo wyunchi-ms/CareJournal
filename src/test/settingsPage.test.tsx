@@ -136,6 +136,23 @@ describe('SettingsPage', () => {
     expect(screen.queryByText('API Version')).not.toBeInTheDocument()
   })
 
+  it('offers additional domestic model providers', () => {
+    render(<SettingsPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: /智能识别服务/ }))
+
+    expect(screen.getByRole('button', { name: /硅基流动/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /阿里云百炼/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /火山方舟/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /腾讯混元/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /阶跃星辰/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /百川智能/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /讯飞星火/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /月之暗面 Kimi/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /MiniMax 稀宇科技/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /智谱 GLM/ })).toBeInTheDocument()
+  })
+
   it('exposes the LAN sync entry without a pairing-code UI', () => {
     render(<SettingsPage />)
 

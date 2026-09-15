@@ -182,6 +182,33 @@ describe('recognizeReport', () => {
       },
     })
   })
+
+  it('uses the MiniMax completion token parameter and supported output limit', async () => {
+    nativePost.mockResolvedValue({ status: 200, data: {
+      choices: [{ message: { content: '{"records":[]}' } }],
+    } })
+    const minimax: LlmSettings = {
+      activeProvider: 'minimax',
+      providers: {
+        minimax: {
+          endpoint: 'https://api.minimaxi.com/v1',
+          apiKey: 'minimax-key',
+          model: 'MiniMax-M2.7',
+          maxRetries: 1,
+        },
+      },
+    }
+
+    await expect(recognizeReportText('血红蛋白 132 g/L', '报告.txt', minimax)).resolves.toEqual({ records: [] })
+
+    expect(nativePost.mock.calls[0][0]).toMatchObject({
+      url: 'https://api.minimaxi.com/v1/chat/completions',
+      data: {
+        model: 'MiniMax-M2.7',
+        max_completion_tokens: 2048,
+      },
+    })
+  })
 })
 
 describe('toDomainRecords', () => {

@@ -8,6 +8,7 @@ import { SortableDragOverlay } from './SortableDragOverlay'
 import { SwipeableListItem } from './SwipeableListItem'
 
 interface IndicatorPickerProps {
+  label?: string
   options: ChartIndicatorOption[]
   value: string
   pinnedCodes: string[]
@@ -16,7 +17,7 @@ interface IndicatorPickerProps {
   onOrderChange: (order: string[], pinnedOrder: string[]) => void
 }
 
-export function IndicatorPicker({ options, value, pinnedCodes, onChange, onPinnedChange, onOrderChange }: IndicatorPickerProps) {
+export function IndicatorPicker({ label = '检查指标', options, value, pinnedCodes, onChange, onPinnedChange, onOrderChange }: IndicatorPickerProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [editingOrder, setEditingOrder] = useState(false)
@@ -102,23 +103,23 @@ export function IndicatorPicker({ options, value, pinnedCodes, onChange, onPinne
   }
 
   return <div className="indicator-picker">
-    <span className="choice-picker-label">检查指标</span>
-    <button type="button" className={`choice-picker-trigger${selected ? ' has-value' : ''}`} disabled={!options.length} onClick={() => { setQuery(''); setEditingOrder(false); setOpen(true) }} aria-haspopup="dialog" aria-label={`检查指标：${selected?.name ?? '暂无可用指标'}`}>
+    <span className="choice-picker-label">{label}</span>
+    <button type="button" className={`choice-picker-trigger${selected ? ' has-value' : ''}`} disabled={!options.length} onClick={() => { setQuery(''); setEditingOrder(false); setOpen(true) }} aria-haspopup="dialog" aria-label={`${label}：${selected?.name ?? '暂无可用指标'}`}>
       <span className="choice-picker-summary"><strong>{selected?.name ?? '暂无可用指标'}</strong>{selected && <small>{selected.unit || '未记录单位'} · 出现 {selected.count} 次</small>}</span>
       {selected && pinnedSet.has(selected.code) && <Pin className="indicator-trigger-pin" aria-label="已置顶" />}
       <ChevronDown aria-hidden="true" />
     </button>
 
-    {open && <Modal title={editingOrder ? '检查指标（排序）' : '检查指标（单选）'} onClose={closePicker}>
+    {open && <Modal title={editingOrder ? `${label}（排序）` : `${label}（单选）`} onClose={closePicker}>
       <div className={`indicator-picker-tools${editingOrder ? ' editing' : ''}`}>
         <label className="search-box">
           <Search aria-hidden="true" />
-          <span className="sr-only">搜索检查指标</span>
+          <span className="sr-only">搜索{label}</span>
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索指标，长按条目排序" />
         </label>
         {editingOrder && <button type="button" className="button secondary indicator-order-done" onClick={finishOrderEditing}>完成</button>}
       </div>
-      <div ref={listRef} className="indicator-priority-list" role="radiogroup" aria-label="检查指标">
+      <div ref={listRef} className="indicator-priority-list" role="radiogroup" aria-label={label}>
         {visibleOptions.map((option, index) => {
           const pinned = pinnedSet.has(option.code)
           const previous = visibleOptions[index - 1]

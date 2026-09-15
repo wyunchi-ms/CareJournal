@@ -211,8 +211,8 @@ pub fn run() {
                 .first()
                 .expect("main window config");
             tauri::WebviewWindowBuilder::from_config(app, window_config)?
-            .data_directory(webview_root.clone())
-            .build()?;
+                .data_directory(webview_root.clone())
+                .build()?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -535,12 +535,26 @@ fn validate_llm_url(value: &str, provider: &str) -> Result<String, String> {
         }
         return Ok(url.to_string());
     }
+    if provider == "qwen" {
+        let allowed = hostname == "dashscope.aliyuncs.com"
+            || hostname == "dashscope-intl.aliyuncs.com"
+            || hostname == "dashscope-us.aliyuncs.com"
+            || hostname.ends_with(".maas.aliyuncs.com");
+        if url.scheme() != "https" || !port_ok(&url) || !allowed {
+            return Err("LLM 服务商与 API 地址不匹配".into());
+        }
+        return Ok(url.to_string());
+    }
     let allowed = match provider {
         "openai" => &["api.openai.com"][..],
         "deepseek" => &["api.deepseek.com"],
         "kimi" => &["api.moonshot.cn"],
         "doubao" => &["ark.cn-beijing.volces.com"],
-        "qwen" => &["dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com"],
+        "siliconflow" => &["api.siliconflow.cn"],
+        "tencent-hunyuan" => &["api.hunyuan.cloud.tencent.com"],
+        "stepfun" => &["api.stepfun.com"],
+        "baichuan" => &["api.baichuan-ai.com"],
+        "iflytek-spark" => &["spark-api-open.xf-yun.com"],
         "gemini" => &["generativelanguage.googleapis.com"],
         "minimax" => &["api.minimaxi.com"],
         "glm" => &["open.bigmodel.cn"],
@@ -1227,6 +1241,43 @@ mod tests {
         assert!(validate_llm_url("https://api.openai.com/v1/chat/completions", "openai").is_ok());
         assert!(validate_llm_url("http://api.openai.com/v1/chat/completions", "openai").is_err());
         assert!(validate_llm_url("https://evil.example/v1/chat/completions", "openai").is_err());
+    }
+
+    #[test]
+    fn validates_domestic_provider_urls() {
+        let providers = [
+            (
+                "siliconflow",
+                "https://api.siliconflow.cn/v1/chat/completions",
+            ),
+            (
+                "tencent-hunyuan",
+                "https://api.hunyuan.cloud.tencent.com/v1/chat/completions",
+            ),
+            ("stepfun", "https://api.stepfun.com/v1/chat/completions"),
+            (
+                "baichuan",
+                "https://api.baichuan-ai.com/v1/chat/completions",
+            ),
+            (
+                "iflytek-spark",
+                "https://spark-api-open.xf-yun.com/v1/chat/completions",
+            ),
+        ];
+        for (provider, url) in providers {
+            assert!(
+                validate_llm_url(url, provider).is_ok(),
+                "{provider} should accept its official endpoint"
+            );
+        }
+        assert!(
+            validate_llm_url("https://api.siliconflow.cn/v1/chat/completions", "baichuan").is_err()
+        );
+        assert!(validate_llm_url(
+            "https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
+            "qwen"
+        )
+        .is_ok());
     }
 
     #[test]

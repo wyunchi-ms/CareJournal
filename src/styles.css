@@ -707,6 +707,7 @@ legend { margin-bottom: 8px; color: var(--muted); font-size: .78rem; font-weight
 .chart-detail-visual { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
 .chart-report-list { overflow: hidden; border: 1px solid var(--border); border-radius: 12px; }
 .chart-report-row { text-decoration: none; border-bottom: 1px solid var(--border); }
+.chart-body-record-row { grid-template-columns: minmax(0, 1fr) 24px; }
 .chart-report-row:last-child { border-bottom: 0; }
 .chart-report-list > .empty-inline { min-height: 150px; }
 .settings-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
@@ -847,7 +848,7 @@ legend { margin-bottom: 8px; color: var(--muted); font-size: .78rem; font-weight
 .template-row-main:hover { background: var(--surface-alt); }
 .template-row-heading { min-width: 0; display: flex; align-items: center; gap: 8px; }
 .template-row-heading > strong { min-width: 0; overflow: hidden; flex: 0 1 auto; text-overflow: ellipsis; white-space: nowrap; }
-.plan-type-tag { min-height: 23px; display: inline-flex; align-items: center; flex: 0 0 auto; padding: 2px 8px; border: 1px solid color-mix(in srgb, var(--plan-tag-color, var(--primary)) 84%, black); border-radius: 999px; color: white; background: var(--plan-tag-color, var(--primary-strong)); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12); font-size: .68rem; font-weight: 800; line-height: 1; white-space: nowrap; }
+.plan-type-tag { min-height: 20px; display: inline-flex; align-items: center; flex: 0 0 auto; padding: 1px 6px; border: 1px solid color-mix(in srgb, var(--plan-tag-color, var(--primary)) 36%, var(--border)); border-radius: 5px; color: color-mix(in srgb, var(--plan-tag-color, var(--primary-strong)) 88%, var(--text)); background: color-mix(in srgb, var(--plan-tag-color, var(--primary)) 10%, var(--surface)); font-size: .63rem; font-weight: 800; line-height: 1; letter-spacing: .01em; white-space: nowrap; }
 .plan-type-tag[data-plan-type="chemotherapy"], .template-filter-chip[data-plan-type="chemotherapy"] { --plan-tag-color: #A23B36; }
 .plan-type-tag[data-plan-type="radiotherapy"], .template-filter-chip[data-plan-type="radiotherapy"] { --plan-tag-color: #A66000; }
 .plan-type-tag[data-plan-type="maintenance"], .template-filter-chip[data-plan-type="maintenance"] { --plan-tag-color: #2F7552; }

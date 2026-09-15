@@ -17,9 +17,10 @@ vi.mock('echarts-for-react', () => ({
     color?: string[]
     tooltip?: { renderMode?: string }
     dataZoom?: Array<{ filterMode?: string; startValue?: string; endValue?: string; height?: number; handleSize?: number }>
-    series?: Array<{ data?: unknown[]; name?: string; markLine?: { data?: unknown[] } }>
+    series?: Array<{ data?: unknown[]; name?: string; markLine?: { data?: unknown[] }; tooltip?: { valueFormatter?: (value: number) => string } }>
     legend?: { itemWidth?: number; type?: string; formatter?: (name: string) => string }
     xAxis?: { min?: number; name?: string; axisLabel?: { formatter?: (value: number) => string } }
+    yAxis?: { name?: string }
   }; onChartReady?: (instance: { dispatchAction: typeof dispatchChartAction }) => void }) => {
     onChartReady?.({ dispatchAction: dispatchChartAction })
     return <div
@@ -29,11 +30,13 @@ vi.mock('echarts-for-react', () => ({
       data-series-names={JSON.stringify(option.series?.map((series) => series.name) ?? [])}
       data-legend-labels={JSON.stringify(option.series?.map((series) => option.legend?.formatter?.(series.name ?? '') ?? series.name) ?? [])}
       data-series-data={JSON.stringify(option.series?.[0]?.data ?? [])}
+      data-series-value-label={option.series?.[0]?.tooltip?.valueFormatter?.(63.2) ?? ''}
       data-marker-count={option.series?.[0]?.markLine?.data?.length ?? 0}
       data-legend-item-width={option.legend?.itemWidth ?? ''}
       data-legend-type={option.legend?.type ?? ''}
       data-x-axis-min={option.xAxis?.min ?? ''}
       data-x-axis-name={option.xAxis?.name ?? ''}
+      data-y-axis-name={option.yAxis?.name ?? ''}
       data-x-axis-labels={JSON.stringify([0, 20, 40].map((value) => option.xAxis?.axisLabel?.formatter?.(value) ?? value))}
       data-tooltip-render-mode={option.tooltip?.renderMode ?? ''}
       data-zoom-start={option.dataZoom?.[0]?.startValue ?? ''}
@@ -87,7 +90,7 @@ describe('charts page indicator selection', () => {
     expect(screen.getByTestId('chart')).toHaveAttribute('data-series-count', '1')
     expect(screen.getByTestId('chart').closest('.chart-canvas-gesture')).not.toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: '检查指标：白细胞计数' }))
+    fireEvent.click(screen.getByRole('button', { name: '图表指标：白细胞计数' }))
     expect(screen.getAllByRole('radio')).toHaveLength(2)
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
     fireEvent.keyDown(screen.getByRole('radio', { name: /血红蛋白/ }), { key: 'ArrowLeft' })
@@ -96,15 +99,55 @@ describe('charts page indicator selection', () => {
     expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({ chartPinnedIndicatorCodes: ['HGB'] }))
   })
 
+  it('offers recorded body measurements as chart metrics and formats weight to two decimals', () => {
+    events = [
+      {
+        id: 'body-1', type: 'bodyMeasurement', title: '身体记录', startDate: '2026-07-03', endDate: '2026-07-03', allDay: true,
+        bodyMeasurements: { heightCm: 171.5, weightKg: 63.2 }, tags: [], linkedRecordIds: [], createdAt: '2026-07-03T00:00:00.000Z', updatedAt: '2026-07-03T00:00:00.000Z',
+      },
+      {
+        id: 'body-2', type: 'bodyMeasurement', title: '身体记录', startDate: '2026-07-10', endDate: '2026-07-10', allDay: true,
+        bodyMeasurements: { weightKg: 63.25, heartRateBpm: 72 }, tags: [], linkedRecordIds: [], createdAt: '2026-07-10T00:00:00.000Z', updatedAt: '2026-07-10T00:00:00.000Z',
+      },
+    ]
+    render(<ChartsPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: '图表指标：白细胞计数' }))
+    expect(screen.getByRole('radio', { name: /身高/ })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /体重/ })).toHaveTextContent('出现 2 次')
+    expect(screen.getByRole('radio', { name: /心率/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('radio', { name: /体重/ }))
+
+    expect(screen.getByRole('button', { name: '图表指标：体重' })).toBeInTheDocument()
+    expect(screen.getByTestId('chart')).toHaveAttribute('data-series-data', '[["2026-07-03",63.2],["2026-07-10",63.25]]')
+    expect(screen.getByTestId('chart')).toHaveAttribute('data-y-axis-name', 'kg')
+    expect(screen.getByTestId('chart')).toHaveAttribute('data-series-value-label', '63.20 kg')
+  })
+
+  it('opens a saved body metric chart and links its sources back to the calendar date', () => {
+    pins = [{ id: 'weight-pin', title: '体重趋势', mode: 'trend', indicatorCodes: ['BODY_WEIGHT_KG'], cycleEventIds: [], createdAt: '2026-07-20T10:00:00.000Z' }]
+    events = [{
+      id: 'body-1', type: 'bodyMeasurement', title: '身体记录', startDate: '2026-07-03', endDate: '2026-07-03', allDay: true,
+      bodyMeasurements: { weightKg: 63.2 }, tags: [], linkedRecordIds: [], createdAt: '2026-07-03T00:00:00.000Z', updatedAt: '2026-07-03T00:00:00.000Z',
+    }]
+    render(<MemoryRouter><ChartsPage /></MemoryRouter>)
+
+    fireEvent.click(screen.getByRole('button', { name: '查看图表详情：体重趋势' }))
+    const dialog = screen.getByRole('dialog', { name: '体重趋势' })
+    expect(within(dialog).getByRole('heading', { name: '相关身体记录' })).toBeInTheDocument()
+    expect(within(dialog).getByText('体重 63.20 kg')).toBeInTheDocument()
+    expect(within(dialog).getByRole('link', { name: '打开相关身体记录：2026-07-03' })).toHaveAttribute('href', '/calendar?date=2026-07-03')
+  })
+
   it('dismisses the active chart tooltip when switching indicators', () => {
     render(<ChartsPage />)
     dispatchChartAction.mockClear()
 
-    fireEvent.click(screen.getByRole('button', { name: '检查指标：白细胞计数' }))
+    fireEvent.click(screen.getByRole('button', { name: '图表指标：白细胞计数' }))
     fireEvent.click(screen.getByRole('radio', { name: /血红蛋白/ }))
 
     expect(dispatchChartAction).toHaveBeenCalledWith({ type: 'hideTip' })
-    expect(screen.getByRole('button', { name: '检查指标：血红蛋白' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '图表指标：血红蛋白' })).toBeInTheDocument()
   })
 
   it('confines tooltips to each canvas and clears them before opening chart detail', () => {
@@ -201,7 +244,7 @@ describe('charts page indicator selection', () => {
     render(<ChartsPage />)
 
     expect(screen.getAllByTestId('chart')).toHaveLength(1)
-    expect(screen.queryByRole('button', { name: '检查指标：白细胞计数' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '图表指标：白细胞计数' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '添加图表' }))
     const dashboard = screen.getByRole('region', { name: '收藏图表' })

@@ -40,6 +40,6 @@ describe('calendar event labels', () => {
     expect(formatBodyMeasurements({
       ...event('body', 'bodyMeasurement'),
       bodyMeasurements: { heightCm: 171.5, weightKg: 63.2, systolicBp: 118, diastolicBp: 76 },
-    })).toBe('身高 171.5 cm · 体重 63.2 kg · 血压 118/76 mmHg')
+    })).toBe('身高 171.5 cm · 体重 63.20 kg · 血压 118/76 mmHg')
   })
 })

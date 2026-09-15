@@ -146,7 +146,7 @@ HarmonyOS NEXT 不支持像 Android APK 一样让未知用户下载 HAP 后直�
 
 导航：**设置** → **智能识别服务**。
 
-1. 选择 Azure OpenAI、OpenAI、DeepSeek、Kimi、豆包、Qwen、Gemini、MiniMax、GLM、OpenRouter 或自定义 OpenAI-compatible 服务。
+1. 选择 Azure OpenAI、OpenAI、DeepSeek、月之暗面 Kimi、火山方舟、阿里云百炼、硅基流动、腾讯混元、阶跃星辰、百川智能、讯飞星火、Gemini、MiniMax 稀宇科技、智谱 GLM、OpenRouter 或自定义 OpenAI-compatible 服务。
 2. 填写 API Key、API 地址和模型。
 3. 使用“测试连接”确认配置。
 4. 需要时开启 PaddleOCR 本地脱敏。

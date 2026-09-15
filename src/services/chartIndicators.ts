@@ -19,6 +19,13 @@ export const COMMON_CHART_INDICATOR_CODES = [
   'CA199',
   'CA125',
   'AFP',
+  'BODY_HEIGHT_CM',
+  'BODY_WEIGHT_KG',
+  'BODY_TEMPERATURE_C',
+  'BODY_SYSTOLIC_BP',
+  'BODY_DIASTOLIC_BP',
+  'BODY_HEART_RATE',
+  'BODY_OXYGEN_SATURATION',
 ] as const
 
 export function sortChartIndicators(
