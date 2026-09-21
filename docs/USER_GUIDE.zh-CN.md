@@ -1,6 +1,8 @@
 # 病程记 CareJournal 用户手册
 
-> 适用版本：0.20.0 及以后
+[文档首页](README.md) · 简体中文 · [繁體中文](USER_GUIDE.zh-TW.md) · [English](USER_GUIDE.en.md)
+
+> 本手册描述当前仓库功能；已安装版本的差异请查看 [更新记录](../ChangeLog.md)。
 > 本软件只用于记录、整理和可视化，不提供诊断、治疗建议或风险预测。
 
 ## 1. 软件简介
@@ -11,15 +13,14 @@
 - 检查报告、原始图片/PDF 和结构化指标；
 - 指标趋势图与化疗周期对比图；
 - 报销计划与材料清单；
-- 本地加密备份和局域网设备同步；
+- 本地 ZIP 备份和局域网设备同步；
 - 使用自有 LLM 服务进行报告 OCR 和结构化识别。
 
-数据默认保存在设备本地。Android 使用 SQLite，HarmonyOS 使用 ArkData RDB，Web 使用浏览器 IndexedDB。
-
-![应用主页截图占位](images/screenshot-placeholder.svg)
-> 截图占位 1：应用首页与底部导航。
+数据默认保存在设备本地。Android 使用 SQLite，HarmonyOS 使用 ArkData RDB，Windows 将 WebView2 本地数据库和素材保存在程序旁的 `CareJournalData/`。
 
 ## 2. 安装与首次使用
+
+下载入口：[GitHub Releases](https://github.com/wyunchi-ms/CareJournal/releases) · [Gitee 镜像](https://gitee.com/wyunchi/care-journal/releases)。公开安装包为 Android APK 和 Windows ZIP；iOS 尚未完成 Mac 编译和真机验证，见 [iOS 状态](IOS_NATIVE.md)。
 
 ### Android
 
@@ -49,6 +50,10 @@ HarmonyOS NEXT 不支持像 Android APK 一样让未知用户下载 HAP 后直�
 
 导航：**病程**。
 
+![病程日历，使用虚构示例数据](images/calendar.png)
+
+*截图来自桌面尺寸开发预览，使用虚构数据。*
+
 ### 新建病程
 
 1. 点击右上角“+”。
@@ -56,9 +61,6 @@ HarmonyOS NEXT 不支持像 Android APK 一样让未知用户下载 HAP 后直�
 3. 填写日期、医院、科室和备注。
 4. 治疗事件可选择治疗方案，按周期批量生成多个治疗日。
 5. 保存后事件会显示在月历和当天列表中。
-
-![新建病程截图占位](images/screenshot-placeholder.svg)
-> 截图占位 2：月历与新建病程表单。
 
 ### 按方案创建治疗事件
 
@@ -69,9 +71,6 @@ HarmonyOS NEXT 不支持像 Android APK 一样让未知用户下载 HAP 后直�
 - 放疗方案填写治疗部位和单次 Gy 剂量；
 - 创建病程时选择方案和 Day 1，可批量生成后续治疗日；
 - 生成后的单条事件仍可按实际执行情况修改。
-
-![治疗方案截图占位](images/screenshot-placeholder.svg)
-> 截图占位 3：方案中的每日药物、剂量和给药途径。
 
 ## 4. 检查报告与 OCR
 
@@ -85,9 +84,6 @@ HarmonyOS NEXT 不支持像 Android APK 一样让未知用户下载 HAP 后直�
 - OCR 队列后台处理、失败重试和批量清理。
 
 识别成功后，报告会生成检查记录，包括：报告类型、采样日期、医院、结构化指标、异常标记和原始素材。
-
-![导入报告截图占位](images/screenshot-placeholder.svg)
-> 截图占位 4：拍照、选择文件和 OCR 队列。
 
 ### 隐私注意
 
@@ -106,8 +102,7 @@ HarmonyOS NEXT 不支持像 Android APK 一样让未知用户下载 HAP 后直�
 - 将检查记录关联到病程事件；
 - 使用 SHA-256 和视觉指纹减少重复素材。
 
-![检查详情截图占位](images/screenshot-placeholder.svg)
-> 截图占位 5：检查详情、指标与原始报告。
+![检查记录，使用虚构示例数据](images/records.png)
 
 ## 6. 指标图表
 
@@ -115,7 +110,7 @@ HarmonyOS NEXT 不支持像 Android APK 一样让未知用户下载 HAP 后直�
 
 ### 日期趋势
 
-- 选择一个或多个数值指标；
+- 选择一个或多个检验指标，或已录入的身高、体重、体温、血压、心率、血氧等身体指标；
 - 查看随日期变化的折线；
 - 可显示治疗事件标记；
 - 可收藏常用图表并排序。
@@ -126,8 +121,7 @@ HarmonyOS NEXT 不支持像 Android APK 一样让未知用户下载 HAP 后直�
 - 图表将多个周期按 Day 1 对齐；
 - 便于比较不同周期同一天数的指标变化。
 
-![图表截图占位](images/screenshot-placeholder.svg)
-> 截图占位 6：趋势图与化疗周期叠加图。
+![指标趋势，使用虚构示例数据](images/charts.png)
 
 ## 7. 报销材料
 
@@ -139,9 +133,6 @@ HarmonyOS NEXT 不支持像 Android APK 一样让未知用户下载 HAP 后直�
 4. 标记完成状态。
 5. 可批量选择计划并导出 ZIP。
 
-![报销截图占位](images/screenshot-placeholder.svg)
-> 截图占位 7：报销计划与材料清单。
-
 ## 8. 智能识别服务
 
 导航：**设置** → **智能识别服务**。
@@ -151,14 +142,13 @@ HarmonyOS NEXT 不支持像 Android APK 一样让未知用户下载 HAP 后直�
 3. 使用“测试连接”确认配置。
 4. 需要时开启 PaddleOCR 本地脱敏。
 
-API Key 只保存在当前设备，不参与局域网同步或备份迁移。
+API Key 只保存在当前设备，不参与局域网同步或备份迁移。每个服务商保存一组配置，切换后会保留此前填写的内容。直接识别图片需要模型支持图片输入；服务商可能按用量收费。
+
+Azure OpenAI 使用 v1 API：API 地址填写 `https://<resource>.services.ai.azure.com/openai/v1` 或 `https://<resource>.openai.azure.com/openai/v1`，模型填写 Deployment Name，无需 API Version。
 
 ### 地区单位规则
 
-OCR 会将结果值、参考范围和单位作为一组处理。对于已配置地区，应用会要求模型使用该地区的常用临床单位，并同步换算数值和参考范围；绝不会只改单位文字。不同地区常见体系不同，例如台湾与美国常见 g/dL、mg/dL 和 10³/μL，而英国、加拿大和澳大利亚多使用 SI 单位。请在导入后核对原始报告和结构化结果。
-
-![LLM 设置截图占位](images/screenshot-placeholder.svg)
-> 截图占位 8：服务商、API Key、模型和本地脱敏开关。
+OCR 会将结果值、参考范围和单位作为一组处理。对于已配置地区，应用会要求模型使用该地区的常用临床单位，同时换算数值和参考范围；这是发送给模型的要求，不能保证每次识别都正确。不同地区常见体系不同，例如台湾与美国常见 g/dL、mg/dL 和 10³/μL，而英国、加拿大和澳大利亚多使用 SI 单位。请在导入后核对原始报告和结构化结果。
 
 ## 9. 局域网同步
 
@@ -172,9 +162,6 @@ OCR 会将结果值、参考范围和单位作为一组处理。对于已配置�
 6. 确认后依次执行数据交换、数据库合并、素材分块传输和目录整理。
 
 同步完成后会显示变化条数、发送/接收素材数量和耗时。
-
-![同步预览截图占位](images/screenshot-placeholder.svg)
-> 截图占位 9：双向变化预览与类别勾选。
 
 注意：
 
@@ -191,16 +178,13 @@ OCR 会将结果值、参考范围和单位作为一组处理。对于已配置�
 - LLM API Key 和本机文件路径不会写入备份；
 - 导入后会先显示记录与素材数量，只有确认后才覆盖当前设备数据；
 - 旧版 AES-GCM 加密备份仍可导入，选择旧文件后才会要求输入当时的备份密码；
-- 彻底清除数据可在系统设置中清除应用数据或卸载应用。
-
-![备份截图占位](images/screenshot-placeholder.svg)
-> 截图占位 10：ZIP 备份导出、旧版密码输入和恢复确认入口。
+- Android 可通过系统设置清除应用数据；Windows 绿色版需退出程序后删除对应的 `CareJournalData/` 目录。清理前先确认已有可用备份。
 
 ## 11. 常见问题
 
 ### 为什么 OCR 停止了？
 
-页面切换不会停止队列，但系统终止应用或浏览器标签后会暂停；重新打开应用后继续。
+切换应用内页面不会停止队列；系统终止应用后任务会暂停，下次打开应用时从未完成项继续。保持应用打开有助于完成批量识别。
 
 ### 为什么发现不到另一台设备？
 
@@ -208,7 +192,7 @@ OCR 会将结果值、参考范围和单位作为一组处理。对于已配置�
 
 ### 为什么覆盖安装失败？
 
-Android 新版本必须使用与旧版本相同的 release keystore。官方 Release 脚本会自动从 Azure 获取并校验固定签名。
+先确认新旧安装包来自同一发布渠道。不同签名的 Android 安装包不能覆盖安装，例如自行构建的调试版与正式版。不要为解决安装问题直接卸载旧版；先导出备份，再根据错误提示反馈版本和安装包来源。
 
 ### 数据是否会上传到开发者服务器？
 

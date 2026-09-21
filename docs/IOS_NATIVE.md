@@ -72,7 +72,7 @@ Android 与 Harmony 的后台持续传输能力仍需在 iOS 上单独设计。�
 5. `Product > Archive`；
 6. 在 Organizer 导出 TestFlight/App Store 或 Ad Hoc `.ipa`。
 
-Windows 无法生成或签名 iOS `.ipa`，因此当前公开发布工具仍只发布 Android APK。
+Windows 无法生成或签名 iOS `.ipa`，因此当前公开发布工具只发布 Android APK 和 Windows 绿色 ZIP，不发布 iOS 安装包。
 
 `ios/` 工程由 Windows 上的 Capacitor CLI 生成，Swift/Xcode/CocoaPods 尚未在真实 macOS 环境验证。首次 Mac 验收至少包括：
 

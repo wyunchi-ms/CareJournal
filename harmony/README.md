@@ -8,7 +8,7 @@ React/Vite 应用，ArkWeb 只承担渲染；ArkTS 桥接负责关系型数据�
 
 - DevEco Studio 6.1.3 或更新版本（当前工程按已安装的 HarmonyOS 6.1.1 / API 24 编译）
 - HarmonyOS SDK；最低兼容版本 6.0.0（API 20）
-- Node.js 20 或更高版本
+- Node.js 22.12 或更高版本
 
 ## 构建
 
@@ -24,7 +24,7 @@ React/Vite 应用，ArkWeb 只承担渲染；ArkTS 桥接负责关系型数据�
 ## 数据与迁移
 
 鸿蒙端使用 `carejournal.db` 和应用沙箱 `files/assets`，不会把病历素材留在
-相册或下载目录。Android/Web 的已有数据可继续通过局域网同步的可携带快照
+相册或下载目录。Android/Windows 的已有数据可继续通过局域网同步的可携带快照
 导入；LLM 密钥和服务商配置仍按既有规则不参与同步。
 
 ## 已接入能力
@@ -34,7 +34,7 @@ React/Vite 应用，ArkWeb 只承担渲染；ArkTS 桥接负责关系型数据�
 - 系统文件选择、拍照入口、图片全屏预览、PDF 分页预览和备份文件保存。
 - PDF 文本提取；扫描件与图片可先经本地 PaddleOCR 脱敏，再发送给 LLM。
 - Azure OpenAI、DeepSeek 及其他 OpenAI-compatible 服务由 ArkTS 原生 HTTP 请求。
-- 与 Android/Web 使用相同的局域网同步协议，无配对码；当前没有额外的应用层加密，只应在可信 Wi-Fi 下使用。
+- 与 Android/Windows 使用相同的局域网同步协议，无配对码；当前没有额外的应用层加密，只应在可信 Wi-Fi 下使用。
 - 系统返回键关闭最上层弹窗或返回上一页，根页面再次返回时退出应用。
 - 手机、平板和 2in1 共用响应式布局。
 
@@ -42,7 +42,7 @@ React/Vite 应用，ArkWeb 只承担渲染；ArkTS 桥接负责关系型数据�
 
 签名安装后，建议依次验证：首次启动建库、图片/PDF 导入与预览、PDF 文字版和
 扫描版识别、本地脱敏、各自使用的 LLM 服务、备份导出/恢复、前后台切换与返回键，
-以及与 Android/Web 双向发现和同步。局域网同步需要设备处于同一 Wi-Fi，且网络
+以及与 Android/Windows 双向发现和同步。局域网同步需要设备处于同一 Wi-Fi，且网络
 未开启客户端隔离。
 
 当前工程已使用 `C:\Program Files\Huawei\DevEco Studio` 中的 DevEco Studio

@@ -16,7 +16,7 @@ Do not post medical records, report images, API keys, or other personal informat
 
 Data stays on the current device by default. Android uses private app storage and SQLite; Windows portable builds use `CareJournalData/` beside the executable; other supported platforms use their local app storage. The maintainer cannot remotely access, restore, or delete this data.
 
-You can delete records and attachments in the app. To erase all data, clear app data or uninstall the app; for a web build, clear the site data in the browser.
+You can delete records and attachments in the app. Android data can be cleared through system settings. For the Windows portable edition, close the app and delete its `CareJournalData/` directory. For a browser development preview, clear the site data. Confirm you have a usable backup before clearing data. There is no standalone browser edition.
 
 ## 3. LLM and OCR
 
@@ -28,6 +28,8 @@ You choose and configure the LLM provider. The app connects to that provider onl
 - Region and language preferences stay on the current device and are included in backups. The region changes the OCR unit instructions; it is not sent to the project maintainer.
 
 Your chosen provider controls its own processing location, retention, and security practices. Confirm that you are authorized to process the material and review that provider’s terms before use.
+
+Native hosts connect directly to your configured provider; iOS compilation and device verification are still pending. The browser development preview does not support OCR requests. The project provides no Node server or public forwarding service.
 
 Backups are ZIP files containing structured records and source attachments. They are not encrypted and can contain sensitive health data; keep them in a trusted location.
 
