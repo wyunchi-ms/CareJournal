@@ -1,14 +1,13 @@
 import { differenceInCalendarDays, format, parseISO, subMonths } from 'date-fns'
 import type { EChartsType } from 'echarts'
 import ReactECharts from 'echarts-for-react'
-import { Bookmark, BookmarkCheck, BookmarkX, CalendarPlus, ChartNoAxesCombined, ChevronRight, Eye, EyeOff, GripVertical, Plus, RotateCcw, Search, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Bookmark, BookmarkCheck, BookmarkX, CalendarPlus, ChartNoAxesCombined, ChevronRight, Eye, EyeOff, GripVertical, Plus, RotateCcw, Search, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { ChoicePicker } from '../components/ChoicePicker'
 import { ConfirmSheet } from '../components/ConfirmSheet'
 import { IndicatorPicker } from '../components/IndicatorPicker'
 import { Modal } from '../components/Modal'
-import { RecordSummaryContent } from '../components/RecordSummaryContent'
 import { useSortableDragLift } from '../components/SortableDragLift'
 import { SortableDragOverlay } from '../components/SortableDragOverlay'
 import { SwipeableListItem } from '../components/SwipeableListItem'
@@ -16,6 +15,7 @@ import { sortChartIndicators, type ChartIndicatorOption } from '../services/char
 import { chartMetricPoints, collectChartMetrics, formatChartMetricValue, getBodyChartMetric } from '../services/chartMetrics'
 import { moveChartPin, sortChartPins } from '../services/chartPins'
 import { groupChemotherapyCycles, type ChemotherapyCycle } from '../services/chemotherapy'
+import { flagLabel, indicatorRangeFlag, resultText } from '../services/recordDisplay'
 import { useApp } from '../store/AppContext'
 import { EVENT_TYPES, newId, type ChartPin, type ExamRecord, type TreatmentEvent } from '../types'
 
@@ -48,7 +48,7 @@ function formatTooltipValue(code: string, unit: string, value: unknown) {
 function bodyMetricAxisLabel(code: string) {
   return getBodyChartMetric(code)
     ? { formatter: (value: number) => formatChartMetricValue(code, Number(value)) }
-    : undefined
+    : {}
 }
 
 function buildTrendOption(
@@ -569,28 +569,33 @@ export function ChartsPage() {
             <span>{detailSources.length} {detailIsBodyMetric ? '条' : '份'}</span>
           </div>
           <div className="chart-report-list">
-            {detailSources.map((source) => source.source === 'exam' ? <Link
-              className="record-row chart-report-row"
-              to={`/records?recordId=${encodeURIComponent(source.record.id)}`}
-              state={{ recordDetailOrigin: '/charts' }}
-              onClick={() => setDetailPinId(null)}
-              aria-label={`打开相关检查报告：${source.date || '日期未识别'}`}
-              key={`exam-${source.record.id}`}
-            >
-              <RecordSummaryContent record={source.record} showDate />
-            </Link> : <Link
-              className="record-row chart-report-row chart-body-record-row"
-              to={`/calendar?date=${encodeURIComponent(source.date)}`}
-              onClick={() => setDetailPinId(null)}
-              aria-label={`打开相关身体记录：${source.date}`}
-              key={`body-${source.event.id}`}
-            >
-              <span className="record-main">
-                <strong>{detailIndicator?.name ?? '身体指标'} {formatChartMetricValue(detailCode, source.value)}{detailIndicator?.unit ? ` ${detailIndicator.unit}` : ''}</strong>
-                <small>{source.date} · 身体记录</small>
-              </span>
-              <ChevronRight aria-hidden="true" />
-            </Link>)}
+            {detailSources.map((source) => {
+              const isExam = source.source === 'exam'
+              const flag = isExam ? indicatorRangeFlag(source.indicator) : 'unknown'
+              const direction = isExam && flag === 'critical'
+                ? indicatorRangeFlag({ ...source.indicator, abnormalFlag: 'unknown' })
+                : flag
+              const DirectionIcon = direction === 'high' ? ArrowUp : direction === 'low' ? ArrowDown : null
+              const value = isExam ? resultText(source.indicator) : formatChartMetricValue(detailCode, source.value)
+              const sourceId = isExam ? `exam-${source.record.id}-${source.indicator.id}` : `body-${source.event.id}`
+              const valueId = `chart-source-value-${sourceId}`
+              return <Link
+                className="chart-report-row"
+                to={isExam ? `/records?recordId=${encodeURIComponent(source.record.id)}` : `/calendar?date=${encodeURIComponent(source.date)}`}
+                state={isExam ? { recordDetailOrigin: '/charts' } : undefined}
+                onClick={() => setDetailPinId(null)}
+                aria-label={`打开相关${isExam ? '检查报告' : '身体记录'}：${source.date}`}
+                aria-describedby={valueId}
+                key={sourceId}
+              >
+                <time className="chart-report-date" dateTime={source.date}>{source.date}</time>
+                <span className={`chart-report-value ${flag}`} id={valueId} title={flagLabel(flag) || undefined}>
+                  <span>{value}</span>
+                  {DirectionIcon && <DirectionIcon aria-hidden="true" />}
+                  {flagLabel(flag) && <span className="sr-only">，{flagLabel(flag)}</span>}
+                </span>
+              </Link>
+            })}
             {detailSources.length === 0 && <div className="empty-inline"><ChartNoAxesCombined /><strong>{detailIsBodyMetric ? '没有相关身体记录' : '没有相关数值报告'}</strong><p>当前选择的周期内没有可绘制的数据。</p></div>}
           </div>
         </section>

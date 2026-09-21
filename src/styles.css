@@ -474,8 +474,8 @@ label { display: grid; gap: 7px; color: var(--text); font-size: .9rem; font-weig
 .pdf-preview-pagination { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .pdf-preview-pagination > span { min-width: 92px; color: #eadbd3; font-size: .78rem; text-align: center; }
 .flag { display: inline-block !important; padding: 4px 7px; border-radius: 5px; font-size: .72rem; font-weight: 800; }
-.flag.high, .flag.critical { color: #9c2230; background: #fde6e8; }
-.flag.low { color: #246149; background: #e2f1e8; }
+.flag.high, .flag.critical, .chart-report-value.high, .chart-report-value.critical { color: #9c2230; background: #fde6e8; }
+.flag.low, .chart-report-value.low { color: #246149; background: #e2f1e8; }
 .flag.normal { color: #076444; background: #ddf5e9; }
 .image-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
 .image-gallery > .image-thumbnail img { width: 100%; aspect-ratio: 3 / 4; display: block; object-fit: cover; border: 1px solid var(--border); border-radius: 9px; }
@@ -706,8 +706,12 @@ legend { margin-bottom: 8px; color: var(--muted); font-size: .78rem; font-weight
 .chart-range-options button:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary), transparent 48%); outline-offset: 2px; }
 .chart-detail-visual { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
 .chart-report-list { overflow: hidden; border: 1px solid var(--border); border-radius: 12px; }
-.chart-report-row { text-decoration: none; border-bottom: 1px solid var(--border); }
-.chart-body-record-row { grid-template-columns: minmax(0, 1fr) 24px; }
+.chart-report-row { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 12px; color: var(--text); background: var(--surface); border-bottom: 1px solid var(--border); text-decoration: none; font-variant-numeric: tabular-nums; }
+.chart-report-row:hover { background: var(--surface-alt); }
+.chart-report-row:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.chart-report-date { flex: 0 0 auto; font-size: .84rem; white-space: nowrap; }
+.chart-report-value { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; border-radius: 5px; font-size: .9rem; font-weight: 800; white-space: nowrap; }
+.chart-report-value svg { flex: 0 0 15px; width: 15px; height: 15px; }
 .chart-report-row:last-child { border-bottom: 0; }
 .chart-report-list > .empty-inline { min-height: 150px; }
 .settings-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }

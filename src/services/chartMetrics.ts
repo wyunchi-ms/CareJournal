@@ -1,4 +1,4 @@
-import type { BodyMeasurements, ExamRecord, TreatmentEvent } from '../types'
+import type { BodyMeasurements, ExamRecord, LabIndicator, TreatmentEvent } from '../types'
 
 type BodyMetricKey = keyof BodyMeasurements
 
@@ -17,6 +17,7 @@ export type ChartMetricPoint = {
 } & ({
   source: 'exam'
   record: ExamRecord
+  indicator: LabIndicator
 } | {
   source: 'body'
   event: TreatmentEvent
@@ -77,8 +78,8 @@ export function chartMetricPoints(records: ExamRecord[], events: TreatmentEvent[
 
   return records.filter((record) => hasChartDate(record.sampleDate)).flatMap((record): ChartMetricPoint[] => (
     record.indicators
-      .filter((indicator) => indicator.normalizedCode === code && indicator.value !== null)
-      .map((indicator) => ({ date: record.sampleDate, value: indicator.value as number, source: 'exam', record }))
+      .filter((indicator): indicator is LabIndicator & { value: number } => indicator.normalizedCode === code && indicator.value !== null)
+      .map((indicator) => ({ date: record.sampleDate, value: indicator.value, source: 'exam', record, indicator }))
   )).sort((first, second) => first.date.localeCompare(second.date))
 }
 

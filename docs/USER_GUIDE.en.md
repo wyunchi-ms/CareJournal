@@ -41,6 +41,8 @@ When local PaddleOCR redaction is enabled, the app extracts text locally and att
 
 Open **Charts** for date-based lab and body-measurement trends and treatment-cycle comparison aligned to Day 1. Save commonly used chart setups.
 
+Open a saved chart to see one compact row per source, with the date and selected value side by side. Tap a row to open its report or body-measurement record. High results use a red up arrow, low results a green down arrow, and normal results have no arrow. Report names, hospitals, metric names, units, and counts are omitted. Existing report flags are used when reference bounds are unavailable; unknown status has no arrow. Critical results retain red highlighting, with the full status available to screen readers.
+
 Open **Claims** to create a reimbursement plan from relevant treatment events, keep documents such as reports and invoices, and mark work as complete.
 
 ## 6. Smart-recognition service

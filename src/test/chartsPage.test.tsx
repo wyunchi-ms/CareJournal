@@ -1,16 +1,21 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
+import { init, setPlatformAPI } from 'echarts'
 import { ChartsPage } from '../pages/ChartsPage'
-import { DEFAULT_PREFERENCES, type ChartPin, type TreatmentEvent } from '../types'
+import { DEFAULT_PREFERENCES, type ChartPin, type ExamRecord, type TreatmentEvent } from '../types'
 
 const savePreferences = vi.fn(async () => undefined)
 const savePin = vi.fn(async () => undefined)
 const reorderPins = vi.fn(async () => undefined)
 const deletePin = vi.fn(async () => undefined)
-const { dispatchChartAction } = vi.hoisted(() => ({ dispatchChartAction: vi.fn() }))
+const { dispatchChartAction, captureChartOption } = vi.hoisted(() => ({
+  dispatchChartAction: vi.fn(),
+  captureChartOption: vi.fn<(option: object) => void>(),
+}))
 let pins: ChartPin[] = []
 let events: TreatmentEvent[] = []
+let extraRecords: ExamRecord[] = []
 
 vi.mock('echarts-for-react', () => ({
   default: ({ option, onChartReady }: { option: {
@@ -20,8 +25,9 @@ vi.mock('echarts-for-react', () => ({
     series?: Array<{ data?: unknown[]; name?: string; markLine?: { data?: unknown[] }; tooltip?: { valueFormatter?: (value: number) => string } }>
     legend?: { itemWidth?: number; type?: string; formatter?: (name: string) => string }
     xAxis?: { min?: number; name?: string; axisLabel?: { formatter?: (value: number) => string } }
-    yAxis?: { name?: string }
+    yAxis?: { name?: string; axisLabel?: { formatter?: (value: number) => string } }
   }; onChartReady?: (instance: { dispatchAction: typeof dispatchChartAction }) => void }) => {
+    captureChartOption(option)
     onChartReady?.({ dispatchAction: dispatchChartAction })
     return <div
       data-testid="chart"
@@ -37,6 +43,7 @@ vi.mock('echarts-for-react', () => ({
       data-x-axis-min={option.xAxis?.min ?? ''}
       data-x-axis-name={option.xAxis?.name ?? ''}
       data-y-axis-name={option.yAxis?.name ?? ''}
+      data-y-axis-value-label={option.yAxis?.axisLabel?.formatter?.(63.2) ?? ''}
       data-x-axis-labels={JSON.stringify([0, 20, 40].map((value) => option.xAxis?.axisLabel?.formatter?.(value) ?? value))}
       data-tooltip-render-mode={option.tooltip?.renderMode ?? ''}
       data-zoom-start={option.dataZoom?.[0]?.startValue ?? ''}
@@ -52,15 +59,16 @@ vi.mock('../store/AppContext', () => ({
   useApp: () => ({
     records: [
       { id: 'record-old', reportType: '血常规', normalizedReportType: '血常规', sampleDate: '2024-07-01', hospital: '浙江大学儿童医院', indicators: [
-        { normalizedCode: 'WBC', normalizedName: '白细胞计数', unit: '10^9/L', value: 5.2, abnormalFlag: 'normal' },
+        { id: 'old-wbc', normalizedCode: 'WBC', normalizedName: '白细胞计数', unit: '10^9/L', value: 5.2, rawValue: '5.20 10^9/L ↑', referenceLow: 3, referenceHigh: 5, abnormalFlag: 'normal' },
       ] },
       { id: 'record-1', reportType: '血常规', normalizedReportType: '血常规', sampleDate: '2026-07-01', hospital: '浙江大学儿童医院', indicators: [
-        { normalizedCode: 'WBC', normalizedName: '白细胞计数', unit: '10^9/L', value: 3.2, abnormalFlag: 'normal' },
-        { normalizedCode: 'HGB', normalizedName: '血红蛋白', unit: 'g/L', value: 96, abnormalFlag: 'low' },
+        { id: 'wbc-1', normalizedCode: 'WBC', normalizedName: '白细胞计数', unit: '10^9/L', value: 3.2, rawValue: '3.2', referenceLow: 3.5, referenceHigh: 9.5, abnormalFlag: 'normal' },
+        { id: 'hgb-1', normalizedCode: 'HGB', normalizedName: '血红蛋白', unit: 'g/L', value: 96, rawValue: '96', referenceLow: 115, referenceHigh: 150, abnormalFlag: 'low' },
       ] },
       { id: 'record-2', reportType: '血常规', normalizedReportType: '血常规', sampleDate: '2026-07-08', hospital: '浙江大学儿童医院', indicators: [
-        { normalizedCode: 'WBC', normalizedName: '白细胞计数', unit: '10^9/L', value: 4.1, abnormalFlag: 'normal' },
+        { id: 'wbc-2', normalizedCode: 'WBC', normalizedName: '白细胞计数', unit: '10^9/L', value: 4.1, rawValue: '4.1', referenceLow: 3.5, referenceHigh: 9.5, abnormalFlag: 'normal' },
       ] },
+      ...extraRecords,
     ],
     events,
     pins,
@@ -80,11 +88,119 @@ afterEach(() => {
   reorderPins.mockClear()
   deletePin.mockClear()
   dispatchChartAction.mockClear()
+  captureChartOption.mockClear()
   pins = []
   events = []
+  extraRecords = []
 })
 
 describe('charts page indicator selection', () => {
+  it.each(['trend', 'cycle'] as const)('renders numeric y-axis ticks in %s builders, saved charts, and details', (mode) => {
+    events = [{
+      id: 'cycle-1', type: 'chemotherapy', title: '第一周期化疗', startDate: '2026-07-01', endDate: '2026-07-01', allDay: true,
+      tags: [], linkedRecordIds: [], createdAt: '2026-07-01T00:00:00.000Z', updatedAt: '2026-07-01T00:00:00.000Z',
+    }]
+    const builder = render(<MemoryRouter><ChartsPage /></MemoryRouter>)
+    if (mode === 'cycle') fireEvent.click(screen.getByRole('tab', { name: '化疗周期叠加' }))
+    builder.unmount()
+
+    pins = [{ id: 'wbc-pin', title: '白细胞图表', mode, indicatorCodes: ['WBC'], cycleEventIds: ['cycle-1'], createdAt: '2026-07-01T00:00:00.000Z' }]
+    render(<MemoryRouter><ChartsPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: '查看图表详情：白细胞图表' }))
+
+    setPlatformAPI({ measureText: (text) => ({ width: text.length * 7 }) })
+    expect(captureChartOption.mock.calls.length).toBeGreaterThanOrEqual(4)
+    for (const [option] of captureChartOption.mock.calls) {
+      const chart = init(null, undefined, { renderer: 'svg', ssr: true, width: 360, height: 400 })
+      try {
+        chart.setOption({ ...option, animation: false })
+        const svg = new DOMParser().parseFromString(chart.renderToSVGString(), 'image/svg+xml')
+        const ticks = [...svg.querySelectorAll('text[text-anchor="end"]')].map((tick) => tick.textContent)
+        expect(ticks.length).toBeGreaterThan(2)
+        expect(ticks).toContain('4')
+      } finally {
+        chart.dispose()
+      }
+    }
+  })
+
+  it('shows only date and value with directional status icons in compact related-report rows', () => {
+    pins = [{ id: 'wbc-pin', title: '白细胞计数趋势', mode: 'trend', indicatorCodes: ['WBC'], cycleEventIds: [], createdAt: '2026-07-01T00:00:00.000Z' }]
+    render(<MemoryRouter><ChartsPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: '查看图表详情：白细胞计数趋势' }))
+
+    const dialog = screen.getByRole('dialog', { name: '白细胞计数趋势' })
+    const lowReport = within(dialog).getByRole('link', { name: '打开相关检查报告：2026-07-01' })
+    const lowValue = within(lowReport).getByText('3.2').closest('.chart-report-value')
+    expect(lowValue).toHaveClass('low')
+    expect(lowValue?.querySelector('svg')).toHaveClass('lucide-arrow-down')
+    expect(lowReport).toHaveAccessibleDescription('3.2，偏低')
+    expect(lowReport).not.toHaveTextContent('血红蛋白')
+    expect(lowReport).not.toHaveTextContent('白细胞计数')
+    expect(lowReport).not.toHaveTextContent('10^9/L')
+    expect(lowReport).not.toHaveTextContent('项指标')
+    expect(lowReport).not.toHaveTextContent('项异常')
+    expect(lowReport).not.toHaveTextContent('血常规')
+    expect(lowReport).toHaveTextContent('2026-07-01')
+    expect(lowReport).not.toHaveTextContent('浙江大学儿童医院')
+    expect(lowReport.querySelector('time')).toHaveAttribute('datetime', '2026-07-01')
+    expect(lowReport.children).toHaveLength(2)
+    expect(within(lowReport).getByText('，偏低')).toHaveClass('sr-only')
+    expect(lowReport).toHaveAttribute('href', '/records?recordId=record-1')
+    const normalValue = within(dialog).getByText('4.1').closest('.chart-report-value')
+    expect(normalValue).toHaveClass('normal')
+    expect(normalValue?.querySelector('svg')).not.toBeInTheDocument()
+    const highValue = within(dialog).getByText('5.20').closest('.chart-report-value')
+    expect(highValue).toHaveClass('high')
+    expect(highValue?.querySelector('svg')).toHaveClass('lucide-arrow-up')
+  })
+
+  it('keeps each plotted result attached to its exact indicator when one report repeats a code', () => {
+    extraRecords = [{
+      id: 'repeated-code', reportType: '血常规', sampleDate: '2026-07-15',
+      indicators: [2, 12].map((value) => ({
+        id: `wbc-${value}`, rawName: 'WBC', normalizedCode: 'WBC', normalizedName: '白细胞计数', unit: 'G/L',
+        value, rawValue: '', referenceLow: 3.5, referenceHigh: 9.5, referenceText: '3.5–9.5', abnormalFlag: 'unknown',
+      })),
+      images: [], linkedEventIds: [], fingerprint: '', ocrStatus: 'completed', ocrAttempts: 1,
+      createdAt: '2026-07-15T00:00:00.000Z', updatedAt: '2026-07-15T00:00:00.000Z',
+    }]
+    pins = [{ id: 'wbc-pin', title: '白细胞计数趋势', mode: 'trend', indicatorCodes: ['WBC'], cycleEventIds: [], createdAt: '2026-07-01T00:00:00.000Z' }]
+    render(<MemoryRouter><ChartsPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: '查看图表详情：白细胞计数趋势' }))
+
+    const dialog = screen.getByRole('dialog', { name: '白细胞计数趋势' })
+    expect(within(dialog).getByText('2').closest('.chart-report-value')).toHaveClass('low')
+    expect(within(dialog).getByText('12').closest('.chart-report-value')).toHaveClass('high')
+  })
+
+  it.each([
+    { value: 1, referenceLow: 3.5, referenceHigh: 9.5, flag: 'critical' as const, icon: 'lucide-arrow-down' },
+    { value: 12, referenceLow: 3.5, referenceHigh: 9.5, flag: 'critical' as const, icon: 'lucide-arrow-up' },
+    { value: 4, referenceLow: null, referenceHigh: null, flag: 'unknown' as const, icon: null },
+    { value: 4, referenceLow: null, referenceHigh: null, flag: 'critical' as const, icon: null },
+  ])('preserves $flag highlighting without guessing an arrow for value $value', ({ value, referenceLow, referenceHigh, flag, icon }) => {
+    extraRecords = [{
+      id: 'flagged-record', reportType: '血常规', sampleDate: '2026-07-15',
+      indicators: [{
+        id: 'flagged-wbc', rawName: 'WBC', normalizedCode: 'WBC', normalizedName: '白细胞计数',
+        value, rawValue: '', unit: '10^9/L', referenceLow, referenceHigh, referenceText: '', abnormalFlag: flag,
+      }],
+      images: [], linkedEventIds: [], fingerprint: '', ocrStatus: 'completed', ocrAttempts: 1,
+      createdAt: '2026-07-15T00:00:00.000Z', updatedAt: '2026-07-15T00:00:00.000Z',
+    }]
+    pins = [{ id: 'wbc-pin', title: '白细胞计数趋势', mode: 'trend', indicatorCodes: ['WBC'], cycleEventIds: [], createdAt: '2026-07-01T00:00:00.000Z' }]
+    render(<MemoryRouter><ChartsPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: '查看图表详情：白细胞计数趋势' }))
+
+    const source = screen.getByRole('link', { name: '打开相关检查报告：2026-07-15' })
+    const result = within(source).getByText(String(value)).closest('.chart-report-value')
+    expect(result).toHaveClass(flag)
+    if (icon) expect(result?.querySelector('svg')).toHaveClass(icon)
+    else expect(result?.querySelector('svg')).not.toBeInTheDocument()
+    if (flag === 'critical') expect(source).toHaveAccessibleDescription(`${value}，危急`)
+  })
+
   it('renders one indicator series and persists indicator priority pins', () => {
     render(<ChartsPage />)
     expect(screen.getByTestId('chart')).toHaveAttribute('data-series-count', '1')
@@ -122,6 +238,7 @@ describe('charts page indicator selection', () => {
     expect(screen.getByTestId('chart')).toHaveAttribute('data-series-data', '[["2026-07-03",63.2],["2026-07-10",63.25]]')
     expect(screen.getByTestId('chart')).toHaveAttribute('data-y-axis-name', 'kg')
     expect(screen.getByTestId('chart')).toHaveAttribute('data-series-value-label', '63.20 kg')
+    expect(screen.getByTestId('chart')).toHaveAttribute('data-y-axis-value-label', '63.20')
   })
 
   it('opens a saved body metric chart and links its sources back to the calendar date', () => {
@@ -135,8 +252,15 @@ describe('charts page indicator selection', () => {
     fireEvent.click(screen.getByRole('button', { name: '查看图表详情：体重趋势' }))
     const dialog = screen.getByRole('dialog', { name: '体重趋势' })
     expect(within(dialog).getByRole('heading', { name: '相关身体记录' })).toBeInTheDocument()
-    expect(within(dialog).getByText('体重 63.20 kg')).toBeInTheDocument()
-    expect(within(dialog).getByRole('link', { name: '打开相关身体记录：2026-07-03' })).toHaveAttribute('href', '/calendar?date=2026-07-03')
+    const source = within(dialog).getByRole('link', { name: '打开相关身体记录：2026-07-03' })
+    expect(within(source).getByText('63.20')).toBeInTheDocument()
+    expect(source).not.toHaveTextContent('体重')
+    expect(source).not.toHaveTextContent('kg')
+    expect(source).not.toHaveTextContent('身体记录')
+    expect(source.querySelector('time')).toHaveTextContent('2026-07-03')
+    expect(source.children).toHaveLength(2)
+    expect(source.querySelector('svg')).not.toBeInTheDocument()
+    expect(source).toHaveAttribute('href', '/calendar?date=2026-07-03')
   })
 
   it('dismisses the active chart tooltip when switching indicators', () => {
@@ -310,6 +434,8 @@ describe('charts page indicator selection', () => {
     expect(within(dialog).getByText('默认显示周期')).toBeInTheDocument()
     expect(within(dialog).getByTestId('chart')).toHaveAttribute('data-series-count', '2')
     expect(within(dialog).getAllByRole('link')).toHaveLength(2)
+    expect(within(dialog).getByText('3.2').closest('.chart-report-value')).toHaveClass('low')
+    expect(within(dialog).getByText('4.1').closest('.chart-report-value')).toHaveClass('normal')
 
     fireEvent.click(within(dialog).getByRole('checkbox', { name: /第 2 周期/ }))
 
@@ -319,6 +445,7 @@ describe('charts page indicator selection', () => {
     })))
     expect(within(dialog).getByTestId('chart')).toHaveAttribute('data-series-count', '1')
     expect(within(dialog).getAllByRole('link')).toHaveLength(1)
+    expect(within(dialog).queryByText('4.1')).not.toBeInTheDocument()
     expect(within(dialog).getByRole('link', { name: '打开相关检查报告：2026-07-01' })).toHaveAttribute('href', '/records?recordId=record-1')
   })
 
