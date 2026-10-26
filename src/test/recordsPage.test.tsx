@@ -50,6 +50,14 @@ const records = [
   { ...record('4', 'CT'), sampleDate: '2025-12-30', hospital: '历史医院' },
 ]
 
+vi.mock('echarts-for-react', () => ({
+  default: ({ option }: { option: { series?: Array<{ data?: unknown[] }>; dataZoom?: Array<{ startValue?: string }> } }) => <div
+    data-testid="indicator-trend-chart"
+    data-series-data={JSON.stringify(option.series?.[0]?.data ?? [])}
+    data-zoom-start={option.dataZoom?.[0]?.startValue ?? ''}
+  />,
+}))
+
 vi.mock('../store/AppContext', () => ({
   useApp: () => ({
     ready: true,
@@ -67,7 +75,89 @@ vi.mock('../store/AppContext', () => ({
 }))
 
 describe('record type filter', () => {
-  beforeEach(() => { deleteRecordMock.mockClear(); saveRecordMock.mockClear(); rerecognizeRecordMock.mockClear() })
+  beforeEach(() => { records.splice(4); deleteRecordMock.mockClear(); saveRecordMock.mockClear(); rerecognizeRecordMock.mockClear() })
+
+  it('blocks context menus on ordinary content and links but preserves input and textarea editing', () => {
+    const { unmount } = render(<MemoryRouter initialEntries={['/records']}><App /></MemoryRouter>)
+    expect(fireEvent.contextMenu(screen.getByText('病程记'))).toBe(false)
+    expect(fireEvent.contextMenu(screen.getByRole('link', { name: '导入报告' }))).toBe(false)
+    expect(fireEvent.contextMenu(screen.getByRole('textbox', { name: '搜索记录' }))).toBe(true)
+    fireEvent.click(document.querySelector('.record-row')!)
+    expect(fireEvent.contextMenu(screen.getByText('测试报告结论'))).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '编辑报告' }))
+    expect(fireEvent.contextMenu(screen.getByRole('textbox', { name: '报告结论' }))).toBe(true)
+    unmount()
+    expect(fireEvent.contextMenu(document.body)).toBe(true)
+  })
+
+  it('opens indicator trends from the whole row with ordered history and shared range controls', () => {
+    records.push({
+      ...record('old', '血常规'), sampleDate: '2025-01-21',
+      indicators: [{ ...records[0].indicators[0], id: 'old-wbc', value: 6.1, rawValue: '6.1', abnormalFlag: 'normal' }],
+    })
+    render(<MemoryRouter><RecordsPage /></MemoryRouter>)
+    fireEvent.click(document.querySelector('.record-row')!)
+    fireEvent.click(within(screen.getByRole('row', { name: /白细胞计数，偏低/ })).getAllByRole('cell')[1])
+
+    const trend = screen.getByRole('dialog', { name: '白细胞计数趋势' })
+    expect(within(trend).getByTestId('indicator-trend-chart')).toHaveAttribute('data-series-data', '[["2025-01-21",6.1],["2026-07-21",4.2]]')
+    expect(within(trend).getByRole('button', { name: '6个月' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(trend).getByTestId('indicator-trend-chart')).toHaveAttribute('data-zoom-start', '2026-01-21')
+    fireEvent.click(within(trend).getByRole('button', { name: '全部' }))
+    expect(within(trend).getByTestId('indicator-trend-chart')).toHaveAttribute('data-zoom-start', '')
+    const history = within(trend).getAllByRole('link')
+    expect(history.map((link) => link.querySelector('time')?.dateTime)).toEqual(['2026-07-21', '2025-01-21'])
+    expect(history[0]).toHaveAccessibleDescription('4.2，偏低')
+    fireEvent.click(within(trend).getByRole('button', { name: '关闭' }))
+    expect(screen.queryByRole('dialog', { name: '白细胞计数趋势' })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '实验室检查' })).toHaveTextContent('测试报告结论')
+  })
+
+  it('opens a historical report from the trend without leaving a stale report detail', () => {
+    records.push({
+      ...record('old', '血常规'), sampleDate: '2025-01-21', summary: '历史报告结论',
+      indicators: [{ ...records[0].indicators[0], id: 'old-wbc', value: 6.1, rawValue: '6.1' }],
+    })
+    render(<MemoryRouter><RecordsPage /></MemoryRouter>)
+    fireEvent.click(document.querySelector('.record-row')!)
+    fireEvent.click(screen.getByRole('button', { name: '查看指标趋势：白细胞计数' }))
+    fireEvent.click(screen.getByRole('link', { name: '打开相关检查报告：2025-01-21' }))
+    expect(screen.queryByRole('dialog', { name: '白细胞计数趋势' })).not.toBeInTheDocument()
+    const detail = screen.getByRole('dialog', { name: '血常规' })
+    expect(detail).toHaveTextContent('历史报告结论')
+    expect(detail).toHaveTextContent('2025-01-21')
+    expect(detail).not.toHaveTextContent('测试报告结论')
+  })
+
+  it('keeps the report open when swiping the nested trend and closes only the trend on Escape', () => {
+    render(<MemoryRouter><RecordsPage /></MemoryRouter>)
+    fireEvent.click(document.querySelector('.record-row')!)
+    fireEvent.click(screen.getByRole('button', { name: '查看指标趋势：白细胞计数' }))
+    const trend = screen.getByRole('dialog', { name: '白细胞计数趋势' })
+    fireEvent.touchStart(trend, { touches: [{ clientX: 20, clientY: 220 }] })
+    fireEvent.touchEnd(trend, { changedTouches: [{ clientX: 150, clientY: 225 }] })
+    expect(screen.getByRole('dialog', { name: '实验室检查' })).toBeInTheDocument()
+    expect(trend).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: '白细胞计数趋势' })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '实验室检查' })).toBeInTheDocument()
+  })
+
+  it('shows an explicit empty state for an indicator without numeric history', () => {
+    records.push({
+      ...record('text', '尿常规'), sampleDate: '2026-08-01',
+      indicators: [{
+        ...records[0].indicators[0], id: 'text-result', normalizedCode: 'CUSTOM_URINE', normalizedName: '尿蛋白',
+        value: null, rawValue: '阴性',
+      }],
+    })
+    render(<MemoryRouter><RecordsPage /></MemoryRouter>)
+    fireEvent.click(document.querySelector('.record-row')!)
+    fireEvent.click(screen.getByRole('button', { name: '查看指标趋势：尿蛋白' }))
+    const trend = screen.getByRole('dialog', { name: '尿蛋白趋势' })
+    expect(within(trend).getByText('没有相关数值报告')).toBeInTheDocument()
+    expect(within(trend).getByTestId('indicator-trend-chart')).toHaveAttribute('data-series-data', '[]')
+  })
 
   it('groups aliases and allows selecting multiple normalized types', () => {
     render(<MemoryRouter><RecordsPage /></MemoryRouter>)

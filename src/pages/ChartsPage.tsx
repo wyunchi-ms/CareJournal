@@ -1,9 +1,8 @@
-import { differenceInCalendarDays, format, parseISO, subMonths } from 'date-fns'
+import { differenceInCalendarDays, format, parseISO } from 'date-fns'
 import type { EChartsType } from 'echarts'
-import ReactECharts from 'echarts-for-react'
-import { ArrowDown, ArrowUp, Bookmark, BookmarkCheck, BookmarkX, CalendarPlus, ChartNoAxesCombined, ChevronRight, Eye, EyeOff, GripVertical, Plus, RotateCcw, Search, X } from 'lucide-react'
+import { Bookmark, BookmarkCheck, BookmarkX, CalendarPlus, ChartNoAxesCombined, ChevronRight, Eye, EyeOff, GripVertical, Plus, RotateCcw, Search, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Link } from 'react-router-dom'
+import { ChartSourceList, TimeSeriesChart, TrendRangePicker } from '../components/ChartDetail'
 import { ChoicePicker } from '../components/ChoicePicker'
 import { ConfirmSheet } from '../components/ConfirmSheet'
 import { IndicatorPicker } from '../components/IndicatorPicker'
@@ -12,120 +11,20 @@ import { useSortableDragLift } from '../components/SortableDragLift'
 import { SortableDragOverlay } from '../components/SortableDragOverlay'
 import { SwipeableListItem } from '../components/SwipeableListItem'
 import { sortChartIndicators, type ChartIndicatorOption } from '../services/chartIndicators'
-import { chartMetricPoints, collectChartMetrics, formatChartMetricValue, getBodyChartMetric } from '../services/chartMetrics'
+import { chartMetricPoints, collectChartMetrics, getBodyChartMetric } from '../services/chartMetrics'
 import { moveChartPin, sortChartPins } from '../services/chartPins'
+import { bodyMetricAxisLabel, buildTrendOption, formatTooltipValue, type TrendRange } from '../services/chartTrend'
 import { groupChemotherapyCycles, type ChemotherapyCycle } from '../services/chemotherapy'
-import { flagLabel, indicatorRangeFlag, resultText } from '../services/recordDisplay'
 import { useApp } from '../store/AppContext'
-import { EVENT_TYPES, newId, type ChartPin, type ExamRecord, type TreatmentEvent } from '../types'
+import { newId, type ChartPin, type ExamRecord, type TreatmentEvent } from '../types'
 
-const seriesColors = ['#0891b2', '#7a5af8', '#e45756', '#f59e0b', '#16a34a', '#2563eb']
 const cycleSeriesColors = ['#0072b2', '#e69f00', '#009e73', '#cc79a7', '#d55e00', '#56b4e9', '#7a3e9d', '#6b7a00', '#8c564b', '#17becf', '#e83e8c', '#4d7c0f']
-
-type TrendRange = '3m' | '6m' | '1y' | 'all'
-
-const trendRangeOptions: Array<{ value: TrendRange; label: string; months: number | null }> = [
-  { value: '3m', label: '3个月', months: 3 },
-  { value: '6m', label: '6个月', months: 6 },
-  { value: '1y', label: '1年', months: 12 },
-  { value: 'all', label: '全部', months: null },
-]
 
 function cycleSeriesColor(index: number) {
   if (index < cycleSeriesColors.length) return cycleSeriesColors[index]
   const hue = Math.round((index * 137.508 + 25) % 360)
   const lightness = 42 + (Math.floor(index / cycleSeriesColors.length) % 2) * 8
   return `hsl(${hue}, 72%, ${lightness}%)`
-}
-
-function formatTooltipValue(code: string, unit: string, value: unknown) {
-  const rawValue = Array.isArray(value) ? value.at(-1) : value
-  const numericValue = Number(rawValue)
-  const label = Number.isFinite(numericValue) ? formatChartMetricValue(code, numericValue) : String(rawValue ?? '')
-  return `${label}${unit ? ` ${unit}` : ''}`
-}
-
-function bodyMetricAxisLabel(code: string) {
-  return getBodyChartMetric(code)
-    ? { formatter: (value: number) => formatChartMetricValue(code, Number(value)) }
-    : {}
-}
-
-function buildTrendOption(
-  records: ExamRecord[],
-  events: TreatmentEvent[],
-  code: string,
-  meta: ChartIndicatorOption | undefined,
-  showEventMarkers: boolean,
-  range: TrendRange = 'all',
-) {
-  const points = code ? chartMetricPoints(records, events, code) : []
-  const data = points.map((point) => [point.date, point.value])
-  const firstDate = points[0]?.date
-  const lastDate = points.at(-1)?.date
-  const rangeMonths = trendRangeOptions.find((option) => option.value === range)?.months ?? null
-  const requestedStart = lastDate && rangeMonths !== null
-    ? format(subMonths(parseISO(lastDate), rangeMonths), 'yyyy-MM-dd')
-    : undefined
-  const startValue = requestedStart && firstDate && requestedStart > firstDate ? requestedStart : undefined
-  const visibleSpanDays = firstDate && lastDate
-    ? differenceInCalendarDays(parseISO(lastDate), parseISO(startValue ?? firstDate))
-    : 0
-  const zoomWindow = startValue && lastDate ? { startValue, endValue: lastDate } : {}
-  return {
-    color: seriesColors,
-    tooltip: {
-      trigger: 'axis',
-      renderMode: 'richText',
-      confine: true,
-      enterable: false,
-      alwaysShowContent: false,
-      hideDelay: 0,
-      transitionDuration: 0,
-    },
-    grid: { left: 48, right: 28, top: 28, bottom: 76 },
-    xAxis: {
-      type: 'time',
-      splitNumber: 5,
-      axisLabel: {
-        hideOverlap: true,
-        formatter: (value: number) => format(new Date(value), visibleSpanDays > 550 ? 'yy-MM' : 'MM-dd'),
-      },
-    },
-    yAxis: { type: 'value', name: meta?.unit ?? '', scale: true, axisLabel: bodyMetricAxisLabel(code), splitLine: { lineStyle: { color: '#dbe6e9' } } },
-    dataZoom: [
-      {
-        type: 'inside',
-        filterMode: 'filter',
-        zoomOnMouseWheel: 'ctrl',
-        moveOnMouseMove: true,
-        moveOnMouseWheel: 'shift',
-        preventDefaultMouseMove: false,
-        ...zoomWindow,
-      },
-      {
-        type: 'slider',
-        filterMode: 'filter',
-        height: 28,
-        bottom: 10,
-        handleSize: 22,
-        moveHandleSize: 10,
-        brushSelect: false,
-        showDetail: false,
-        ...zoomWindow,
-      },
-    ],
-    series: code ? [{
-      name: `${meta?.name ?? code}${meta?.unit ? ` (${meta.unit})` : ''}`,
-      type: 'line',
-      smooth: false,
-      connectNulls: false,
-      symbolSize: 8,
-      data,
-      tooltip: getBodyChartMetric(code) ? { valueFormatter: (value: unknown) => formatTooltipValue(code, meta?.unit ?? '', value) } : undefined,
-      markLine: showEventMarkers ? { silent: true, data: events.filter((event) => ['chemotherapy', 'surgery', 'hospitalization'].includes(event.type)).map((event) => ({ xAxis: event.startDate, label: { formatter: event.title, position: 'insideEndTop' }, lineStyle: { color: EVENT_TYPES[event.type].color, opacity: 0.45, type: 'dashed' } })) } : undefined,
-    }] : [],
-  }
 }
 
 function buildCycleOption(
@@ -192,18 +91,6 @@ function sourcesForChart(
     const day = differenceInCalendarDays(parseISO(point.date), dayOne)
     return day >= 0 && day <= maxDay
   })).sort((first, second) => second.date.localeCompare(first.date))
-}
-
-function TimeSeriesChart({ option, compact = false, height, onReady }: { option: object; compact?: boolean; height?: number; onReady?: (instance: EChartsType) => void }) {
-  return <div className={`chart-canvas-gesture${compact ? ' compact' : ''}`}>
-    <ReactECharts
-      option={option}
-      style={{ height: height ?? (compact ? 300 : 460) }}
-      opts={{ renderer: 'canvas' }}
-      notMerge
-      onChartReady={onReady}
-    />
-  </div>
 }
 
 export function ChartsPage() {
@@ -333,7 +220,6 @@ export function ChartsPage() {
   const detailSources = detailPin
     ? sourcesForChart(records, events, detailCode, detailPin.mode, chemotherapyCycles, effectiveDetailCycleIds)
     : []
-  const detailIsBodyMetric = Boolean(getBodyChartMetric(detailCode))
   const showChartBuilder = pins.length === 0 || addingChart
 
   const trendOption = useMemo(
@@ -539,66 +425,14 @@ export function ChartsPage() {
           </div>
           {detailSaveError && <p className="form-error" role="alert">{detailSaveError}</p>}
         </section>}
-        {detailPin.mode === 'trend' && <div className="chart-detail-range">
-          <div>
-            <strong>时间范围</strong>
-            <div className="chart-range-options" role="group" aria-label="图表时间范围">
-              {trendRangeOptions.map((option) => <button
-                type="button"
-                className={detailTrendRange === option.value ? 'active' : ''}
-                aria-pressed={detailTrendRange === option.value}
-                onClick={() => {
-                  hideChartTooltips()
-                  setDetailTrendRange(option.value)
-                }}
-                key={option.value}
-              >{option.label}</button>)}
-            </div>
-          </div>
-          <small>左右拖动图表平移，拖动下方手柄或双指精细缩放</small>
-        </div>}
+        {detailPin.mode === 'trend' && <TrendRangePicker value={detailTrendRange} onChange={(range) => {
+          hideChartTooltips()
+          setDetailTrendRange(range)
+        }} />}
         <section className="chart-detail-visual" aria-label={`${detailPin.title}图表`}>
           <TimeSeriesChart option={detailOption} height={400} onReady={registerChartInstance} />
         </section>
-        <section className="chart-detail-records" aria-labelledby="chart-detail-records-title">
-          <div className="chart-detail-section-heading">
-            <div>
-              <h3 id="chart-detail-records-title">{detailIsBodyMetric ? '相关身体记录' : '相关检查报告'}</h3>
-              <small>{detailIsBodyMetric ? '仅显示当前图表实际使用的身体测量记录' : '仅显示当前图表实际使用的数值报告'}</small>
-            </div>
-            <span>{detailSources.length} {detailIsBodyMetric ? '条' : '份'}</span>
-          </div>
-          <div className="chart-report-list">
-            {detailSources.map((source) => {
-              const isExam = source.source === 'exam'
-              const flag = isExam ? indicatorRangeFlag(source.indicator) : 'unknown'
-              const direction = isExam && flag === 'critical'
-                ? indicatorRangeFlag({ ...source.indicator, abnormalFlag: 'unknown' })
-                : flag
-              const DirectionIcon = direction === 'high' ? ArrowUp : direction === 'low' ? ArrowDown : null
-              const value = isExam ? resultText(source.indicator) : formatChartMetricValue(detailCode, source.value)
-              const sourceId = isExam ? `exam-${source.record.id}-${source.indicator.id}` : `body-${source.event.id}`
-              const valueId = `chart-source-value-${sourceId}`
-              return <Link
-                className="chart-report-row"
-                to={isExam ? `/records?recordId=${encodeURIComponent(source.record.id)}` : `/calendar?date=${encodeURIComponent(source.date)}`}
-                state={isExam ? { recordDetailOrigin: '/charts' } : undefined}
-                onClick={() => setDetailPinId(null)}
-                aria-label={`打开相关${isExam ? '检查报告' : '身体记录'}：${source.date}`}
-                aria-describedby={valueId}
-                key={sourceId}
-              >
-                <time className="chart-report-date" dateTime={source.date}>{source.date}</time>
-                <span className={`chart-report-value ${flag}`} id={valueId} title={flagLabel(flag) || undefined}>
-                  <span>{value}</span>
-                  {DirectionIcon && <DirectionIcon aria-hidden="true" />}
-                  {flagLabel(flag) && <span className="sr-only">，{flagLabel(flag)}</span>}
-                </span>
-              </Link>
-            })}
-            {detailSources.length === 0 && <div className="empty-inline"><ChartNoAxesCombined /><strong>{detailIsBodyMetric ? '没有相关身体记录' : '没有相关数值报告'}</strong><p>当前选择的周期内没有可绘制的数据。</p></div>}
-          </div>
-        </section>
+        <ChartSourceList sources={detailSources} code={detailCode} onOpen={() => setDetailPinId(null)} />
       </div>
     </Modal>}
     {deletingPin && <ConfirmSheet

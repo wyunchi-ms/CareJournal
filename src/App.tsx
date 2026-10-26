@@ -104,6 +104,16 @@ export default function App({ lanSyncPanel }: { lanSyncPanel?: ReactNode }) {
   }, [preferences.locale.language])
 
   useEffect(() => {
+    const preventContextMenu = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target : null
+      if (target?.closest('input, textarea, [contenteditable]:not([contenteditable="false"])')) return
+      event.preventDefault()
+    }
+    document.addEventListener('contextmenu', preventContextMenu)
+    return () => document.removeEventListener('contextmenu', preventContextMenu)
+  }, [])
+
+  useEffect(() => {
     if (currentRouteRef.current === currentRoute) return
     if (navigatingBackRef.current) {
       navigatingBackRef.current = false

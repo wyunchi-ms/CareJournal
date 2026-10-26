@@ -4,6 +4,7 @@ import { FileImage, FileText, FileUp, Pencil, Plus, RefreshCw, Save, Search, Tra
 import { useDeferredValue, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChoicePicker } from '../components/ChoicePicker'
+import { IndicatorTrendDetail } from '../components/ChartDetail'
 import { ConfirmSheet } from '../components/ConfirmSheet'
 import { DateFastScroller } from '../components/DateFastScroller'
 import { HistoryCombobox } from '../components/HistoryCombobox'
@@ -179,13 +180,14 @@ function RecordEditForm({ record, onCancel, onSaved }: { record: ExamRecord; onC
   </form>
 }
 
-function RecordDetail({ record, onClose, onEdit, onRecognized }: { record: ExamRecord; onClose: () => void; onEdit: () => void; onRecognized: (record: ExamRecord) => void }) {
+function RecordDetail({ record, onClose, onEdit, onRecognized, onOpenRecord }: { record: ExamRecord; onClose: () => void; onEdit: () => void; onRecognized: (record: ExamRecord) => void; onOpenRecord: (record: ExamRecord) => void }) {
   const { deleteRecord, rerecognizeRecord } = useApp()
   const [deleteConfirming, setDeleteConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [recognizing, setRecognizing] = useState(false)
   const [recognizeError, setRecognizeError] = useState('')
+  const [trendIndicator, setTrendIndicator] = useState<LabIndicator | null>(null)
 
   async function confirmDelete() {
     setDeleting(true)
@@ -214,7 +216,24 @@ function RecordDetail({ record, onClose, onEdit, onRecognized }: { record: ExamR
 
   return <div className="record-detail">
     <div className="detail-summary"><div><span>检查日期</span><strong>{record.sampleDate || '日期未识别'}</strong></div><div><span>医院</span><strong title={record.hospital || '未记录'}>{record.hospital || '未记录'}</strong></div></div>
-    <section><div className="record-section-heading"><h3>指标明细 <small>{record.indicators.length} 项</small></h3><button type="button" className="icon-button edit-report-button" onClick={onEdit} aria-label="编辑报告" title="编辑报告"><Pencil /></button></div>{record.indicators.length ? <div className="indicator-table-wrap"><table className="indicator-table"><thead><tr><th>指标</th><th>结果</th><th>参考范围</th></tr></thead><tbody>{record.indicators.map((item) => <tr key={item.id} className={`indicator-row ${item.abnormalFlag}`} aria-label={`${item.normalizedName}，${flagLabel(item.abnormalFlag) || '状态未标记'}`}><td title={item.rawName !== item.normalizedName ? `医院原始名称：${item.rawName}` : undefined}><strong>{item.normalizedName}{item.unit && <span className="indicator-unit">（{item.unit}）</span>}</strong></td><td><strong>{resultText(item)}</strong><span className="sr-only">{flagLabel(item.abnormalFlag)}</span></td><td>{item.referenceText || [item.referenceLow, item.referenceHigh].filter((value) => value !== null).join('–') || '—'}</td></tr>)}</tbody></table></div> : <p className="muted-text">这份报告没有结构化数值指标。</p>}</section>
+    <section>
+      <div className="record-section-heading"><h3>指标明细 <small>{record.indicators.length} 项</small></h3><button type="button" className="icon-button edit-report-button" onClick={onEdit} aria-label="编辑报告" title="编辑报告"><Pencil /></button></div>
+      {record.indicators.length ? <div className="indicator-table-wrap">
+        <table className="indicator-table">
+          <thead><tr><th>指标</th><th>结果</th><th>参考范围</th></tr></thead>
+          <tbody>{record.indicators.map((item) => <tr key={item.id} className={`indicator-row ${item.abnormalFlag}`} aria-label={`${item.normalizedName}，${flagLabel(item.abnormalFlag) || '状态未标记'}`} onClick={() => setTrendIndicator(item)}>
+            <td title={item.rawName !== item.normalizedName ? `医院原始名称：${item.rawName}` : undefined}>
+              <button type="button" className="indicator-trend-trigger" aria-label={`查看指标趋势：${item.normalizedName}`} onClick={(event) => { event.stopPropagation(); setTrendIndicator(item) }}>
+                <strong>{item.normalizedName}{item.unit && <span className="indicator-unit">（{item.unit}）</span>}</strong>
+              </button>
+            </td>
+            <td><strong>{resultText(item)}</strong><span className="sr-only">{flagLabel(item.abnormalFlag)}</span></td>
+            <td>{item.referenceText || [item.referenceLow, item.referenceHigh].filter((value) => value !== null).join('–') || '—'}</td>
+          </tr>)}</tbody>
+        </table>
+      </div> : <p className="muted-text">这份报告没有结构化数值指标。</p>}
+    </section>
+    {trendIndicator && <IndicatorTrendDetail indicator={trendIndicator} onClose={() => setTrendIndicator(null)} onOpenRecord={onOpenRecord} />}
     {record.images.length > 0 && <section><h3>原始文件</h3><div className="image-gallery">{record.images.map((image) => {
       const source = storedImageSource(image)
       if (image.mimeType === 'application/pdf' || /\.pdf$/i.test(image.name)) {
@@ -410,7 +429,7 @@ export function RecordsPage() {
       </div>
     </section>
     {dateGroups.length > 0 && <DateFastScroller items={dateGroups.map(({ date, targetId }) => ({ date: date || '日期未识别', targetId }))} />}
-    {selected && <Modal title={editing ? '编辑检查报告' : recordDisplayType(selected)} onClose={closeRecordDetail} wide swipeToClose={!editing}>{editing ? <RecordEditForm record={selected} onCancel={() => setEditing(false)} onSaved={(updated) => { setSelected(updated); setEditing(false) }} /> : <RecordDetail record={selected} onClose={closeRecordDetail} onEdit={() => setEditing(true)} onRecognized={setSelected} />}</Modal>}
+    {selected && <Modal title={editing ? '编辑检查报告' : recordDisplayType(selected)} onClose={closeRecordDetail} wide swipeToClose={!editing}>{editing ? <RecordEditForm record={selected} onCancel={() => setEditing(false)} onSaved={(updated) => { setSelected(updated); setEditing(false) }} /> : <RecordDetail record={selected} onClose={closeRecordDetail} onEdit={() => setEditing(true)} onRecognized={setSelected} onOpenRecord={setSelected} />}</Modal>}
     {deletingRecordIds.length > 0 && <ConfirmSheet
       title={deletingRecordIds.length > 1 ? '批量删除检查记录' : '删除检查记录'}
       message={`确定删除选中的 ${deletingRecordIds.length} 份检查记录吗？`}

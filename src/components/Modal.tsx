@@ -73,7 +73,7 @@ export function Modal({ title, onClose, children, wide = false, swipeToClose = f
   }, [])
 
   const startSwipe = (event: TouchEvent<HTMLElement>) => {
-    if (!swipeToClose || event.touches.length !== 1) return
+    if (!swipeToClose || !isTopModal(stackId.current) || event.touches.length !== 1) return
     const target = event.target instanceof Element ? event.target : null
     const scroller = target?.closest('.indicator-table-wrap')
     const enabled = !target?.closest('.image-preview-backdrop') && (!(scroller instanceof HTMLElement) || scroller.scrollLeft === 0)
@@ -83,7 +83,7 @@ export function Modal({ title, onClose, children, wide = false, swipeToClose = f
   const finishSwipe = (event: TouchEvent<HTMLElement>) => {
     const start = touchStart.current
     touchStart.current = null
-    if (!start?.enabled || event.changedTouches.length !== 1) return
+    if (!start?.enabled || !isTopModal(stackId.current) || event.changedTouches.length !== 1) return
     const deltaX = event.changedTouches[0].clientX - start.x
     const deltaY = event.changedTouches[0].clientY - start.y
     if (deltaX >= 90 && Math.abs(deltaX) > Math.abs(deltaY) * 1.35) onClose()
