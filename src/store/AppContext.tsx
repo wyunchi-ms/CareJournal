@@ -9,6 +9,7 @@ import { extractPdfText } from '../services/pdf'
 import { extractPrivacySafeText } from '../services/localPrivacyOcr'
 import { isLlmConfigured, mergePortableLlmSettings, normalizeAppPreferences } from '../services/llmProviders'
 import { sortChartPins } from '../services/chartPins'
+import { buildIndicatorOrganizationPlan, collectIndicatorGroups, indicatorInventorySignature, reviewIndicatorMerges, type IndicatorGroup, type IndicatorMerge, type IndicatorMergeReview, type IndicatorOrganizationSummary } from '../services/indicatorOrganization'
 import { buildVocabulary } from '../services/vocabulary'
 import { keepHospitalReimbursementMaterials } from '../services/reimbursement'
 import { createLanSyncSnapshot, mergeLanSyncSnapshot, previewLanSyncSnapshot, type LanSyncKindFilter } from '../services/lanSync'
@@ -55,6 +56,9 @@ interface AppState {
   reorderChemotherapyTemplates: (orderedIds: string[]) => Promise<void>
   deleteChemotherapyTemplate: (id: string) => Promise<void>
   saveRecord: (record: ExamRecord) => Promise<void>
+  organizeIndicators: (merges: IndicatorMerge[], inventory: IndicatorGroup[]) => Promise<IndicatorOrganizationSummary>
+  getIndicatorInventory: () => IndicatorGroup[]
+  reviewIndicatorMerges: (merges: IndicatorMerge[], inventory: IndicatorGroup[]) => IndicatorMergeReview
   saveImportedRecords: (records: ExamRecord[], events: TreatmentEvent[]) => Promise<{ added: number; merged: number }>
   rerecognizeRecord: (id: string) => Promise<ExamRecord>
   deleteRecord: (id: string) => Promise<void>
@@ -109,6 +113,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const ocrJobsRef = useRef<OcrQueueItem[]>([])
   const mediaAssetsRef = useRef<MediaAsset[]>([])
   const processingOcrRef = useRef(false)
+  const organizingIndicatorsRef = useRef(false)
   const vocabulary = useMemo(() => buildVocabulary([...events, ...records, ...chemotherapyTemplates]), [events, records, chemotherapyTemplates])
 
   useEffect(() => {
@@ -293,6 +298,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let deduplicatedRecord = await registerRecordMedia({ ...record, images: deduplicateStoredImages(record.images) })
     const linkedEvents = events.filter((event) => event.type === 'examination' && event.linkedRecordIds.includes(deduplicatedRecord.id))
     const hasSampleDate = /^\d{4}-\d{2}-\d{2}$/.test(deduplicatedRecord.sampleDate)
+    // Retain nonempty links when the user has deliberately deleted the calendar event.
+    const createdEvent = !linkedEvents.length && !deduplicatedRecord.linkedEventIds.length ? eventForRecord(deduplicatedRecord) : null
+    if (hasSampleDate && (linkedEvents.length || createdEvent)) {
+      deduplicatedRecord = {
+        ...deduplicatedRecord,
+        linkedEventIds: [...new Set([...deduplicatedRecord.linkedEventIds, ...linkedEvents.map((event) => event.id), ...(createdEvent ? [createdEvent.id] : [])])],
+      }
+    }
     if (!hasSampleDate && linkedEvents.length) {
       const linkedEventIds = new Set(linkedEvents.map((event) => event.id))
       deduplicatedRecord = {
@@ -301,8 +314,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       await Promise.all(linkedEvents.map((event) => repository.remove('event', event.id)))
     }
-    await repository.put('record', deduplicatedRecord.id, compactRecordMedia(deduplicatedRecord))
-    const updatedEvents = linkedEvents.map((event): TreatmentEvent => ({
+    const updatedEvents = [...linkedEvents, ...(createdEvent ? [createdEvent] : [])].map((event): TreatmentEvent => ({
       ...event,
       title: deduplicatedRecord.normalizedReportType || deduplicatedRecord.reportType,
       startDate: deduplicatedRecord.sampleDate,
@@ -312,11 +324,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       notes: deduplicatedRecord.summary,
       updatedAt: deduplicatedRecord.updatedAt,
     })).filter(() => hasSampleDate)
-    await Promise.all(updatedEvents.map((event) => repository.put('event', event.id, event)))
+    await repository.putMany([
+      { kind: 'record', id: deduplicatedRecord.id, payload: compactRecordMedia(deduplicatedRecord) },
+      ...updatedEvents.map((event) => ({ kind: 'event' as const, id: event.id, payload: event })),
+    ])
     setRecords((current) => byDateDescending([...current.filter((item) => item.id !== deduplicatedRecord.id), deduplicatedRecord]))
     if (updatedEvents.length) {
       const updatedById = new Map(updatedEvents.map((event) => [event.id, event]))
-      setEvents((current) => byDateDescending(current.map((event) => updatedById.get(event.id) ?? event)))
+      setEvents((current) => byDateDescending([...current.filter((event) => !updatedById.has(event.id)), ...updatedEvents]))
     } else if (!hasSampleDate && linkedEvents.length) {
       const removedIds = new Set(linkedEvents.map((event) => event.id))
       setEvents((current) => current.filter((event) => !removedIds.has(event.id)))
@@ -456,6 +471,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await repository.put('preferences', 'main', next)
     setPreferences(next)
   }, [])
+
+  const getIndicatorInventory = useCallback(() => collectIndicatorGroups(recordsRef.current), [])
+
+  const reviewMerges = useCallback((merges: IndicatorMerge[], inventory: IndicatorGroup[]) => {
+    if (indicatorInventorySignature(collectIndicatorGroups(recordsRef.current)) !== indicatorInventorySignature(inventory)) {
+      throw new Error('指标列表已发生变化，请重新分析后再整理')
+    }
+    return reviewIndicatorMerges(recordsRef.current, merges)
+  }, [])
+
+  const organizeIndicators = useCallback(async (merges: IndicatorMerge[], inventory: IndicatorGroup[]) => {
+    if (organizingIndicatorsRef.current) throw new Error('指标整理正在保存，请稍候')
+    if (processingOcrRef.current || ocrJobsRef.current.some((job) => job.status === 'queued' || job.status === 'processing')) {
+      throw new Error('请等待识别队列完成后再整理指标')
+    }
+    if (indicatorInventorySignature(collectIndicatorGroups(recordsRef.current)) !== indicatorInventorySignature(inventory)) {
+      throw new Error('指标列表已发生变化，请重新分析后再整理')
+    }
+    organizingIndicatorsRef.current = true
+    try {
+      const currentRecords = recordsRef.current
+      const currentPins = pinsRef.current
+      const review = reviewIndicatorMerges(currentRecords, merges)
+      const plan = await buildIndicatorOrganizationPlan(currentRecords, currentPins, preferences, review.merges)
+      if (currentRecords !== recordsRef.current || currentPins !== pinsRef.current) {
+        throw new Error('报告或图表已发生变化，请重新分析后再整理')
+      }
+      const writes = [
+        ...plan.changedRecords.map((record) => ({ kind: 'record' as const, id: record.id, payload: compactRecordMedia(record) })),
+        ...plan.changedPins.map((pin) => ({ kind: 'pin' as const, id: pin.id, payload: pin })),
+        ...(plan.preferencesChanged ? [{ kind: 'preferences' as const, id: 'main', payload: plan.preferences }] : []),
+      ]
+      if (writes.length) await repository.putMany(writes)
+      recordsRef.current = plan.records
+      pinsRef.current = plan.pins
+      setRecords(plan.records)
+      setPins(plan.pins)
+      if (plan.preferencesChanged) setPreferences(plan.preferences)
+      return { ...plan.summary, skippedGroups: review.skippedGroups, issues: review.issues }
+    } finally {
+      organizingIndicatorsRef.current = false
+    }
+  }, [preferences])
 
   const updateOcrJob = useCallback(async (id: string, changes: Partial<OcrQueueItem>) => {
     const current = ocrJobsRef.current.find((job) => job.id === id)
@@ -757,6 +815,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     reorderChemotherapyTemplates,
     deleteChemotherapyTemplate,
     saveRecord,
+    organizeIndicators,
+    getIndicatorInventory,
+    reviewIndicatorMerges: reviewMerges,
     saveImportedRecords,
     rerecognizeRecord,
     deleteRecord,
@@ -775,7 +836,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     retryAllFailedOcrJobs,
     removeOcrJob,
     clearCompletedOcrJobs,
-  }), [ready, startupMessage, storageError, events, chemotherapyTemplates, records, reimbursementPlans, pins, ocrJobs, ocrQueueStats, preferences, vocabulary, saveEvent, saveEvents, deleteEvent, saveChemotherapyTemplate, reorderChemotherapyTemplates, deleteChemotherapyTemplate, saveRecord, saveImportedRecords, rerecognizeRecord, deleteRecord, saveReimbursementPlan, deleteReimbursementPlan, savePin, reorderPins, deletePin, savePreferences, restoreBackup, deduplicateImagesGlobally, mergeLanSnapshot, storeLanAsset, finalizeLanAssets, enqueueOcrImage, retryOcrJob, retryAllFailedOcrJobs, removeOcrJob, clearCompletedOcrJobs])
+  }), [ready, startupMessage, storageError, events, chemotherapyTemplates, records, reimbursementPlans, pins, ocrJobs, ocrQueueStats, preferences, vocabulary, saveEvent, saveEvents, deleteEvent, saveChemotherapyTemplate, reorderChemotherapyTemplates, deleteChemotherapyTemplate, saveRecord, organizeIndicators, getIndicatorInventory, reviewMerges, saveImportedRecords, rerecognizeRecord, deleteRecord, saveReimbursementPlan, deleteReimbursementPlan, savePin, reorderPins, deletePin, savePreferences, restoreBackup, deduplicateImagesGlobally, mergeLanSnapshot, storeLanAsset, finalizeLanAssets, enqueueOcrImage, retryOcrJob, retryAllFailedOcrJobs, removeOcrJob, clearCompletedOcrJobs])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

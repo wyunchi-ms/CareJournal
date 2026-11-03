@@ -77,6 +77,13 @@ vi.mock('../store/AppContext', () => ({
 describe('record type filter', () => {
   beforeEach(() => { records.splice(4); deleteRecordMock.mockClear(); saveRecordMock.mockClear(); rerecognizeRecordMock.mockClear() })
 
+  it('places the organizer beside the record count instead of adding a toolbar row', () => {
+    render(<MemoryRouter><RecordsPage /></MemoryRouter>)
+    const organizer = screen.getByRole('button', { name: '一键整理指标' })
+    expect(organizer.closest('.record-list-heading-actions')).toContainElement(screen.getByText('显示 4 条'))
+    expect(document.querySelector('.records-toolbar')).not.toContainElement(organizer)
+  })
+
   it('blocks context menus on ordinary content and links but preserves input and textarea editing', () => {
     const { unmount } = render(<MemoryRouter initialEntries={['/records']}><App /></MemoryRouter>)
     expect(fireEvent.contextMenu(screen.getByText('病程记'))).toBe(false)
@@ -325,13 +332,96 @@ describe('record type filter', () => {
     expect(screen.getByRole('dialog', { name: '编辑检查报告' })).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('医院原报告名称'), { target: { value: '血常规报告' } })
     fireEvent.change(screen.getByLabelText('医院'), { target: { value: '历史医院' } })
+    expect(screen.queryByLabelText('指标名称')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '展开指标：白细胞计数' }))
+    expect(screen.queryByLabelText('参考下限')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('参考上限')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^异常状态/ })).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('指标名称'), { target: { value: '  白细胞总数  ' } })
     fireEvent.change(screen.getByLabelText('结果（数值或文字）'), { target: { value: '5.6' } })
     fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
 
     await vi.waitFor(() => expect(saveRecordMock).toHaveBeenCalledTimes(1))
     expect(saveRecordMock.mock.calls[0][0]).toMatchObject({ reportType: '血常规报告', hospital: '历史医院' })
-    expect(saveRecordMock.mock.calls[0][0].indicators[0]).toMatchObject({ rawValue: '5.6', value: 5.6 })
+    expect(saveRecordMock.mock.calls[0][0].indicators[0]).toMatchObject({
+      rawValue: '5.6', value: 5.6, rawName: '白细胞', normalizedCode: 'WBC', normalizedName: '白细胞总数', abnormalFlag: 'normal',
+    })
     expect(screen.getByRole('button', { name: '编辑报告' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '查看指标趋势：白细胞总数' }))
+    expect(screen.getByRole('dialog', { name: '白细胞总数趋势' })).toBeInTheDocument()
+    fireEvent.click(within(screen.getByRole('dialog', { name: '白细胞总数趋势' })).getByRole('button', { name: '关闭' }))
+    fireEvent.click(screen.getByRole('button', { name: '编辑报告' }))
+    fireEvent.click(screen.getByRole('button', { name: '展开指标：白细胞总数' }))
+    expect(screen.getByLabelText('指标名称')).toHaveValue('白细胞总数')
+  })
+
+  it('omits duplicate reference units in report details and the editor', () => {
+    records.push({
+      ...record('unit-reference', '血常规'), sampleDate: '2026-11-02',
+      indicators: [{ ...records[0].indicators[0], referenceText: '5–10 (g/L)' }],
+    })
+    render(<MemoryRouter><RecordsPage /></MemoryRouter>)
+    fireEvent.click(document.querySelector('.record-row')!)
+    const row = screen.getByRole('row', { name: /白细胞计数，偏低/ })
+    expect(within(row).getAllByRole('cell')[2]).toHaveTextContent(/^5–10$/)
+    expect(within(row).getAllByRole('cell')[0]).toHaveTextContent('g/L')
+    fireEvent.click(screen.getByRole('button', { name: '编辑报告' }))
+    fireEvent.click(screen.getByRole('button', { name: '展开指标：白细胞计数' }))
+    expect(screen.getByLabelText('参考范围')).toHaveValue('5–10')
+    expect(screen.getByLabelText('单位')).toHaveValue('g/L')
+  })
+
+  it('renames custom indicators without changing their history code or original report name', async () => {
+    records.push({
+      ...record('custom', '血常规'), sampleDate: '2026-08-01',
+      indicators: [{
+        ...records[0].indicators[0], id: 'custom-indicator', rawName: '原指标',
+        normalizedCode: 'CUSTOM_ORIGINAL', normalizedName: '原显示名称',
+      }],
+    })
+    render(<MemoryRouter><RecordsPage /></MemoryRouter>)
+    fireEvent.click(document.querySelector('.record-row')!)
+    fireEvent.click(screen.getByRole('button', { name: '编辑报告' }))
+    fireEvent.click(screen.getByRole('button', { name: '展开指标：原显示名称' }))
+    fireEvent.change(screen.getByLabelText('指标名称'), { target: { value: '更正后的名称' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
+    await waitFor(() => expect(saveRecordMock).toHaveBeenCalledTimes(1))
+    expect(saveRecordMock.mock.calls[0][0].indicators[0]).toMatchObject({
+      rawName: '原指标', normalizedCode: 'CUSTOM_ORIGINAL', normalizedName: '更正后的名称',
+    })
+    expect(screen.getByRole('button', { name: '查看指标趋势：更正后的名称' })).toBeInTheDocument()
+  })
+
+  it('saves a newly named indicator and rejects blank names', async () => {
+    render(<MemoryRouter initialEntries={['/records?recordId=2']}><RecordsPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: '编辑报告' }))
+    fireEvent.click(screen.getByRole('button', { name: '添加指标' }))
+    fireEvent.change(screen.getByLabelText('指标名称'), { target: { value: '   ' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('请填写每一项指标的名称')
+    expect(saveRecordMock).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('指标名称'), { target: { value: '自定义检查项' } })
+    fireEvent.change(screen.getByLabelText('结果（数值或文字）'), { target: { value: '12' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
+    await waitFor(() => expect(saveRecordMock).toHaveBeenCalledTimes(1))
+    expect(saveRecordMock.mock.calls[0][0].indicators[0]).toMatchObject({
+      rawName: '自定义检查项', normalizedName: '自定义检查项', normalizedCode: 'CUSTOM_自定义检查项', value: 12,
+    })
+  })
+
+  it('honors an explicitly corrected standard indicator instead of reverting to the raw-name alias', async () => {
+    render(<MemoryRouter><RecordsPage /></MemoryRouter>)
+    fireEvent.click(document.querySelector('.record-row')!)
+    fireEvent.click(screen.getByRole('button', { name: '编辑报告' }))
+    fireEvent.click(screen.getByRole('button', { name: '展开指标：白细胞计数' }))
+    fireEvent.click(screen.getByText('调整图表归类'))
+    fireEvent.click(screen.getByRole('button', { name: '图表归类：白细胞计数' }))
+    fireEvent.click(screen.getByRole('radio', { name: /^血红蛋白/ }))
+    fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
+    await waitFor(() => expect(saveRecordMock).toHaveBeenCalledTimes(1))
+    expect(saveRecordMock.mock.calls[0][0].indicators[0]).toMatchObject({
+      rawName: '白细胞', normalizedCode: 'HGB', normalizedName: '血红蛋白',
+    })
   })
 
   it('moves import out of the main navigation and keeps it on the records page', () => {

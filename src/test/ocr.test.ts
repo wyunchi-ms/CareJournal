@@ -212,6 +212,19 @@ describe('recognizeReport', () => {
 })
 
 describe('toDomainRecords', () => {
+  it('normalizes decorated OCR indicator names while retaining raw source text and clinical suffixes', async () => {
+    const [record] = await toDomainRecords({ records: [{
+      reportType: '血常规', normalizedReportType: '血常规', sampleDate: '2026-10-01', hospital: '', department: '', summary: '',
+      indicators: ['*WBC*', '＊NEUT#＊', '※ NEUT% ↑'].map((rawName) => ({
+        rawName, normalizedCode: 'OTHER', normalizedName: '其他指标', value: 4, rawValue: '4.00*',
+        unit: '', referenceLow: null, referenceHigh: null, referenceText: '', abnormalFlag: 'unknown',
+      })),
+    }] }, [], 1)
+    expect(record.indicators.map((indicator) => indicator.normalizedCode)).toEqual(['WBC', 'NEUT_ABS', 'NEUT_PCT'])
+    expect(record.indicators[0].rawName).toBe('*WBC*')
+    expect(record.indicators[0].normalizedName).toBe('白细胞计数')
+  })
+
   it('keeps an unrecognized sample date empty instead of substituting today', async () => {
     const [record] = await toDomainRecords({
       records: [{

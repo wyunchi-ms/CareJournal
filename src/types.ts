@@ -127,18 +127,22 @@ export interface ChemotherapyTemplate {
 
 export type AbnormalFlag = 'high' | 'low' | 'critical' | 'normal' | 'unknown'
 
-export interface LabIndicator {
-  id: string
-  rawName: string
-  normalizedCode: string
-  normalizedName: string
+export interface IndicatorMeasurement {
   value: number | null
   rawValue: string
   unit: string
   referenceLow: number | null
   referenceHigh: number | null
   referenceText: string
+}
+
+export interface LabIndicator extends IndicatorMeasurement {
+  id: string
+  rawName: string
+  normalizedCode: string
+  normalizedName: string
   abnormalFlag: AbnormalFlag
+  originalMeasurement?: IndicatorMeasurement
 }
 
 export interface StoredImage {

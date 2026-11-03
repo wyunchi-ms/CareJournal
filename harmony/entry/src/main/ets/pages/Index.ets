@@ -20,6 +20,7 @@ struct Index {
     'exitApp',
     'listEntities',
     'putEntity',
+    'putEntities',
     'removeEntity',
     'replaceEntities',
     'removeCompletedOcrJobs',

@@ -15,6 +15,7 @@ function mockBridge(): HarmonyBridgeApi {
     exitApp: vi.fn(async () => undefined),
     listEntities: vi.fn(async () => '[]'),
     putEntity: vi.fn(async () => undefined),
+    putEntities: vi.fn(async () => undefined),
     removeEntity: vi.fn(async () => undefined),
     replaceEntities: vi.fn(async () => undefined),
     removeCompletedOcrJobs: vi.fn(async () => undefined),

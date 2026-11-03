@@ -43,12 +43,14 @@ const run = vi.fn(async (statement: string, values: string[]) => {
   else database.set(values[0], values[4])
   return { changes: { changes: 1 } }
 })
+const executeSet = vi.fn<(statements: unknown[], transaction: boolean) => Promise<unknown>>(async () => ({ changes: { changes: 0 } }))
 const nativeDb = {
   isDBOpen: vi.fn(async () => ({ result: false })),
   open,
   execute,
   query,
   run,
+  executeSet,
 }
 const createConnection = vi.fn(async () => nativeDb)
 
@@ -70,6 +72,28 @@ describe('Android SQLite repository', () => {
   beforeEach(() => {
     database.clear()
     vi.clearAllMocks()
+  })
+
+  it('writes organized reports, chart pins and preferences in one transaction', async () => {
+    const { LocalRepository } = await import('../db/repository')
+    const repository = new LocalRepository()
+    await repository.putMany([
+      { kind: 'record', id: 'report', payload: { id: 'report', sampleDate: '2026-10-01' } },
+      { kind: 'pin', id: 'chart', payload: { id: 'chart', indicatorCodes: ['WBC'] } },
+      { kind: 'preferences', id: 'main', payload: { chartPinnedIndicatorCodes: ['WBC'] } },
+    ])
+    expect(executeSet).toHaveBeenCalledTimes(1)
+    const [statements, transaction] = executeSet.mock.calls[0]
+    expect(transaction).toBe(true)
+    expect(statements).toEqual([
+      expect.objectContaining({ statement: expect.stringContaining('INSERT'), values: expect.arrayContaining(['record:report']) }),
+      { statement: 'DELETE FROM entities WHERE key = ?', values: ['syncTombstone:record:report'] },
+      expect.objectContaining({ statement: expect.stringContaining('INSERT'), values: expect.arrayContaining(['pin:chart']) }),
+      { statement: 'DELETE FROM entities WHERE key = ?', values: ['syncTombstone:pin:chart'] },
+      expect.objectContaining({ statement: expect.stringContaining('INSERT'), values: expect.arrayContaining(['preferences:main']) }),
+    ])
+    executeSet.mockRejectedValueOnce(new Error('transaction failed'))
+    await expect(repository.putMany([{ kind: 'record', id: 'report', payload: {} }])).rejects.toThrow('transaction failed')
   })
 
   it('shares one initialization across concurrent startup reads', async () => {

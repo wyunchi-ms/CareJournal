@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { flagLabel, indicatorRangeFlag, resultText } from '../services/recordDisplay'
+import { flagLabel, indicatorRangeFlag, referenceRangeText, resultText } from '../services/recordDisplay'
 import type { AbnormalFlag, LabIndicator } from '../types'
 
 const indicator: LabIndicator = {
@@ -38,5 +38,14 @@ describe('indicator result display', () => {
     expect(resultText({ ...indicator, rawValue: '4.00 10^9/L ↑' })).toBe('4.00')
     expect(resultText({ ...indicator, rawValue: '<0.01 L' })).toBe('<0.01')
     expect(resultText({ ...indicator, value: 0 })).toBe('0')
+  })
+
+  it('omits redundant reference units without removing differing unit scales or descriptive qualifiers', () => {
+    expect(referenceRangeText({ ...indicator, referenceText: '3.50–9.50 10^9/L' })).toBe('3.50–9.50')
+    expect(referenceRangeText({ ...indicator, referenceText: '成人：3.5–9.5（10^9/L）' })).toBe('成人：3.5–9.5')
+    expect(referenceRangeText({ ...indicator, unit: 'mmol/L', referenceText: '≤1.00mmol/L' })).toBe('≤1.00')
+    expect(referenceRangeText({ ...indicator, unit: 'g/L', referenceText: '1–2 mg/L' })).toBe('1–2 mg/L')
+    expect(referenceRangeText({ ...indicator, unit: 'mIU/mL', referenceText: '1–2 MIU/mL' })).toBe('1–2 MIU/mL')
+    expect(referenceRangeText({ ...indicator, referenceText: '', referenceLow: null, referenceHigh: 5 })).toBe('≤5')
   })
 })

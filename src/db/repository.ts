@@ -4,6 +4,7 @@ import Dexie, { type EntityTable } from 'dexie'
 import { getHarmonyBridge, isHarmonyPlatform, parseHarmonyResult } from '../platform/harmonyBridge'
 
 export type EntityKind = 'event' | 'chemotherapyTemplate' | 'record' | 'pin' | 'preferences' | 'ocrJob' | 'reimbursementPlan' | 'asset' | 'syncTombstone'
+export interface EntityWrite { kind: EntityKind; id: string; payload: unknown }
 
 const syncableKinds = new Set<EntityKind>(['event', 'chemotherapyTemplate', 'record', 'pin', 'reimbursementPlan', 'asset'])
 const datePattern = /^\d{4}-\d{2}-\d{2}$/
@@ -218,6 +219,39 @@ export class LocalRepository {
     await this.init()
     await this.putStored(kind, id, payload)
     if (syncableKinds.has(kind)) await this.removeStored('syncTombstone', `${kind}:${id}`)
+  }
+
+  async putMany(entries: EntityWrite[]) {
+    await this.init()
+    const rows = entries.map(({ kind, id, payload }) => {
+      const normalized = normalizeEntityPayload(kind, payload)
+      return {
+        key: `${kind}:${id}`, kind, id,
+        updatedAt: (normalized as { updatedAt?: string }).updatedAt ?? new Date().toISOString(),
+        payload: normalized,
+      }
+    })
+    if (this.harmony) {
+      await getHarmonyBridge().putEntities(JSON.stringify(rows.map((row) => ({
+        ...row, payload: JSON.stringify(row.payload), clearTombstone: syncableKinds.has(row.kind),
+      }))))
+      return
+    }
+    if (!this.native) {
+      await this.webDb.transaction('rw', this.webDb.entities, async () => {
+        await this.webDb.entities.bulkPut(rows)
+        await this.webDb.entities.bulkDelete(rows.filter((row) => syncableKinds.has(row.kind)).map((row) => `syncTombstone:${row.kind}:${row.id}`))
+      })
+      return
+    }
+    const statements = rows.flatMap((row) => [
+      {
+        statement: 'INSERT OR REPLACE INTO entities (key, kind, entity_id, updated_at, payload) VALUES (?, ?, ?, ?, ?)',
+        values: [row.key, row.kind, row.id, row.updatedAt, JSON.stringify(row.payload)],
+      },
+      ...(syncableKinds.has(row.kind) ? [{ statement: 'DELETE FROM entities WHERE key = ?', values: [`syncTombstone:${row.kind}:${row.id}`] }] : []),
+    ])
+    if (statements.length) await this.nativeDb!.executeSet(statements, true)
   }
 
   async remove(kind: EntityKind, id: string) {

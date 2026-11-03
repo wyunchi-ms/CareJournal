@@ -13,69 +13,21 @@ import { ImagePreview } from '../components/ImagePreview'
 import { PdfPreview } from '../components/PdfPreview'
 import { RecordFilterPicker } from '../components/RecordFilterPicker'
 import { RecordSummaryContent } from '../components/RecordSummaryContent'
+import { RecordIndicatorEditor } from '../components/RecordIndicatorEditor'
+import { IndicatorOrganizer } from '../components/IndicatorOrganizer'
 import { SwipeableListItem } from '../components/SwipeableListItem'
-import { INDICATORS, normalizeIndicator } from '../data/indicatorAliases'
 import { REPORT_TYPES } from '../data/reportTypeAliases'
 import { sha256 } from '../services/images'
 import { storedImageSource } from '../services/imageStorage'
-import { flagLabel, recordDisplayType, resultText } from '../services/recordDisplay'
+import { flagLabel, recordDisplayType, referenceRangeText, resultText } from '../services/recordDisplay'
+import { editedIndicator, indicatorDraft, type IndicatorDraft } from '../services/indicatorEditing'
 import { useApp } from '../store/AppContext'
-import { newId, type AbnormalFlag, type ExamRecord, type LabIndicator } from '../types'
+import { newId, type ExamRecord, type LabIndicator } from '../types'
 
 interface TypeGroup {
   label: string
   count: number
   aliases: string[]
-}
-
-const abnormalOptions = [
-  { value: 'normal', label: '正常' },
-  { value: 'high', label: '偏高' },
-  { value: 'low', label: '偏低' },
-  { value: 'critical', label: '危急' },
-  { value: 'unknown', label: '未标记' },
-]
-
-function parseOptionalNumber(value: string) {
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  const number = Number(trimmed)
-  return Number.isFinite(number) ? number : null
-}
-
-function parseResultValue(value: string) {
-  const normalized = value.trim().replace(/^[<>≤≥]\s*/, '')
-  if (!normalized) return null
-  const number = Number(normalized)
-  return Number.isFinite(number) ? number : null
-}
-
-interface IndicatorDraft {
-  id: string
-  rawName: string
-  normalizedCode: string
-  normalizedName: string
-  result: string
-  unit: string
-  referenceLow: string
-  referenceHigh: string
-  referenceText: string
-  abnormalFlag: AbnormalFlag
-}
-
-function indicatorDraft(item?: LabIndicator): IndicatorDraft {
-  return {
-    id: item?.id ?? newId(),
-    rawName: item?.rawName ?? '',
-    normalizedCode: item?.normalizedCode ?? 'OTHER',
-    normalizedName: item?.normalizedName ?? '其他指标',
-    result: item ? resultText(item) : '',
-    unit: item?.unit ?? '',
-    referenceLow: item?.referenceLow?.toString() ?? '',
-    referenceHigh: item?.referenceHigh?.toString() ?? '',
-    referenceText: item?.referenceText ?? '',
-    abnormalFlag: item?.abnormalFlag ?? 'unknown',
-  }
 }
 
 function RecordEditForm({ record, onCancel, onSaved }: { record: ExamRecord; onCancel: () => void; onSaved: (record: ExamRecord) => void }) {
@@ -98,26 +50,11 @@ function RecordEditForm({ record, onCancel, onSaved }: { record: ExamRecord; onC
     event.preventDefault()
     setError('')
     if (!form.reportType.trim()) return setError('请输入医院原报告名称')
-    const unnamed = indicators.find((item) => !item.rawName.trim())
-    if (unnamed) return setError('请填写每一项指标的原始名称，或移除空白指标')
+    const unnamed = indicators.find((item) => !item.normalizedName.trim())
+    if (unnamed) return setError('请填写每一项指标的名称，或移除空白指标')
     setSaving(true)
     try {
-      const normalizedIndicators: LabIndicator[] = indicators.map((item) => {
-        const normalized = normalizeIndicator(item.rawName, item.normalizedCode, item.normalizedName)
-        return {
-          id: item.id,
-          rawName: item.rawName.trim(),
-          normalizedCode: normalized.code,
-          normalizedName: normalized.name,
-          value: parseResultValue(item.result),
-          rawValue: item.result.trim(),
-          unit: item.unit.trim(),
-          referenceLow: parseOptionalNumber(item.referenceLow),
-          referenceHigh: parseOptionalNumber(item.referenceHigh),
-          referenceText: item.referenceText.trim(),
-          abnormalFlag: item.abnormalFlag,
-        }
-      })
+      const normalizedIndicators = indicators.map((item) => editedIndicator(item, record.indicators.find((original) => original.id === item.id)))
       const now = new Date().toISOString()
       const fingerprintSource = [form.hospital.trim(), form.sampleDate, form.normalizedReportType, ...normalizedIndicators.map((item) => `${item.normalizedCode}:${item.rawValue}`)].join('|')
       const updated: ExamRecord = {
@@ -154,25 +91,10 @@ function RecordEditForm({ record, onCancel, onSaved }: { record: ExamRecord; onC
       </div>
     </section>
     <section className="edit-section">
-      <div className="edit-section-heading"><div><h3>指标明细</h3><p>{indicators.length} 项，可修改结果、参考范围和异常状态。</p></div><button type="button" className="button secondary" onClick={() => setIndicators((current) => [...current, indicatorDraft()])}><Plus />添加指标</button></div>
+      <div className="edit-section-heading"><div><h3>指标明细</h3><p>{indicators.length} 项，点击名称展开编辑，异常状态按参考范围判断。</p></div><button type="button" className="button secondary" onClick={() => setIndicators((current) => [...current, { id: newId(), rawName: '', normalizedCode: 'OTHER', normalizedName: '', result: '', unit: '', referenceText: '' }])}><Plus />添加指标</button></div>
       <div className="indicator-editor-list">
         {indicators.length === 0 && <p className="muted-text">这份报告暂时没有结构化指标。</p>}
-        {indicators.map((item, index) => <fieldset className="indicator-editor" key={item.id}>
-          <legend>指标 {index + 1}</legend>
-          <div className="indicator-editor-heading"><strong>{item.normalizedName || item.rawName || `指标 ${index + 1}`}</strong><button type="button" className="icon-button danger" aria-label={`移除指标 ${index + 1}`} title={`移除指标 ${index + 1}`} onClick={() => setIndicators((current) => current.filter((candidate) => candidate.id !== item.id))}><Trash2 /></button></div>
-          <div className="form-grid indicator-fields">
-            <ChoicePicker label="标准指标" historyKey="standard-indicator" options={[...INDICATORS.map((definition) => ({ value: definition.code, label: definition.name, description: definition.code })), { value: 'OTHER', label: '其他指标' }]} value={INDICATORS.some((definition) => definition.code === item.normalizedCode) ? item.normalizedCode : 'OTHER'} onChange={(value) => {
-              const definition = INDICATORS.find((candidate) => candidate.code === value)
-              setIndicator(item.id, definition ? { normalizedCode: definition.code, normalizedName: definition.name, unit: item.unit || definition.standardUnit || '' } : { normalizedCode: item.normalizedCode.startsWith('CUSTOM_') ? item.normalizedCode : 'OTHER', normalizedName: item.normalizedName === '其他指标' ? item.normalizedName : item.rawName || '其他指标' })
-            }} />
-            <label>结果（数值或文字）<input value={item.result} onChange={(event) => setIndicator(item.id, { result: event.target.value })} inputMode="decimal" placeholder="例如 4.2 或 阴性" /></label>
-            <label>单位<input value={item.unit} onChange={(event) => setIndicator(item.id, { unit: event.target.value })} placeholder="例如 10^9/L" /></label>
-            <label>参考下限<input value={item.referenceLow} onChange={(event) => setIndicator(item.id, { referenceLow: event.target.value })} inputMode="decimal" placeholder="可选" /></label>
-            <label>参考上限<input value={item.referenceHigh} onChange={(event) => setIndicator(item.id, { referenceHigh: event.target.value })} inputMode="decimal" placeholder="可选" /></label>
-            <label className="full-width">报告原始参考范围<input value={item.referenceText} onChange={(event) => setIndicator(item.id, { referenceText: event.target.value })} placeholder="例如 3.5–9.5" /></label>
-            <div className="full-width"><ChoicePicker label="异常状态" historyKey="abnormal-status" options={abnormalOptions} value={item.abnormalFlag} onChange={(value) => setIndicator(item.id, { abnormalFlag: value as AbnormalFlag })} /></div>
-          </div>
-        </fieldset>)}
+        {indicators.map((item) => <RecordIndicatorEditor key={item.id} draft={item} original={record.indicators.find((original) => original.id === item.id)} onChange={(changes) => setIndicator(item.id, changes)} onRemove={() => setIndicators((current) => current.filter((candidate) => candidate.id !== item.id))} />)}
       </div>
     </section>
     {error && <p className="form-error" role="alert">{error}</p>}
@@ -228,7 +150,7 @@ function RecordDetail({ record, onClose, onEdit, onRecognized, onOpenRecord }: {
               </button>
             </td>
             <td><strong>{resultText(item)}</strong><span className="sr-only">{flagLabel(item.abnormalFlag)}</span></td>
-            <td>{item.referenceText || [item.referenceLow, item.referenceHigh].filter((value) => value !== null).join('–') || '—'}</td>
+            <td>{referenceRangeText(item) || '—'}</td>
           </tr>)}</tbody>
         </table>
       </div> : <p className="muted-text">这份报告没有结构化数值指标。</p>}
@@ -388,7 +310,7 @@ export function RecordsPage() {
       <button type="button" className="text-button" onClick={() => { setListEditMode(false); setSelectedRecordIds([]) }}>完成</button>
     </div>}
     <section className="record-list card">
-      {records.length > 0 && <div className="section-heading"><h2>记录列表</h2><small>显示 {filtered.length} 条</small></div>}
+      {records.length > 0 && <div className="section-heading"><h2>记录列表</h2><div className="record-list-heading-actions"><small>显示 {filtered.length} 条</small><IndicatorOrganizer /></div></div>}
       {filtered.length === 0 && (records.length === 0
         ? <div className="empty-state collection-empty-state"><FileImage /><h2>还没有检查记录</h2><p>导入第一份检查报告后，这里会按日期整理报告、指标和异常结果。</p><Link className="button primary" to="/import"><FileUp />导入第一份报告</Link></div>
         : <div className="empty-state filtered-empty-state"><Search /><h3>没有符合条件的记录</h3><p>调整搜索词或移除筛选条件后再试。</p></div>)}

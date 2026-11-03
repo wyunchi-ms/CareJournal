@@ -265,6 +265,7 @@ label { display: grid; gap: 7px; color: var(--text); font-size: .9rem; font-weig
 .filter-chip svg { width: 15px; height: 15px; }
 .record-list { overflow: hidden; }
 .record-list > .section-heading { padding: 18px 20px; border-bottom: 1px solid var(--border); }
+.record-list-heading-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
 .record-date-groups { padding-bottom: 4px; }
 .record-day-group { scroll-margin-top: 16px; }
 .record-day-heading { min-height: 40px; display: flex; align-items: center; gap: 7px; margin: 0; padding: 5px 20px; color: var(--muted); background: var(--surface-alt); border-block: 1px solid var(--border); }
@@ -440,12 +441,44 @@ label { display: grid; gap: 7px; color: var(--text); font-size: .9rem; font-weig
 .edit-section-heading h3 { margin-bottom: 3px; }
 .edit-section-heading p { margin: 0; font-size: .8rem; }
 .indicator-editor-list { display: grid; gap: 12px; }
-.indicator-editor { padding: 14px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface-alt); }
-.indicator-editor legend { padding: 0 6px; color: var(--muted); font-size: .72rem; font-weight: 800; }
-.indicator-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -5px 0 12px; }
+.indicator-editor { min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-alt); }
+.indicator-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .indicator-editor-heading strong { min-width: 0; overflow-wrap: anywhere; }
-.indicator-editor-heading .icon-button.danger { color: var(--danger); }
+.indicator-editor-summary { min-width: 0; min-height: 44px; flex: 1; display: grid; gap: 4px; padding: 0; border: 0; background: none; color: var(--text); text-align: left; }
+.indicator-editor-summary strong { font-size: .9rem; font-weight: 600; }
+.indicator-editor-summary small { color: var(--muted); font-size: .76rem; font-variant-numeric: tabular-nums; }
+.indicator-title-editor { min-width: 0; flex: 1; }
+.indicator-title-editor input { font-weight: 600; }
+.indicator-editor-toggle svg { transition: transform .2s; }
+.indicator-editor.expanded .indicator-editor-toggle svg { transform: rotate(180deg); }
+.indicator-editor-body { display: grid; gap: 12px; padding-top: 12px; }
+.record-edit-form label, .record-edit-form .choice-picker-label, .record-edit-form .history-combobox-field > label { font-size: .74rem; font-weight: 600; }
+.record-edit-form input, .record-edit-form textarea, .record-edit-form .choice-picker-trigger { font-size: .88rem; }
+.record-edit-form .indicator-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.record-edit-form .indicator-fields label { min-width: 0; }
+.indicator-derived-status { margin: 0; font-size: .74rem; }
+.indicator-editor-advanced summary { color: var(--muted); font-size: .74rem; cursor: pointer; }
+.indicator-editor-advanced[open] .choice-picker { margin-top: 10px; }
+.indicator-editor-body > .text-button { display: inline-flex; align-items: center; gap: 6px; justify-self: start; color: var(--danger); font-size: .76rem; }
 .indicator-fields input, .indicator-fields .choice-picker-trigger { background: var(--surface); }
+.indicator-organizer { display: grid; gap: 16px; }
+.indicator-organizer > p, .indicator-merge-review > p { margin: 0; font-size: .82rem; }
+.indicator-organizer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.indicator-organizer-actions > span, .indicator-organizer-actions > small { color: var(--muted); font-size: .76rem; }
+.indicator-merge-review summary { cursor: pointer; font-size: .9rem; font-weight: 700; }
+.indicator-merge-review[open] > p { margin-top: 12px; }
+.indicator-merge-options { display: grid; gap: 12px; margin-top: 12px; }
+.indicator-merge-option { display: flex; align-items: flex-start; gap: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-alt); }
+.indicator-merge-option input { width: 20px; min-height: 20px; margin-top: 2px; flex: 0 0 auto; }
+.indicator-merge-option strong, .indicator-merge-option small { display: block; overflow-wrap: anywhere; }
+.indicator-merge-option strong { font-size: .86rem; }
+.indicator-merge-option small { margin-top: 5px; font-size: .74rem; font-weight: 400; color: var(--muted); }
+.indicator-inventory h3 { display: flex; align-items: center; gap: 8px; font-size: .9rem; }
+.indicator-inventory-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: .82rem; font-variant-numeric: tabular-nums; }
+.indicator-inventory-row > span:first-child { min-width: 0; }
+.indicator-inventory-row strong { display: block; overflow-wrap: anywhere; font-weight: 600; }
+.indicator-inventory-row small { display: block; margin-top: 3px; color: var(--muted); font-size: .7rem; }
+.indicator-inventory-row > span:last-child { white-space: nowrap; color: var(--muted); }
 .record-edit-actions { position: sticky; bottom: -20px; z-index: 2; margin: 0 -20px -20px; padding: 14px 20px max(14px, env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(10px); }
 .image-thumbnail { position: relative; display: block; padding: 0; border: 0; color: inherit; background: transparent; overflow: hidden; }
 .image-thumbnail-hint { position: absolute; right: 6px; bottom: 6px; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; color: white; background: rgba(48, 32, 26, .76); }

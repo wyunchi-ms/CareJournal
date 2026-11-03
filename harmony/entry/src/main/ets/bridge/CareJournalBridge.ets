@@ -60,6 +60,10 @@ export class CareJournalBridge {
     return this.entities.put(kind, id, updatedAt, payload);
   }
 
+  putEntities(entries: string): Promise<void> {
+    return this.entities.putMany(entries);
+  }
+
   removeEntity(kind: string, id: string): Promise<void> {
     return this.entities.remove(kind, id);
   }

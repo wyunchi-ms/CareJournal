@@ -1,3 +1,5 @@
+import { cleanIndicatorName } from '../services/indicatorNames'
+
 export interface IndicatorDefinition {
   code: string
   name: string
@@ -47,6 +49,7 @@ export const INDICATORS: IndicatorDefinition[] = [
   { code: 'NA', name: '钠', aliases: ['钠', '血钠', 'Na+'], standardUnit: 'mmol/L' },
   { code: 'CL', name: '氯', aliases: ['氯', '血氯', 'Cl-'], standardUnit: 'mmol/L' },
   { code: 'CA', name: '钙', aliases: ['钙', '血钙', 'Ca'], standardUnit: 'mmol/L' },
+  { code: 'MG', name: '镁', aliases: ['镁', '血镁', 'Mg', '镁(MG)'], standardUnit: 'mmol/L' },
   { code: 'CRP', name: 'C反应蛋白', aliases: ['C反应蛋白', '超敏C反应蛋白', 'CRP', 'hs-CRP'], standardUnit: 'mg/L' },
   { code: 'CEA', name: '癌胚抗原', aliases: ['癌胚抗原', 'CEA'], standardUnit: 'ng/mL' },
   { code: 'CA199', name: '糖类抗原19-9', aliases: ['糖类抗原19-9', 'CA19-9', 'CA199'], standardUnit: 'U/mL' },
@@ -64,7 +67,8 @@ const clean = (value: string) => value.toLowerCase().replace(/[\s（）()·_-]/g
 
 export function normalizeIndicator(rawName: string, proposedCode?: string, proposedName?: string) {
   const normalizedProposed = proposedCode?.trim().toUpperCase()
-  const target = clean(rawName)
+  const name = cleanIndicatorName(rawName)
+  const target = clean(name)
   const byAlias = INDICATORS.find((item) => item.aliases.some((alias) => clean(alias) === target))
   if (byAlias) return byAlias
   const direct = INDICATORS.find((item) => item.code === normalizedProposed)
@@ -72,7 +76,7 @@ export function normalizeIndicator(rawName: string, proposedCode?: string, propo
   const proposedIsOther = normalizedProposed === 'OTHER' || proposedName?.trim() === '其他指标'
   return {
     code: !proposedIsOther && normalizedProposed ? normalizedProposed : `CUSTOM_${target.slice(0, 24).toUpperCase() || 'UNKNOWN'}`,
-    name: !proposedIsOther && proposedName?.trim() ? proposedName.trim() : rawName.trim() || '未命名指标',
+    name: !proposedIsOther && proposedName?.trim() ? cleanIndicatorName(proposedName) || name || '未命名指标' : name || '未命名指标',
     aliases: [rawName],
   }
 }

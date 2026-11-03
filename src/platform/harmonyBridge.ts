@@ -4,6 +4,7 @@ export interface HarmonyBridgeApi {
   exitApp(): Promise<void>
   listEntities(kind: string): Promise<string>
   putEntity(kind: string, id: string, updatedAt: string, payload: string): Promise<void>
+  putEntities(entries: string): Promise<void>
   removeEntity(kind: string, id: string): Promise<void>
   replaceEntities(kind: string, entries: string): Promise<void>
   removeCompletedOcrJobs(): Promise<void>

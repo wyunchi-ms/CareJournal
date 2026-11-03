@@ -7,6 +7,14 @@ interface ReplacementEntity {
   payload: object;
 }
 
+interface BatchEntity {
+  kind: string;
+  id: string;
+  updatedAt: string;
+  payload: string;
+  clearTombstone: boolean;
+}
+
 export class EntityStore {
   private context: common.UIAbilityContext;
   private store?: relationalStore.RdbStore;
@@ -61,6 +69,27 @@ export class EntityStore {
 
   async remove(kind: string, id: string): Promise<void> {
     await (await this.db()).executeSql('DELETE FROM entities WHERE key = ?', [`${kind}:${id}`]);
+  }
+
+  async putMany(serializedEntries: string): Promise<void> {
+    const entries = JSON.parse(serializedEntries) as BatchEntity[];
+    const store = await this.db();
+    await store.beginTransaction();
+    try {
+      for (const entry of entries) {
+        await store.executeSql(
+          'INSERT OR REPLACE INTO entities (key, kind, entity_id, updated_at, payload) VALUES (?, ?, ?, ?, ?)',
+          [`${entry.kind}:${entry.id}`, entry.kind, entry.id, entry.updatedAt, entry.payload]
+        );
+        if (entry.clearTombstone) {
+          await store.executeSql('DELETE FROM entities WHERE key = ?', [`syncTombstone:${entry.kind}:${entry.id}`]);
+        }
+      }
+      await store.commit();
+    } catch (error) {
+      await store.rollBack();
+      throw error instanceof Error ? error : new Error(String(error));
+    }
   }
 
   async replace(kind: string, serializedEntries: string): Promise<void> {

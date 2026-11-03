@@ -12,6 +12,12 @@ describe('normalizeIndicator', () => {
     expect(normalizeIndicator('某院特殊指标').code).toMatch(/^CUSTOM_/)
   })
 
+  it('将镁及带缩写的名称归入同一标准编码', () => {
+    for (const name of ['镁', '镁(MG)', '镁（Mg）', '*镁(MG)*', 'Mg']) {
+      expect(normalizeIndicator(name)).toMatchObject({ code: 'MG', name: '镁' })
+    }
+  })
+
   it('医院原始名称优先于模型提出的错误标准代码', () => {
     expect(normalizeIndicator('血色素', 'PLT', '血小板计数')).toMatchObject({ code: 'HGB', name: '血红蛋白' })
     expect(normalizeIndicator('某院特殊指标', 'OTHER', '其他指标')).toMatchObject({ name: '某院特殊指标' })

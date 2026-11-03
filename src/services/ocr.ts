@@ -130,7 +130,7 @@ interface LlmHttpResult {
   detail: string
 }
 
-async function llmPost(provider: LlmProviderId, url: string, apiKey: string, body: unknown): Promise<LlmHttpResult> {
+export async function llmPost(provider: LlmProviderId, url: string, apiKey: string, body: unknown): Promise<LlmHttpResult> {
   if (isHarmonyPlatform()) {
     const authorization: Record<string, string> = provider === 'azure-openai'
       ? { 'api-key': apiKey }
@@ -181,7 +181,7 @@ type UserReportContent = string | Array<
   | { type: 'image_url'; image_url: { url: string; detail: 'high' } }
 >
 
-function parseJsonResponse(content: string) {
+export function parseJsonResponse(content: string) {
   const trimmed = content.trim()
   const withoutFence = trimmed
     .replace(/^```(?:json)?\s*/i, '')
