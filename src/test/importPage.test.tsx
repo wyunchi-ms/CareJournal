@@ -98,12 +98,32 @@ describe('import page', () => {
     const directoryInput = container.querySelector('input[webkitdirectory]')
     expect(directoryInput).toHaveAttribute('multiple')
     expect(directoryInput).not.toHaveAttribute('max')
-    expect(screen.getAllByRole('button', { name: /拍照导入|选择图片\/PDF|导入文件夹/ }).every((button) => button.classList.contains('secondary'))).toBe(true)
     expect(screen.queryByRole('button', { name: '选择报告图片' })).not.toBeInTheDocument()
     expect(screen.queryByText('后台识别说明')).not.toBeInTheDocument()
     expect(screen.queryByText('逐文件请求')).not.toBeInTheDocument()
     expect(screen.getByText('还没有识别任务')).toBeInTheDocument()
     expect(screen.getByText(/文件会按顺序加入后台识别队列/)).toBeInTheDocument()
+  })
+
+  it('keeps icon-only source actions named and connected to the correct file inputs', () => {
+    const { container } = renderImportPage()
+    const photoInput = container.querySelector<HTMLInputElement>('input[capture="environment"]')!
+    const fileInput = container.querySelector<HTMLInputElement>('input[accept="image/*,application/pdf,.pdf"]')!
+    const directoryInput = container.querySelector<HTMLInputElement>('input[webkitdirectory]')!
+    const photoClick = vi.spyOn(photoInput, 'click').mockImplementation(() => undefined)
+    const fileClick = vi.spyOn(fileInput, 'click').mockImplementation(() => undefined)
+    const directoryClick = vi.spyOn(directoryInput, 'click').mockImplementation(() => undefined)
+
+    for (const name of ['拍照导入', '选择图片/PDF', '导入文件夹']) {
+      const button = screen.getByRole('button', { name })
+      expect(button).toHaveAttribute('title', name)
+      expect(button.textContent).toBe('')
+      fireEvent.click(button)
+    }
+
+    expect(photoClick).toHaveBeenCalledOnce()
+    expect(fileClick).toHaveBeenCalledOnce()
+    expect(directoryClick).toHaveBeenCalledOnce()
   })
 
   it('uses native recursive folder scanning instead of a web directory input on Android', () => {

@@ -1,4 +1,4 @@
-import { AlertCircle, Camera, CheckCircle2, Clock3, FileImage, FileText, FolderOpen, RefreshCw, Settings2, Trash2, XCircle } from 'lucide-react'
+import { AlertCircle, Camera, CheckCircle2, Clock3, FileImage, FileText, FileUp, FolderOpen, RefreshCw, Settings2, Trash2, XCircle } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -265,16 +265,16 @@ export function ImportPage() {
           {showWebDirectoryImport && <input ref={directoryRef} className="sr-only" type="file" accept="image/*" multiple {...directoryInputAttributes} onChange={(event) => { void selectFiles(event.target.files); event.target.value = '' }} />}
           <input ref={cameraRef} className="sr-only" type="file" accept="image/*" capture="environment" onChange={(event) => { void selectFiles(event.target.files); event.target.value = '' }} />
           <div className="source-actions" aria-label="导入方式">
-            <button className="button secondary" disabled={busy} onClick={() => cameraRef.current?.click()}><Camera />拍照导入</button>
-            <button className="button secondary" disabled={busy} onClick={() => inputRef.current?.click()}><FileText />选择图片/PDF</button>
-            {showWebDirectoryImport && <button className="button secondary" disabled={busy} onClick={() => directoryRef.current?.click()}><FolderOpen />导入文件夹</button>}
-            {showAndroidDirectoryImport && <button className="button secondary" disabled={busy} onClick={() => void selectAndroidFolder()}><FolderOpen />扫描文件夹</button>}
+            <button className="icon-button tonal" aria-label="拍照导入" title="拍照导入" disabled={busy} onClick={() => cameraRef.current?.click()}><Camera aria-hidden="true" /></button>
+            <button className="icon-button primary" aria-label="选择图片/PDF" title="选择图片/PDF" disabled={busy} onClick={() => inputRef.current?.click()}><FileUp aria-hidden="true" /></button>
+            {showWebDirectoryImport && <button className="icon-button" aria-label="导入文件夹" title="导入文件夹" disabled={busy} onClick={() => directoryRef.current?.click()}><FolderOpen aria-hidden="true" /></button>}
+            {showAndroidDirectoryImport && <button className="icon-button" aria-label="扫描文件夹" title="扫描文件夹" disabled={busy} onClick={() => void selectAndroidFolder()}><FolderOpen aria-hidden="true" /></button>}
           </div>
 
           {!llmConfigured && <div className="llm-setup-callout callout warning" role="alert">
             <AlertCircle />
             <span><strong>识别检查报告前需要配置 LLM</strong><small>你可以先加入图片或 PDF，文件会保存在本地队列，配置完成后自动开始处理。</small></span>
-            <Link className="button secondary" to="/settings#llm-settings"><Settings2 />去配置 LLM</Link>
+            <Link className="icon-button tonal" to="/settings#llm-settings" aria-label="去配置 LLM" title="去配置 LLM"><Settings2 aria-hidden="true" /></Link>
           </div>}
 
           {scanning && !preparing && <div className="preparation-progress" role="status"><div><span className="spinner" /><strong>正在扫描文件夹及子文件夹</strong></div></div>}

@@ -91,7 +91,7 @@ function RecordEditForm({ record, onCancel, onSaved }: { record: ExamRecord; onC
       </div>
     </section>
     <section className="edit-section">
-      <div className="edit-section-heading"><div><h3>指标明细</h3><p>{indicators.length} 项，点击名称展开编辑，异常状态按参考范围判断。</p></div><button type="button" className="button secondary" onClick={() => setIndicators((current) => [...current, { id: newId(), rawName: '', normalizedCode: 'OTHER', normalizedName: '', result: '', unit: '', referenceText: '' }])}><Plus />添加指标</button></div>
+      <div className="edit-section-heading"><div><h3>指标明细</h3><p>{indicators.length} 项，点击名称展开编辑，异常状态按参考范围判断。</p></div><button type="button" className="icon-button tonal" aria-label="添加指标" title="添加指标" onClick={() => setIndicators((current) => [...current, { id: newId(), rawName: '', normalizedCode: 'OTHER', normalizedName: '', result: '', unit: '', referenceText: '' }])}><Plus aria-hidden="true" /></button></div>
       <div className="indicator-editor-list">
         {indicators.length === 0 && <p className="muted-text">这份报告暂时没有结构化指标。</p>}
         {indicators.map((item) => <RecordIndicatorEditor key={item.id} draft={item} original={record.indicators.find((original) => original.id === item.id)} onChange={(changes) => setIndicator(item.id, changes)} onRemove={() => setIndicators((current) => current.filter((candidate) => candidate.id !== item.id))} />)}
@@ -168,10 +168,9 @@ function RecordDetail({ record, onClose, onEdit, onRecognized, onOpenRecord }: {
     {record.summary && <section className="report-conclusion"><h3>报告结论</h3><p className="summary-text">{record.summary}</p></section>}
     {recognizeError && <p className="form-error record-detail-action-error" role="alert">{recognizeError}</p>}
     <div className="record-detail-actions">
-      <button className="button danger ghost" onClick={() => setDeleteConfirming(true)}><Trash2 />删除记录</button>
-      <button type="button" className="button secondary" disabled={recognizing || record.images.length === 0} onClick={() => void recognizeAgain()} title={record.images.length === 0 ? '这份记录没有原始文件' : '用原始文件重新识别并更新当前记录'}>
-        {recognizing ? <span className="spinner" /> : <RefreshCw />}
-        {recognizing ? '重新识别中…' : '重新识别'}
+      <button className="icon-button danger" aria-label="删除记录" title="删除记录" onClick={() => setDeleteConfirming(true)}><Trash2 aria-hidden="true" /></button>
+      <button type="button" className="icon-button tonal" aria-label={recognizing ? '重新识别中…' : '重新识别'} aria-busy={recognizing} disabled={recognizing || record.images.length === 0} onClick={() => void recognizeAgain()} title={record.images.length === 0 ? '这份记录没有原始文件' : '用原始文件重新识别并更新当前记录'}>
+        {recognizing ? <span className="spinner" /> : <RefreshCw aria-hidden="true" />}
       </button>
     </div>
     {deleteConfirming && <ConfirmSheet

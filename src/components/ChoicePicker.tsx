@@ -56,10 +56,10 @@ export function ChoicePicker({ label, options, value, onChange, multiple = false
 
   return <div className={`choice-picker${compact ? ' compact' : ''}${iconOnly ? ' icon-only' : ''}`}>
     {!compact && !iconOnly && <span className="choice-picker-label">{label}</span>}
-    <button type="button" className={`choice-picker-trigger${selectedValues.length ? ' has-value' : ''}`} onClick={() => setOpen(true)} disabled={disabled || options.length === 0} aria-haspopup="dialog" aria-label={`${label}：${summary}`}>
+    <button type="button" className={`choice-picker-trigger${selectedValues.length ? ' has-value' : ''}`} onClick={() => setOpen(true)} disabled={disabled || options.length === 0} aria-haspopup="dialog" aria-expanded={open} aria-label={`${label}：${summary}`} title={iconOnly ? `${label}：${summary}` : undefined}>
       {icon && <span className="choice-picker-icon" aria-hidden="true">{icon}</span>}
       {!iconOnly && <span className="choice-picker-summary">{compact && <small>{label}</small>}<strong>{options.length ? summary : emptyText}</strong></span>}
-      {!iconOnly && multiple && selectedOptions.length > 0 && <span className="choice-picker-count">{selectedOptions.length}</span>}
+      {multiple && selectedOptions.length > 0 && <span className="choice-picker-count" aria-hidden={iconOnly || undefined}>{selectedOptions.length}</span>}
       {!iconOnly && <ChevronDown aria-hidden="true" />}
     </button>
     {open && <Modal title={multiple ? `${label}（可多选）` : label} onClose={() => setOpen(false)} bodyClassName="choice-picker-modal-body">

@@ -377,8 +377,8 @@ export function ReimbursementPage() {
               </SwipeableListItem>
             })}</div>}
             <div className="material-actions">
-              <button type="button" className="button secondary" disabled={uploading} onClick={() => { setUploadMaterialId(item.id); fileInputRef.current?.click() }}><FileInput />导入图片/PDF</button>
-              <button type="button" className="button secondary" disabled={uploading} onClick={() => { setUploadMaterialId(item.id); cameraInputRef.current?.click() }}><Camera />拍照</button>
+              <button type="button" className="icon-button tonal" aria-label="导入图片/PDF" title={`导入${item.label}的图片/PDF`} disabled={uploading} onClick={() => { setUploadMaterialId(item.id); fileInputRef.current?.click() }}><FileInput aria-hidden="true" /></button>
+              <button type="button" className="icon-button" aria-label="拍照" title={`拍照添加${item.label}`} disabled={uploading} onClick={() => { setUploadMaterialId(item.id); cameraInputRef.current?.click() }}><Camera aria-hidden="true" /></button>
             </div>
           </section>)}
         </div>

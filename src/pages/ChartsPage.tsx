@@ -449,23 +449,23 @@ export function ChartsPage() {
         <div className="saved-chart-dashboard-actions">
           {indicators.length > 0 && <button
             type="button"
-            className={`button ${addingChart ? 'secondary' : 'primary'} chart-add-button`}
+            className={`icon-button ${addingChart ? 'tonal' : 'primary'} chart-add-button`}
+            aria-label={addingChart ? '收起' : '添加图表'}
+            title={addingChart ? '收起添加图表' : '添加图表'}
             aria-expanded={addingChart}
             onClick={() => setAddingChart((current) => !current)}
           >
             {addingChart ? <X /> : <Plus />}
-            <span>{addingChart ? '收起' : '添加图表'}</span>
           </button>}
           <button
             type="button"
-            className="saved-charts-trigger"
+            className="icon-button tonal saved-charts-trigger"
             aria-label={`管理已保存图表，共 ${pins.length} 个`}
             title={`管理已保存图表（${pins.length}）`}
             onClick={() => { setSavedQuery(''); setSavedChartsReordering(false); setSavedOrderError(''); setSavedChartsOpen(true) }}
           >
             <Bookmark aria-hidden="true" />
-            <span>管理</span>
-            <small>{pins.length}</small>
+            <small aria-hidden="true">{pins.length}</small>
           </button>
         </div>
       </div>

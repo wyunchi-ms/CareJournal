@@ -75,6 +75,19 @@ describe('unified choice controls', () => {
     expect(screen.getAllByRole('radio').map((option) => option.textContent)).toEqual(['第三个', '第一个', '第二个'])
   })
 
+  it('exposes selection and expanded state on an icon-only filter', () => {
+    render(<ChoicePicker label="事件筛选" iconOnly multiple icon={<span aria-hidden="true">icon</span>} value={['exam']} onChange={vi.fn()} options={[{ value: 'exam', label: '检查' }]} />)
+
+    const trigger = screen.getByRole('button', { name: '事件筛选：检查' })
+    expect(trigger).toHaveAttribute('title', '事件筛选：检查')
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(trigger.querySelector('.choice-picker-count')).toHaveTextContent('1')
+    fireEvent.click(trigger)
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  })
+
   it('shares recent text choices across fields with the same history key', () => {
     const firstRender = render(<HistoryCombobox
       label="医院"

@@ -140,7 +140,7 @@ export function ChemotherapyTemplateList({
         {reorderMode
           ? <>
             <div className="template-reorder-copy"><h2>调整方案顺序</h2><p>拖动左侧把手调整；也可用方向键移动。</p></div>
-            <button type="button" className="button template-reorder-done" onClick={() => void finishReorder()}><Check />完成</button>
+            <button type="button" className="icon-button primary" aria-label="完成" title="保存方案顺序" onClick={() => void finishReorder()}><Check aria-hidden="true" /></button>
           </>
           : <>
             <label className="search-box">

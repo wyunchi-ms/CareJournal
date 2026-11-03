@@ -45,6 +45,7 @@ export function RecordFilterPicker({
       className={`choice-picker-trigger record-filter-trigger${selectedCount ? ' has-value' : ''}`}
       onClick={() => setOpen(true)}
       aria-haspopup="dialog"
+      aria-expanded={open}
       aria-label={`筛选检查记录：${selectedCount ? `已选 ${selectedCount} 个条件` : '全部记录'}`}
       title="筛选检查记录"
     >
