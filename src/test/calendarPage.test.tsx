@@ -91,7 +91,7 @@ afterEach(() => {
 })
 
 describe('calendar event filter', () => {
-  it('opens the exact timeline event and clears the deep link when the editor closes', () => {
+  it('opens the exact timeline event in read-only mode and clears the deep link when it closes', () => {
     function Location() {
       return <output data-testid="calendar-location">{useLocation().search}</output>
     }
@@ -99,12 +99,33 @@ describe('calendar event filter', () => {
     render(<MemoryRouter initialEntries={['/calendar?month=2026-07&date=2026-07-22&eventId=2']}>
       <CalendarPage /><Location />
     </MemoryRouter>)
-    const editor = screen.getByRole('dialog', { name: '编辑病程事件' })
-    expect(within(editor).getByDisplayValue('chemotherapy-2')).toBeInTheDocument()
-    fireEvent.click(within(editor).getByRole('button', { name: '关闭' }))
+    const details = screen.getByRole('dialog', { name: 'chemotherapy-2' })
+    expect(within(details).getByRole('heading', { name: 'chemotherapy-2' })).toBeInTheDocument()
+    expect(within(details).queryByRole('textbox')).not.toBeInTheDocument()
+    expect(within(details).getByRole('button', { name: '编辑' })).toHaveClass('icon-button', 'tonal')
+    expect(within(details).getByRole('button', { name: '编辑' }).textContent).toBe('')
+    fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.getByTestId('calendar-location')).toHaveTextContent('?month=2026-07&date=2026-07-22')
     expect(screen.getByTestId('calendar-location')).not.toHaveTextContent('eventId')
+  })
+
+  it('only edits a selected agenda event after the edit action and discards changes on close', () => {
+    render(<MemoryRouter initialEntries={['/?month=2026-07&date=2026-07-22']}><CalendarPage /></MemoryRouter>)
+    fireEvent.click(within(screen.getByRole('region', { name: '选中日期的事件' })).getByRole('button', { name: /surgery-3/ }))
+    const details = screen.getByRole('dialog', { name: 'surgery-3' })
+    expect(within(details).getByRole('heading', { name: 'surgery-3' })).toBeInTheDocument()
+    expect(within(details).queryByRole('textbox')).not.toBeInTheDocument()
+    fireEvent.click(within(details).getByRole('button', { name: '编辑' }))
+
+    const editor = screen.getByRole('dialog', { name: '编辑病程事件' })
+    const dates = within(editor).getByRole('group', { name: '事件日期' })
+    expect(within(dates).getByLabelText('开始日期')).toHaveValue('2026-07-22')
+    expect(within(dates).getByLabelText('结束日期')).toHaveValue('2026-07-22')
+    fireEvent.change(within(editor).getByRole('textbox', { name: '标题' }), { target: { value: '未保存的标题' } })
+    fireEvent.click(within(editor).getByRole('button', { name: '关闭' }))
+    expect(within(screen.getByRole('dialog', { name: 'surgery-3' })).getByRole('heading', { name: 'surgery-3' })).toBeInTheDocument()
+    expect(saveEvent).not.toHaveBeenCalled()
   })
 
   it('shows the total count for every event type', () => {
@@ -357,7 +378,8 @@ describe('calendar event filter', () => {
     fireEvent.click(eventDay!)
     fireEvent.click(within(screen.getByRole('region', { name: '选中日期的事件' })).getByRole('button', { name: /chemotherapy-1/ }))
 
-    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'chemotherapy-1' })).getByRole('button', { name: '编辑' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: '编辑病程事件' })).getByRole('button', { name: '删除' }))
     const confirmation = screen.getByRole('dialog', { name: '删除病程事件' })
     expect(confirmation).toHaveClass('bottom-sheet')
     expect(deleteEvent).not.toHaveBeenCalled()

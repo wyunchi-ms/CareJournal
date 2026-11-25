@@ -328,7 +328,7 @@ export function ReimbursementPage() {
       </div>
     </Modal>}
 
-    {selectedPlan && <Modal title={selectedPlan.eventTitle} onClose={() => { setSelectedPlanId(null); setCustomMaterial('') }} wide>
+    {selectedPlan && <Modal title={selectedPlan.eventTitle} onClose={() => { setSelectedPlanId(null); setCustomMaterial('') }} wide hideClose>
       <div className="reimbursement-detail">
         <div className="reimbursement-detail-meta"><strong>{selectedPlan.eventDate}</strong><span>{selectedPlan.hospital || '医院未记录'}</span></div>
         <ChoicePicker label="报销类型" options={reimbursementCoverageOptions} value={selectedPlan.coverage} onChange={(value) => void updateCoverage(value as ReimbursementCoverage)} />

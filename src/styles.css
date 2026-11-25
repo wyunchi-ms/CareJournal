@@ -265,7 +265,22 @@ label { display: grid; gap: 7px; color: var(--text); font-size: .9rem; font-weig
 .spacer { flex: 1; }
 .form-error { margin: 0; color: var(--danger); }
 .field-hint { color: var(--muted); font-size: .72rem; font-weight: 600; line-height: 1.4; }
-.template-course-builder { padding-top: 4px; }
+.event-details dl { display: grid; grid-template-columns: minmax(0, 5rem) minmax(0, 1fr); align-items: baseline; gap: 8px 12px; margin: 0; font-size: .9rem; }
+.event-details dt { color: var(--muted); }
+.event-details dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.event-form.form-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.event-form > :is(label, .choice-picker, .history-combobox-field),
+.event-form :is(.body-measurement-grid, .radiotherapy-day-fields) > label {
+  display: grid; grid-template-columns: min(5rem, 32%) minmax(0, 1fr); align-items: center; gap: 8px;
+}
+.event-form > :is(label, .choice-picker, .history-combobox-field) { font-weight: 600; }
+.event-form .choice-picker-label, .event-form .history-combobox-field > label { font-weight: 600; }
+.event-form :is(input, textarea, fieldset) { min-width: 0; }
+.event-form .choice-picker-label { overflow-wrap: anywhere; }
+.event-date-range { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; }
+.event-date-range span { color: var(--muted); font-size: .8rem; }
+.event-date-range input { padding-inline: 8px; }
+.event-form .radiotherapy-day-fields { grid-template-columns: minmax(0, 1fr); gap: 8px; margin: 0; }
 .body-measurement-fields { padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-alt); }
 .body-measurement-fields legend { margin: 0; padding: 0 5px; color: var(--text); font-size: .84rem; }
 .body-measurement-fields > p { margin: 0 0 12px; color: var(--muted); font-size: .74rem; font-weight: 600; }
@@ -276,7 +291,10 @@ label { display: grid; gap: 7px; color: var(--text); font-size: .9rem; font-weig
 .event-medication-table .choice-picker-summary small { display: none; }
 .event-medication-table .choice-picker.compact { width: 100%; }
 .event-medication-table .medication-dose-field > input { width: 100%; }
-.body-measurement-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.event-form .treatment-event-fields { padding: 8px 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; }
+.event-form .treatment-event-fields legend { padding: 0 8px 0 0; }
+.event-form .event-medication-table .medication-row { background: var(--surface-alt); }
+.body-measurement-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .records-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) 46px 44px; justify-content: stretch; gap: 9px; }
 .records-import-button { color: var(--on-primary); background: var(--primary-strong); }
 .records-import-button:hover { background: color-mix(in srgb, var(--primary-strong) 86%, var(--text)); }
@@ -448,8 +466,6 @@ label { display: grid; gap: 7px; color: var(--text); font-size: .9rem; font-weig
 .detail-summary strong { min-width: 0; color: var(--text); overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .record-section-heading { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .record-section-heading h3 { margin: 0; }
-.edit-report-button { color: var(--primary-strong); background: var(--primary-soft); }
-.edit-report-button:hover { color: var(--surface); background: var(--primary-strong); }
 .summary-text { padding: 14px; border-left: 3px solid var(--primary); background: var(--surface-alt); }
 .indicator-table-wrap { overflow-x: auto; }
 .indicator-table { width: 100%; border-collapse: collapse; text-align: left; }
@@ -1137,7 +1153,7 @@ legend { margin-bottom: 8px; color: var(--muted); font-size: .78rem; font-weight
   .modal-body { padding: 14px 16px max(16px, env(safe-area-inset-bottom)); }
   .form-grid { grid-template-columns: 1fr; }
   .full-width { grid-column: auto; }
-  .body-measurement-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .body-measurement-grid { grid-template-columns: minmax(0, 1fr); }
   .records-toolbar { grid-template-columns: minmax(0, 1fr) 46px 44px; }
   .records-toolbar > .choice-picker.compact { width: 46px; }
   .active-filter-row { flex-wrap: nowrap; margin-right: -14px; padding-right: 14px; overflow-x: auto; }
@@ -1235,6 +1251,9 @@ legend { margin-bottom: 8px; color: var(--muted); font-size: .78rem; font-weight
   .medication-field-label { display: block; margin: 0; color: var(--muted); font-size: .7rem; font-weight: 800; }
   .medication-optional-field { display: none; }
   .medication-row.expanded .medication-optional-field { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center; gap: 7px; }
+  .event-form .event-medication-table .medication-row > label:first-child,
+  .event-form .event-medication-table .medication-row.expanded .medication-optional-field { grid-template-columns: 4.5rem minmax(0, 1fr); }
+  .event-form .event-medication-table .medication-dose-field { grid-template-columns: 4.5rem minmax(0, .7fr) minmax(0, 1.3fr); }
   .medication-expand-button { min-height: 44px; display: inline-flex; grid-column: 1 / -1; align-items: center; justify-content: flex-start; gap: 5px; width: max-content; padding: 0 5px; color: var(--primary-strong); font-size: .72rem; font-weight: 800; }
   .medication-expand-button svg { width: 16px; height: 16px; }
   .medication-remove-button { position: absolute; top: 6px; right: 2px; }

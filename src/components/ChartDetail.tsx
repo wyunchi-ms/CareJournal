@@ -126,7 +126,7 @@ export function IndicatorTrendDetail({ indicator, onClose, onOpenRecord }: {
     }
   }, [])
 
-  return <Modal title={title} onClose={onClose} wide>
+  return <Modal title={title} onClose={onClose} wide hideClose>
     <div className="chart-detail">
       <TrendRangePicker value={range} onChange={setRange} />
       <section className="chart-detail-visual" aria-label={`${title}图表`}>

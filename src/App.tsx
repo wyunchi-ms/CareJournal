@@ -20,8 +20,8 @@ import { LocaleSetup } from './components/LocaleSetup'
 const navItems = [
   { path: '/chemotherapy-templates', label: '方案', icon: Pill },
   { path: '/records', label: '检查', icon: ListChecks },
-  { path: '/calendar', label: '病程', icon: CalendarDays },
   { path: '/timeline', label: '时间线', icon: ListTree },
+  { path: '/calendar', label: '病程', icon: CalendarDays },
   { path: '/charts', label: '图表', icon: ChartNoAxesCombined },
   { path: '/reimbursement', label: '报销', icon: WalletCards },
   { path: '/settings', label: '设置', icon: Settings },

@@ -1,6 +1,8 @@
 import { ChevronRight, ListTree } from 'lucide-react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { DetailEditButton, Modal } from '../components/Modal'
+import { EventDetails, EventForm } from './CalendarPage'
 import { buildTreatmentTimeline } from '../services/treatmentTimeline'
 import { useApp } from '../store/AppContext'
 import type { AppLanguage, EventType } from '../types'
@@ -36,7 +38,11 @@ const stageTypeLabels: Partial<Record<EventType, [string, string, string]>> = {
 const languageIndex: Record<AppLanguage, number> = { 'zh-CN': 0, 'zh-TW': 1, en: 2 }
 
 export function TreatmentTimelinePage() {
-  const { events, preferences } = useApp()
+  const { events, preferences, vocabulary } = useApp()
+  const [eventId, setEventId] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const selectedEvent = events.find((event) => event.id === eventId)
+  const closeEvent = () => { setEventId(null); setEditing(false) }
   const language = preferences.locale.language
   const text = copy[language]
   const stages = useMemo(() => buildTreatmentTimeline(events), [events])
@@ -87,7 +93,7 @@ export function TreatmentTimelinePage() {
                 {stage.events.map((event) => <li key={event.id}>
                   <Link to={`/calendar?${new URLSearchParams({
                     month: event.startDate.slice(0, 7), date: event.startDate, eventId: event.id,
-                  })}`}>
+                  })}`} onClick={(click) => { if (!click.metaKey && !click.ctrlKey && !click.shiftKey && !click.altKey && click.button === 0) { click.preventDefault(); setEventId(event.id) } }}>
                     <span><strong>{event.title}</strong><small>{range(event.startDate, event.endDate, year)}
                       {event.radiotherapySite && ` · ${event.radiotherapySite}`}
                     </small></span>
@@ -100,5 +106,12 @@ export function TreatmentTimelinePage() {
         })}
       </ol>
     </div>)}
+    {selectedEvent && (editing
+      ? <Modal key="timeline-event-edit" title="编辑病程事件" onClose={() => setEditing(false)} wide>
+        <EventForm initialDate={selectedEvent.startDate} event={selectedEvent} hospitalHistory={vocabulary.hospitals} departmentHistory={vocabulary.departments} onSaved={() => setEditing(false)} onDeleted={closeEvent} />
+      </Modal>
+      : <Modal key="timeline-event-view" title={selectedEvent.title} onClose={closeEvent} wide hideClose headerAction={<DetailEditButton onClick={() => setEditing(true)} />}>
+        <EventDetails event={selectedEvent} />
+      </Modal>)}
   </section>
 }

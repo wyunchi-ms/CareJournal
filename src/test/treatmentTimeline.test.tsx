@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TreatmentTimelinePage } from '../pages/TreatmentTimelinePage'
@@ -23,7 +23,7 @@ const events = [
 const crossYearEvent = event('跨年维持治疗', 'maintenance', '2025-12-31', { endDate: '2026-01-02' })
 
 vi.mock('../store/AppContext', () => ({
-  useApp: () => ({ events: [...events, crossYearEvent], preferences: { locale: { language: 'zh-CN' } } }),
+  useApp: () => ({ events: [...events, crossYearEvent], preferences: { locale: { language: 'zh-CN' } }, vocabulary: { hospitals: [], departments: [] } }),
 }))
 
 afterEach(cleanup)
@@ -69,6 +69,13 @@ describe('treatment timeline', () => {
     fireEvent.click(screen.getByText('第 1 周期 · 化疗 · 测试方案'))
     const eventLink = screen.getByRole('link', { name: /化疗 D8/ })
     expect(eventLink).toHaveAttribute('href', `/calendar?${new URLSearchParams({ month: '2026-10', date: '2026-10-28', eventId: '化疗 D8' })}`)
+    fireEvent.click(eventLink)
+    const details = screen.getByRole('dialog', { name: '化疗 D8' })
+    expect(within(details).getByRole('button', { name: '编辑' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '治疗时间线' })).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(eventLink.closest('details')).toHaveAttribute('open')
   })
 
   it('groups entries under ascending years and keeps both years visible on a cross-year range', () => {

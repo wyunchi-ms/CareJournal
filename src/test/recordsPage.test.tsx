@@ -115,7 +115,7 @@ describe('record type filter', () => {
     const history = within(trend).getAllByRole('link')
     expect(history.map((link) => link.querySelector('time')?.dateTime)).toEqual(['2026-07-21', '2025-01-21'])
     expect(history[0]).toHaveAccessibleDescription('4.2，偏低')
-    fireEvent.click(within(trend).getByRole('button', { name: '关闭' }))
+    fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByRole('dialog', { name: '白细胞计数趋势' })).not.toBeInTheDocument()
     expect(screen.getByRole('dialog', { name: '实验室检查' })).toHaveTextContent('测试报告结论')
   })
@@ -236,11 +236,11 @@ describe('record type filter', () => {
 
     expect(screen.queryByText('OCR')).not.toBeInTheDocument()
     expect(screen.queryByRole('columnheader', { name: '状态' })).not.toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: '关闭' })).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: '关闭' })).not.toBeInTheDocument()
     const editButton = screen.getByRole('button', { name: '编辑报告' })
     expect(editButton).toHaveClass('icon-button')
     expect(within(editButton).queryByText('编辑报告')).not.toBeInTheDocument()
-    expect(document.querySelector('.record-section-heading')).toContainElement(editButton)
+    expect(document.querySelector('.modal-header')).toContainElement(editButton)
     const detailActions = document.querySelector('.record-detail-actions')!
     expect(detailActions).toContainElement(screen.getByRole('button', { name: '删除记录' }))
     expect(detailActions).toContainElement(screen.getByRole('button', { name: '重新识别' }))
@@ -279,7 +279,7 @@ describe('record type filter', () => {
 
     expect(screen.getByRole('dialog', { name: '实验室检查' })).toBeInTheDocument()
     expect(screen.getByText('测试报告结论')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByRole('dialog', { name: '实验室检查' })).not.toBeInTheDocument()
   })
 
@@ -300,7 +300,7 @@ describe('record type filter', () => {
     )
 
     expect(screen.getByRole('dialog', { name: '实验室检查' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.getByRole('heading', { name: '病程页面' })).toBeInTheDocument()
   })
 
@@ -349,7 +349,7 @@ describe('record type filter', () => {
     expect(screen.getByRole('button', { name: '编辑报告' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '查看指标趋势：白细胞总数' }))
     expect(screen.getByRole('dialog', { name: '白细胞总数趋势' })).toBeInTheDocument()
-    fireEvent.click(within(screen.getByRole('dialog', { name: '白细胞总数趋势' })).getByRole('button', { name: '关闭' }))
+    fireEvent.keyDown(window, { key: 'Escape' })
     fireEvent.click(screen.getByRole('button', { name: '编辑报告' }))
     fireEvent.click(screen.getByRole('button', { name: '展开指标：白细胞总数' }))
     expect(screen.getByLabelText('指标名称')).toHaveValue('白细胞总数')
@@ -428,8 +428,8 @@ describe('record type filter', () => {
     render(<MemoryRouter initialEntries={['/records']}><App /></MemoryRouter>)
     const navigation = screen.getByRole('navigation', { name: '主导航' })
     const links = within(navigation).getAllByRole('link')
-    expect(links).toHaveLength(6)
-    expect(links.map((link) => link.textContent)).toEqual(['方案', '检查', '病程', '图表', '报销', '设置'])
+    expect(links).toHaveLength(7)
+    expect(links.map((link) => link.textContent)).toEqual(['方案', '检查', '时间线', '病程', '图表', '报销', '设置'])
     expect(within(navigation).getByRole('link', { name: '方案' })).toHaveAttribute('href', '/chemotherapy-templates')
     expect(within(navigation).getByRole('link', { name: '检查' })).toHaveClass('active')
     expect(within(navigation).queryByRole('link', { name: '导入' })).not.toBeInTheDocument()
@@ -445,7 +445,7 @@ describe('record type filter', () => {
     expect(selection).toHaveClass('nav-selection-1')
     fireEvent.click(within(navigation).getByRole('link', { name: '病程' }))
     expect(main.querySelector('.page-transition')).toHaveClass('page-transition-forward')
-    expect(selection).toHaveClass('nav-selection-2')
+    expect(selection).toHaveClass('nav-selection-3')
 
     fireEvent.click(within(navigation).getByRole('link', { name: '检查' }))
     expect(main.querySelector('.page-transition')).toHaveClass('page-transition-backward')

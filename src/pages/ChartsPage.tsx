@@ -400,7 +400,7 @@ export function ChartsPage() {
         {visiblePins.length === 0 && <div className="empty-inline"><Search /><strong>没有匹配的图表</strong><p>换个指标名称或图表模式试试。</p></div>}
       </div>
     </Modal>}
-    {detailPin && detailOption && <Modal title={detailPin.title} onClose={() => setDetailPinId(null)} wide>
+    {detailPin && detailOption && <Modal title={detailPin.title} onClose={() => setDetailPinId(null)} wide hideClose>
       <div className="chart-detail">
         {detailPin.mode === 'cycle' && <section className="chart-detail-lines" aria-labelledby="chart-detail-lines-title">
           <div className="chart-detail-section-heading">

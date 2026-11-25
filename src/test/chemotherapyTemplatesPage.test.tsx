@@ -213,7 +213,11 @@ describe('chemotherapy template daily medication editor', () => {
     const card = screen.getByText('ICE').closest('article')!
     expect(card.querySelectorAll('.swipeable-list-action')).toHaveLength(2)
     fireEvent.click(screen.getByText('ICE').closest('button')!)
-    const preview = screen.getByRole('dialog', { name: '治疗方案预览' })
+    const preview = screen.getByRole('dialog', { name: 'ICE' })
+    expect(within(preview).queryByRole('button', { name: '关闭' })).not.toBeInTheDocument()
+    expect(within(preview).getByRole('button', { name: '编辑方案' })).toHaveClass('icon-button', 'tonal')
+    expect(within(preview).getByRole('button', { name: '编辑方案' }).textContent).toBe('')
+    expect(within(preview).getByRole('button', { name: '编辑方案' }).closest('.modal-header')).not.toBeNull()
     expect(within(preview).queryByRole('textbox', { name: '方案名称' })).not.toBeInTheDocument()
     expect(within(preview).getByRole('table', { name: 'D1 用药表' })).toHaveTextContent('卡铂500 mg静滴')
     expect(within(preview).getByRole('table', { name: 'D2 用药表' })).toHaveTextContent('依托泊苷100 mg/m²注意补液')

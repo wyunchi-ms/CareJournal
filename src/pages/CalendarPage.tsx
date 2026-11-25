@@ -1,12 +1,12 @@
 import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameDay, isSameMonth, parseISO, startOfMonth, startOfWeek, subMonths } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { CalendarDays, ChevronLeft, ChevronRight, Filter, Plus, Trash2 } from 'lucide-react'
-import { useMemo, useRef, useState, type MouseEvent, type TouchEvent } from 'react'
+import { Fragment, useMemo, useRef, useState, type MouseEvent, type TouchEvent } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChoicePicker, type ChoiceOption } from '../components/ChoicePicker'
 import { ConfirmSheet } from '../components/ConfirmSheet'
 import { HistoryCombobox } from '../components/HistoryCombobox'
-import { Modal } from '../components/Modal'
+import { DetailEditButton, Modal } from '../components/Modal'
 import { SwipeableListItem } from '../components/SwipeableListItem'
 import { formatBodyMeasurements, selectCalendarEventLabels } from '../services/calendarEvents'
 import { buildTreatmentCourseEvents, getChemotherapyDayMedications, getChemotherapyTemplateDayPlans, summarizeChemotherapyMedications } from '../services/chemotherapy'
@@ -38,7 +38,34 @@ function optionalNumber(value: string, decimals?: number) {
   return decimals === undefined ? number : Number(number.toFixed(decimals))
 }
 
-function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onClose }: { initialDate: string; event?: TreatmentEvent; hospitalHistory: string[]; departmentHistory: string[]; onClose: () => void }) {
+export function EventDetails({ event }: { event: TreatmentEvent }) {
+  const medication = event.medicationItems?.length ? summarizeChemotherapyMedications(event.medicationItems) : event
+  const fields: [string, string | number | undefined][] = [
+    ['事件类型', EVENT_TYPES[event.type].label],
+    [event.type === 'bodyMeasurement' ? '记录日期' : '日期', event.startDate === event.endDate ? event.startDate : `${event.startDate} 至 ${event.endDate}`],
+    ['医院', event.hospital],
+    ['科室', event.department],
+    ['医生', event.doctor],
+    ['治疗方案', event.regimen],
+    ['放疗部位', event.radiotherapySite],
+    ['单次剂量', event.radiotherapyDoseGy && `${event.radiotherapyDoseGy} Gy`],
+    ['本次用药', [medication.medications, medication.dosage].filter(Boolean).join('\n')],
+    [event.type === 'radiotherapy' ? '疗程编号' : '周期编号', event.cycleNumber],
+    ['Day 1', event.cycleDayOne],
+    ['身体指标', event.type === 'bodyMeasurement' ? formatBodyMeasurements(event) : undefined],
+    ['治疗反应', event.treatmentReaction],
+    ['备注', event.notes],
+    ['标签', event.tags.join('、')],
+  ]
+
+  return <div className="event-details">
+    <dl>{fields.filter(([, value]) => value !== undefined && value !== '').map(([label, value]) => <Fragment key={label}>
+      <dt>{label}</dt><dd>{value}</dd>
+    </Fragment>)}</dl>
+  </div>
+}
+
+export function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onSaved, onDeleted }: { initialDate: string; event?: TreatmentEvent; hospitalHistory: string[]; departmentHistory: string[]; onSaved: () => void; onDeleted: () => void }) {
   const { chemotherapyTemplates: treatmentTemplates = [], saveEvent, saveEvents, deleteEvent } = useApp()
   const initialTemplates = treatmentTemplates.filter((template) => (template.templateType ?? 'chemotherapy') === (event?.type ?? 'chemotherapy'))
   const [creationMode, setCreationMode] = useState<'single' | 'template'>(() => !event && initialTemplates.length ? 'template' : 'single')
@@ -148,7 +175,7 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
         cycleCount,
         firstCycleNumber,
       }))
-      onClose()
+      onSaved()
       return
     }
     const title = isBodyMeasurement ? form.title.trim() || '身体记录' : form.title.trim()
@@ -213,7 +240,7 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
       updatedAt: now,
     }
     await saveEvent(updatedEvent)
-    onClose()
+    onSaved()
   }
 
   async function confirmDeleteEvent() {
@@ -222,7 +249,7 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
     setDeleteError('')
     try {
       await deleteEvent(event.id)
-      onClose()
+      onDeleted()
     } catch (error) {
       setDeleteError(error instanceof Error ? error.message : '删除失败，请重试')
       setDeleting(false)
@@ -231,20 +258,22 @@ function EventForm({ initialDate, event, hospitalHistory, departmentHistory, onC
 
   return (
     <>
-      <form className="form-grid" onSubmit={submit}>
+      <form className="form-grid event-form" onSubmit={submit}>
       <ChoicePicker label="事件类型" options={eventTypeOptions} value={form.type} onChange={(value) => changeEventType(value as EventType)} />
       {!event && isTreatmentEvent && compatibleTemplates.length > 0 && <ChoicePicker label="创建方式" options={[{ value: 'template', label: '按方案创建', description: '根据方案生成每个治疗日，并带入剂量' }, { value: 'single', label: '单次记录', description: '从方案带入初始内容后单独调整' }]} value={creationMode} onChange={(value) => setCreationMode(value as 'single' | 'template')} />}
       {isTemplateCreation ? <>
-        <div className="full-width template-course-builder">
-          <ChoicePicker label="治疗方案" options={compatibleTemplates.map((template) => ({ value: template.id, label: template.name, description: `${TREATMENT_PLAN_TYPES[template.templateType ?? 'chemotherapy'].label} · ${template.cycleLengthDays} 天 · ${getChemotherapyTemplateDayPlans(template).map((plan) => `D${plan.day}`).join('、')}` }))} value={selectedTemplateId} onChange={(value) => selectTemplate(value as string)} />
-        </div>
+        <ChoicePicker label="治疗方案" options={compatibleTemplates.map((template) => ({ value: template.id, label: template.name, description: `${TREATMENT_PLAN_TYPES[template.templateType ?? 'chemotherapy'].label} · ${template.cycleLengthDays} 天 · ${getChemotherapyTemplateDayPlans(template).map((plan) => `D${plan.day}`).join('、')}` }))} value={selectedTemplateId} onChange={(value) => selectTemplate(value as string)} />
         <label>首周期 Day 1<input type="date" value={templateSchedule.firstDayOne} onChange={(e) => setTemplateSchedule((current) => ({ ...current, firstDayOne: e.target.value }))} /></label>
         <label>起始周期编号<input type="number" min="1" value={templateSchedule.firstCycleNumber} onChange={(e) => setTemplateSchedule((current) => ({ ...current, firstCycleNumber: e.target.value }))} /></label>
         <label>创建周期数<input type="number" min="1" value={templateSchedule.cycleCount} onChange={(e) => setTemplateSchedule((current) => ({ ...current, cycleCount: e.target.value }))} /></label>
       </> : <>
-        {!isBodyMeasurement && <label>{isTreatmentDiary ? '治疗阶段 / 标题' : '标题'}<input value={form.title} onChange={(e) => set('title', e.target.value)} placeholder={isTreatmentDiary ? '例如：化疗后第 1 周' : '例如：第 3 周期化疗'} autoFocus /></label>}
-        <label>{isBodyMeasurement ? '记录日期' : '开始日期'}<input type="date" value={form.startDate} onChange={(e) => set('startDate', e.target.value)} /></label>
-        {!isBodyMeasurement && <label>结束日期<input type="date" value={form.endDate} min={form.startDate} onChange={(e) => set('endDate', e.target.value)} /></label>}
+        {!isBodyMeasurement && <label>{isTreatmentDiary ? '治疗阶段 / 标题' : '标题'}<input value={form.title} onChange={(e) => set('title', e.target.value)} placeholder={isTreatmentDiary ? '例如：化疗后第 1 周' : '例如：第 3 周期化疗'} /></label>}
+        {isBodyMeasurement ? <label>记录日期<input type="date" value={form.startDate} onChange={(e) => set('startDate', e.target.value)} /></label>
+          : <div className="event-date-range" role="group" aria-label="事件日期">
+            <input type="date" aria-label="开始日期" value={form.startDate} onChange={(e) => set('startDate', e.target.value)} />
+            <span aria-hidden="true">至</span>
+            <input type="date" aria-label="结束日期" value={form.endDate} min={form.startDate} onChange={(e) => set('endDate', e.target.value)} />
+          </div>}
         {!isBodyMeasurement && !isTreatmentDiary && <HistoryCombobox label="医院" value={form.hospital} onChange={(value) => set('hospital', value)} options={hospitalHistory} placeholder="输入或选择历史医院" />}
         {!isBodyMeasurement && !isTreatmentDiary && <HistoryCombobox label="科室" value={form.department} onChange={(value) => set('department', value)} options={departmentHistory} placeholder="输入或选择历史科室" />}
         {isTreatmentEvent && <>
@@ -339,10 +368,11 @@ export function CalendarPage() {
   const [month, setMonth] = useState(() => calendarMonth(searchParams.get('month')))
   const [selectedDate, setSelectedDate] = useState(() => calendarDate(searchParams.get('date')))
   const [filters, setFilters] = useState<EventType[]>([])
-  const [editing, setEditing] = useState<TreatmentEvent | null | 'new'>(() => {
-    const eventId = searchParams.get('eventId')
-    return eventId ? events.find((event) => event.id === eventId) ?? null : null
+  const [eventDialog, setEventDialog] = useState<{ mode: 'view' | 'edit'; id: string } | { mode: 'new' } | null>(() => {
+    const id = searchParams.get('eventId')
+    return id ? { mode: 'view', id } : null
   })
+  const openedEvent = eventDialog && eventDialog.mode !== 'new' ? events.find((event) => event.id === eventDialog.id) : undefined
   const [agendaEditMode, setAgendaEditMode] = useState(false)
   const [selectedAgendaIds, setSelectedAgendaIds] = useState<string[]>([])
   const [deletingAgendaIds, setDeletingAgendaIds] = useState<string[]>([])
@@ -428,15 +458,20 @@ export function CalendarPage() {
       })
       return
     }
-    setEditing(event)
+    setEventDialog({ mode: 'view', id: event.id })
   }
 
   function closeEvent() {
-    setEditing(null)
+    setEventDialog(null)
     if (!searchParams.has('eventId')) return
     const next = new URLSearchParams(searchParams)
     next.delete('eventId')
     setSearchParams(next, { replace: true, state: location.state })
+  }
+
+  function returnFromEventForm() {
+    if (openedEvent) setEventDialog({ mode: 'view', id: openedEvent.id })
+    else closeEvent()
   }
 
   function enterAgendaEditMode(id: string) {
@@ -474,7 +509,7 @@ export function CalendarPage() {
             <div className="month-switcher"><button className="icon-button" aria-label="上个月" title="上个月" onClick={() => changeMonth('previous')}><ChevronLeft /></button><strong key={monthKey} className={`calendar-month-label${transitionClass}`}>{format(month, 'yyyy年M月', { locale: zhCN })}</strong><button className="icon-button" aria-label="下个月" title="下个月" onClick={() => changeMonth('next')}><ChevronRight /></button><button className="text-button calendar-today" onClick={goToToday}>今天</button></div>
             <div className="calendar-toolbar-actions">
               <ChoicePicker compact iconOnly multiple allLabel="全部事件" selectionNoun="类" label="事件筛选" icon={<Filter />} options={eventFilterOptions} value={filters} onChange={(value) => setFilters(value as EventType[])} />
-              <button className="icon-button calendar-create-button" aria-label="新建事件" title="新建事件" onClick={() => setEditing('new')}><Plus /></button>
+              <button className="icon-button calendar-create-button" aria-label="新建事件" title="新建事件" onClick={() => setEventDialog({ mode: 'new' })}><Plus /></button>
             </div>
           </div>
           <div className="weekday-row">{['一', '二', '三', '四', '五', '六', '日'].map((day) => <span key={day}>周{day}</span>)}</div>
@@ -529,7 +564,12 @@ export function CalendarPage() {
           </div>
         </section>
       </div>
-      {editing && <Modal title={editing === 'new' ? '新建病程事件' : '编辑病程事件'} onClose={closeEvent} wide><EventForm initialDate={selectedDate} event={editing === 'new' ? undefined : editing} hospitalHistory={vocabulary.hospitals} departmentHistory={vocabulary.departments} onClose={closeEvent} /></Modal>}
+      {eventDialog?.mode === 'view' && openedEvent && <Modal key="event-view" title={openedEvent.title} onClose={closeEvent} wide hideClose headerAction={<DetailEditButton onClick={() => setEventDialog({ mode: 'edit', id: openedEvent.id })} />}>
+        <EventDetails event={openedEvent} />
+      </Modal>}
+      {(eventDialog?.mode === 'new' || (eventDialog?.mode === 'edit' && openedEvent)) && <Modal key="event-form" title={openedEvent ? '编辑病程事件' : '新建病程事件'} onClose={returnFromEventForm} wide>
+        <EventForm initialDate={selectedDate} event={openedEvent} hospitalHistory={vocabulary.hospitals} departmentHistory={vocabulary.departments} onSaved={returnFromEventForm} onDeleted={closeEvent} />
+      </Modal>}
       {deletingAgendaIds.length > 0 && <ConfirmSheet
         title={deletingAgendaIds.length > 1 ? '批量删除病程事件' : '删除病程事件'}
         message={`确定删除选中的 ${deletingAgendaIds.length} 个病程事件吗？`}

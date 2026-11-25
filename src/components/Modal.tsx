@@ -1,8 +1,12 @@
-import { X } from 'lucide-react'
+import { Pencil, X } from 'lucide-react'
 import { useEffect, useId, useRef, type ReactNode, type TouchEvent } from 'react'
 import { isTopModal, registerModal, unregisterModal } from './modalStack'
 
 let scrollLockCount = 0
+
+export function DetailEditButton({ onClick, label = '编辑' }: { onClick: () => void; label?: string }) {
+  return <button type="button" className="icon-button tonal" aria-label={label} title={label} onClick={onClick}><Pencil aria-hidden="true" /></button>
+}
 let scrollLockSnapshot: {
   scrollY: number
   htmlOverflow: string
@@ -53,7 +57,7 @@ function unlockPageScroll() {
   if (snapshot.scrollY > 0) window.scrollTo(0, snapshot.scrollY)
 }
 
-export function Modal({ title, onClose, children, wide = false, swipeToClose = false, bottomSheet = false, bodyClassName = '' }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; swipeToClose?: boolean; bottomSheet?: boolean; bodyClassName?: string }) {
+export function Modal({ title, onClose, children, wide = false, swipeToClose = false, bottomSheet = false, bodyClassName = '', headerAction, hideClose = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; swipeToClose?: boolean; bottomSheet?: boolean; bodyClassName?: string; headerAction?: ReactNode; hideClose?: boolean }) {
   const titleId = useId()
   const stackId = useRef(Symbol(title))
   const onCloseRef = useRef(onClose)
@@ -94,7 +98,8 @@ export function Modal({ title, onClose, children, wide = false, swipeToClose = f
       <section className={`modal-card${wide ? ' wide' : ''}${bottomSheet ? ' bottom-sheet' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} onTouchStart={startSwipe} onTouchEnd={finishSwipe}>
         <header className="modal-header">
           <h2 id={titleId}>{title}</h2>
-          <button className="icon-button" onClick={onClose} aria-label="关闭" title="关闭"><X /></button>
+          {headerAction}
+          {!hideClose && <button className="icon-button" onClick={onClose} aria-label="关闭" title="关闭"><X /></button>}
         </header>
         <div className={`modal-body${bodyClassName ? ` ${bodyClassName}` : ''}`}>{children}</div>
       </section>

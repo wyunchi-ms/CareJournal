@@ -1,6 +1,6 @@
 import { format, parseISO } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
-import { FileImage, FileText, FileUp, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
+import { FileImage, FileText, FileUp, Plus, RefreshCw, Save, Search, Trash2, X } from 'lucide-react'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ChoicePicker } from '../components/ChoicePicker'
@@ -8,7 +8,7 @@ import { IndicatorTrendDetail } from '../components/ChartDetail'
 import { ConfirmSheet } from '../components/ConfirmSheet'
 import { DateFastScroller } from '../components/DateFastScroller'
 import { HistoryCombobox } from '../components/HistoryCombobox'
-import { Modal } from '../components/Modal'
+import { DetailEditButton, Modal } from '../components/Modal'
 import { ImagePreview } from '../components/ImagePreview'
 import { PdfPreview } from '../components/PdfPreview'
 import { RecordFilterPicker } from '../components/RecordFilterPicker'
@@ -102,7 +102,7 @@ function RecordEditForm({ record, onCancel, onSaved }: { record: ExamRecord; onC
   </form>
 }
 
-function RecordDetail({ record, onClose, onEdit, onRecognized, onOpenRecord }: { record: ExamRecord; onClose: () => void; onEdit: () => void; onRecognized: (record: ExamRecord) => void; onOpenRecord: (record: ExamRecord) => void }) {
+function RecordDetail({ record, onClose, onRecognized, onOpenRecord }: { record: ExamRecord; onClose: () => void; onRecognized: (record: ExamRecord) => void; onOpenRecord: (record: ExamRecord) => void }) {
   const { deleteRecord, rerecognizeRecord } = useApp()
   const [deleteConfirming, setDeleteConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -139,7 +139,7 @@ function RecordDetail({ record, onClose, onEdit, onRecognized, onOpenRecord }: {
   return <div className="record-detail">
     <div className="detail-summary"><div><span>检查日期</span><strong>{record.sampleDate || '日期未识别'}</strong></div><div><span>医院</span><strong title={record.hospital || '未记录'}>{record.hospital || '未记录'}</strong></div></div>
     <section>
-      <div className="record-section-heading"><h3>指标明细 <small>{record.indicators.length} 项</small></h3><button type="button" className="icon-button edit-report-button" onClick={onEdit} aria-label="编辑报告" title="编辑报告"><Pencil /></button></div>
+      <div className="record-section-heading"><h3>指标明细 <small>{record.indicators.length} 项</small></h3></div>
       {record.indicators.length ? <div className="indicator-table-wrap">
         <table className="indicator-table">
           <thead><tr><th>指标</th><th>结果</th><th>参考范围</th></tr></thead>
@@ -350,7 +350,7 @@ export function RecordsPage() {
       </div>
     </section>
     {dateGroups.length > 0 && <DateFastScroller items={dateGroups.map(({ date, targetId }) => ({ date: date || '日期未识别', targetId }))} />}
-    {selected && <Modal title={editing ? '编辑检查报告' : recordDisplayType(selected)} onClose={closeRecordDetail} wide swipeToClose={!editing}>{editing ? <RecordEditForm record={selected} onCancel={() => setEditing(false)} onSaved={(updated) => { setSelected(updated); setEditing(false) }} /> : <RecordDetail record={selected} onClose={closeRecordDetail} onEdit={() => setEditing(true)} onRecognized={setSelected} onOpenRecord={setSelected} />}</Modal>}
+    {selected && <Modal title={editing ? '编辑检查报告' : recordDisplayType(selected)} onClose={closeRecordDetail} wide swipeToClose={!editing} hideClose={!editing} headerAction={!editing ? <DetailEditButton label="编辑报告" onClick={() => setEditing(true)} /> : undefined}>{editing ? <RecordEditForm record={selected} onCancel={() => setEditing(false)} onSaved={(updated) => { setSelected(updated); setEditing(false) }} /> : <RecordDetail record={selected} onClose={closeRecordDetail} onRecognized={setSelected} onOpenRecord={setSelected} />}</Modal>}
     {deletingRecordIds.length > 0 && <ConfirmSheet
       title={deletingRecordIds.length > 1 ? '批量删除检查记录' : '删除检查记录'}
       message={`确定删除选中的 ${deletingRecordIds.length} 份检查记录吗？`}

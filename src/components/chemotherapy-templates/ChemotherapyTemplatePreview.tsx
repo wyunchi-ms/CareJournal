@@ -1,11 +1,9 @@
-import { Pencil } from 'lucide-react'
 import { getChemotherapyDayMedications, getChemotherapyTemplateDayPlans } from '../../services/chemotherapy'
 import { TREATMENT_PLAN_TYPES, type ChemotherapyTemplate } from '../../types'
 import { getTreatmentPlanType } from './templateUtils'
 
 interface ChemotherapyTemplatePreviewProps {
   template: ChemotherapyTemplate
-  onEdit: () => void
 }
 
 const medicationDose = (dose?: string, unit?: string) =>
@@ -14,7 +12,7 @@ const medicationDose = (dose?: string, unit?: string) =>
 const medicationInstructions = (administration?: string, notes?: string) =>
   [administration?.trim(), notes?.trim()].filter(Boolean).join(' · ') || '—'
 
-export function ChemotherapyTemplatePreview({ template, onEdit }: ChemotherapyTemplatePreviewProps) {
+export function ChemotherapyTemplatePreview({ template }: ChemotherapyTemplatePreviewProps) {
   const planType = TREATMENT_PLAN_TYPES[getTreatmentPlanType(template)]
   const dayPlans = getChemotherapyTemplateDayPlans(template)
 
@@ -22,7 +20,6 @@ export function ChemotherapyTemplatePreview({ template, onEdit }: ChemotherapyTe
     <header className="template-preview-header">
       <div>
         <span className="plan-type-tag" data-plan-type={getTreatmentPlanType(template)}>{planType.label}</span>
-        <h3>{template.name}</h3>
         {template.regimen && <p>{template.regimen}</p>}
       </div>
       <dl className="template-preview-facts">
@@ -84,8 +81,5 @@ export function ChemotherapyTemplatePreview({ template, onEdit }: ChemotherapyTe
 
     {template.notes && <section className="template-preview-notes"><h4>方案备注</h4><p>{template.notes}</p></section>}
 
-    <div className="template-preview-actions">
-      <button type="button" className="button primary" onClick={onEdit}><Pencil />编辑方案</button>
-    </div>
   </div>
 }

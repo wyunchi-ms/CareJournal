@@ -3,7 +3,7 @@ import { ConfirmSheet } from '../components/ConfirmSheet'
 import { ChemotherapyTemplateForm } from '../components/chemotherapy-templates/ChemotherapyTemplateForm'
 import { ChemotherapyTemplateList } from '../components/chemotherapy-templates/ChemotherapyTemplateList'
 import { ChemotherapyTemplatePreview } from '../components/chemotherapy-templates/ChemotherapyTemplatePreview'
-import { Modal } from '../components/Modal'
+import { DetailEditButton, Modal } from '../components/Modal'
 import { getChemotherapyDayMedications, getChemotherapyTemplateDayPlans } from '../services/chemotherapy'
 import { useApp } from '../store/AppContext'
 import { newId, type ChemotherapyTemplate } from '../types'
@@ -63,9 +63,9 @@ export function ChemotherapyTemplatesPage() {
       onDelete={(template) => { setDeleteError(''); setDeleting(template) }}
       onReorder={reorderChemotherapyTemplates}
     />
-    {selected && <Modal title={selected === 'new' ? '新建治疗方案' : mode === 'preview' ? '治疗方案预览' : '编辑治疗方案'} onClose={() => setSelected(null)} wide>
+    {selected && <Modal title={selected === 'new' ? '新建治疗方案' : mode === 'preview' ? selected.name : '编辑治疗方案'} onClose={() => setSelected(null)} wide hideClose={selected !== 'new' && mode === 'preview'} headerAction={selected !== 'new' && mode === 'preview' ? <DetailEditButton label="编辑方案" onClick={() => setMode('edit')} /> : undefined}>
       {selected !== 'new' && mode === 'preview'
-        ? <ChemotherapyTemplatePreview template={selected} onEdit={() => setMode('edit')} />
+        ? <ChemotherapyTemplatePreview template={selected} />
         : <ChemotherapyTemplateForm template={selected === 'new' ? undefined : selected} onClose={() => setSelected(null)} />}
     </Modal>}
     {deleting && <ConfirmSheet
