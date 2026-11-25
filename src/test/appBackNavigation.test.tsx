@@ -31,6 +31,7 @@ vi.mock('../store/AppContext', () => ({
     ready: true,
     startupMessage: '',
     storageError: null,
+    events: [],
     preferences: { locale: { region: 'CN', language: 'zh-CN', setupCompleted: true } },
     savePreferences: vi.fn(async () => undefined),
     ocrQueueStats: { queued: 0, processing: 0, completed: 0, failed: 0, progress: 0 },
@@ -69,6 +70,18 @@ afterEach(() => {
 })
 
 describe('Android app back navigation', () => {
+  it('opens the timeline tab and returns to the journal', async () => {
+    render(<MemoryRouter initialEntries={['/calendar']}><App /></MemoryRouter>)
+    await act(async () => Promise.resolve())
+
+    fireEvent.click(screen.getByRole('link', { name: '时间线' }))
+    expect(screen.getByRole('heading', { name: '还没有治疗记录' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '时间线' })).toHaveAttribute('aria-current', 'page')
+
+    act(() => nativeApp.backButtonListener?.())
+    expect(screen.getByRole('heading', { name: '病程页面' })).toBeInTheDocument()
+  })
+
   it('closes the top modal before navigating or exiting', async () => {
     render(<MemoryRouter initialEntries={['/calendar']}><AppWithModal /></MemoryRouter>)
     await act(async () => Promise.resolve())

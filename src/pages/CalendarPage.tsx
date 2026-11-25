@@ -339,7 +339,10 @@ export function CalendarPage() {
   const [month, setMonth] = useState(() => calendarMonth(searchParams.get('month')))
   const [selectedDate, setSelectedDate] = useState(() => calendarDate(searchParams.get('date')))
   const [filters, setFilters] = useState<EventType[]>([])
-  const [editing, setEditing] = useState<TreatmentEvent | null | 'new'>(null)
+  const [editing, setEditing] = useState<TreatmentEvent | null | 'new'>(() => {
+    const eventId = searchParams.get('eventId')
+    return eventId ? events.find((event) => event.id === eventId) ?? null : null
+  })
   const [agendaEditMode, setAgendaEditMode] = useState(false)
   const [selectedAgendaIds, setSelectedAgendaIds] = useState<string[]>([])
   const [deletingAgendaIds, setDeletingAgendaIds] = useState<string[]>([])
@@ -426,6 +429,14 @@ export function CalendarPage() {
       return
     }
     setEditing(event)
+  }
+
+  function closeEvent() {
+    setEditing(null)
+    if (!searchParams.has('eventId')) return
+    const next = new URLSearchParams(searchParams)
+    next.delete('eventId')
+    setSearchParams(next, { replace: true, state: location.state })
   }
 
   function enterAgendaEditMode(id: string) {
@@ -518,7 +529,7 @@ export function CalendarPage() {
           </div>
         </section>
       </div>
-      {editing && <Modal title={editing === 'new' ? '新建病程事件' : '编辑病程事件'} onClose={() => setEditing(null)} wide><EventForm initialDate={selectedDate} event={editing === 'new' ? undefined : editing} hospitalHistory={vocabulary.hospitals} departmentHistory={vocabulary.departments} onClose={() => setEditing(null)} /></Modal>}
+      {editing && <Modal title={editing === 'new' ? '新建病程事件' : '编辑病程事件'} onClose={closeEvent} wide><EventForm initialDate={selectedDate} event={editing === 'new' ? undefined : editing} hospitalHistory={vocabulary.hospitals} departmentHistory={vocabulary.departments} onClose={closeEvent} /></Modal>}
       {deletingAgendaIds.length > 0 && <ConfirmSheet
         title={deletingAgendaIds.length > 1 ? '批量删除病程事件' : '删除病程事件'}
         message={`确定删除选中的 ${deletingAgendaIds.length} 个病程事件吗？`}

@@ -1,6 +1,5 @@
 // Compatibility marker for the versioned APK packaging workflow.
 // Capacitor owns and executes the adjacent Groovy build.gradle file.
-// APP_VERSION is read from ../gradle.properties by the packaging script.
 val applicationId = "care-journal"
-val versionCode = 116
-val versionName = "0.23.2"
+val versionCode = 121
+val versionName = "0.24.2"

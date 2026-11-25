@@ -91,6 +91,22 @@ afterEach(() => {
 })
 
 describe('calendar event filter', () => {
+  it('opens the exact timeline event and clears the deep link when the editor closes', () => {
+    function Location() {
+      return <output data-testid="calendar-location">{useLocation().search}</output>
+    }
+
+    render(<MemoryRouter initialEntries={['/calendar?month=2026-07&date=2026-07-22&eventId=2']}>
+      <CalendarPage /><Location />
+    </MemoryRouter>)
+    const editor = screen.getByRole('dialog', { name: '编辑病程事件' })
+    expect(within(editor).getByDisplayValue('chemotherapy-2')).toBeInTheDocument()
+    fireEvent.click(within(editor).getByRole('button', { name: '关闭' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByTestId('calendar-location')).toHaveTextContent('?month=2026-07&date=2026-07-22')
+    expect(screen.getByTestId('calendar-location')).not.toHaveTextContent('eventId')
+  })
+
   it('shows the total count for every event type', () => {
     render(<MemoryRouter><CalendarPage /></MemoryRouter>)
     fireEvent.click(screen.getByRole('button', { name: /事件筛选：全部事件/ }))

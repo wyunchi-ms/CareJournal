@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, CalendarDays, ChartNoAxesCombined, ListChecks, Pill, Settings, WalletCards } from 'lucide-react'
+import { Activity, AlertTriangle, CalendarDays, ChartNoAxesCombined, ListChecks, ListTree, Pill, Settings, WalletCards } from 'lucide-react'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -12,6 +12,7 @@ import { ImportPage } from './pages/ImportPage'
 import { RecordsPage } from './pages/RecordsPage'
 import { ReimbursementPage } from './pages/ReimbursementPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { TreatmentTimelinePage } from './pages/TreatmentTimelinePage'
 import { PrivacyPage } from './pages/PrivacyPage'
 import { addHarmonyEventListener, getHarmonyBridge, isHarmonyPlatform } from './platform/harmonyBridge'
 import { LocaleSetup } from './components/LocaleSetup'
@@ -20,6 +21,7 @@ const navItems = [
   { path: '/chemotherapy-templates', label: '方案', icon: Pill },
   { path: '/records', label: '检查', icon: ListChecks },
   { path: '/calendar', label: '病程', icon: CalendarDays },
+  { path: '/timeline', label: '时间线', icon: ListTree },
   { path: '/charts', label: '图表', icon: ChartNoAxesCombined },
   { path: '/reimbursement', label: '报销', icon: WalletCards },
   { path: '/settings', label: '设置', icon: Settings },
@@ -52,12 +54,17 @@ function Navigation({ onNavigate }: { onNavigate: (path: string) => void }) {
       </div>
       <div className="nav-items">
         <span className={`nav-selection nav-selection-${activeIndex}`} aria-hidden="true" />
-        {navItems.map(({ path, label, icon: Icon }, index) => (
-          <NavLink key={path} to={path} onClick={() => onNavigate(path)} className={`nav-item${index === activeIndex ? ' active' : ''}`}>
+        {navItems.map(({ path, label, icon: Icon }, index) => {
+          const name = preferences.locale.language === 'en'
+            ? ({ '/chemotherapy-templates': 'Plans', '/records': 'Reports', '/calendar': 'Journal', '/timeline': 'Timeline', '/charts': 'Charts', '/reimbursement': 'Claims', '/settings': 'Settings' } as Record<string, string>)[path]
+            : preferences.locale.language === 'zh-TW'
+              ? ({ '方案': '方案', '检查': '檢查', '病程': '病程', '时间线': '時間線', '图表': '圖表', '报销': '報銷', '设置': '設定' } as Record<string, string>)[label]
+              : label
+          return <NavLink key={path} to={path} onClick={() => onNavigate(path)} className={`nav-item${index === activeIndex ? ' active' : ''}`} aria-label={name}>
             <Icon aria-hidden="true" />
-            <span>{preferences.locale.language === 'en' ? ({ '/chemotherapy-templates': 'Plans', '/records': 'Reports', '/calendar': 'Journal', '/charts': 'Charts', '/reimbursement': 'Claims', '/settings': 'Settings' } as Record<string, string>)[path] : preferences.locale.language === 'zh-TW' ? ({ '方案': '方案', '检查': '檢查', '病程': '病程', '图表': '圖表', '报销': '報銷', '设置': '設定' } as Record<string, string>)[label] : label}</span>
+            <span>{name}</span>
           </NavLink>
-        ))}
+        })}
       </div>
       <p className="local-note">{preferences.locale.language === 'en' ? 'Health data stays on this device by default' : preferences.locale.language === 'zh-TW' ? '病程資料預設保存在本裝置' : '病程数据默认保存在本设备'}</p>
     </nav>
@@ -198,6 +205,7 @@ export default function App({ lanSyncPanel }: { lanSyncPanel?: ReactNode }) {
         >
           <Routes location={location}>
             <Route path="/calendar" element={<CalendarPage />} />
+            <Route path="/timeline" element={<TreatmentTimelinePage />} />
             <Route path="/chemotherapy-templates" element={<ChemotherapyTemplatesPage />} />
             <Route path="/records" element={<RecordsPage />} />
             <Route path="/import" element={<ImportPage />} />
